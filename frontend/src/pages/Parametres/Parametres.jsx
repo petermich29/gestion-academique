@@ -1,11 +1,68 @@
 // src/pages/parametres/Parametres.jsx
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 const Parametres = () => {
+  const [headerAnimation, setHeaderAnimation] = useState("fade");
+  const [etabAnimation, setEtabAnimation] = useState("fade");
+
+  // Charger les valeurs au montage
+  useEffect(() => {
+    const savedHeader = localStorage.getItem("headerAnimation") || "fade";
+    const savedEtab = localStorage.getItem("etabAnimation") || "fade";
+    setHeaderAnimation(savedHeader);
+    setEtabAnimation(savedEtab);
+  }, []);
+
+  const handleHeaderChange = (e) => {
+    const value = e.target.value;
+    setHeaderAnimation(value);
+    localStorage.setItem("headerAnimation", value);
+  };
+
+  const handleEtabChange = (e) => {
+    const value = e.target.value;
+    setEtabAnimation(value);
+    localStorage.setItem("etabAnimation", value);
+  };
+
   return (
-    <div>
-      <h1 className="text-xl font-semibold mb-4">Paramètres</h1>
-      <p>Page des paramètres de l'application (contenu à définir).</p>
+    <div className="p-6 flex flex-col gap-6">
+      <h1 className="text-xl font-semibold mb-2">Paramètres</h1>
+      <p className="text-gray-600 mb-4">
+        Personnalisez le comportement visuel de l'application.
+      </p>
+
+      {/* Paramètre animation header Institution */}
+      <div className="bg-white rounded shadow p-4 flex flex-col gap-2">
+        <h2 className="font-semibold text-lg">Transition des entêtes d’institution</h2>
+        <p className="text-sm text-gray-600">
+          Animation utilisée lors de l’affichage d’une institution (page InstitutionDetail).
+        </p>
+        <select
+          value={headerAnimation}
+          onChange={handleHeaderChange}
+          className="mt-2 border rounded px-3 py-2 w-60 focus:outline-none focus:ring focus:border-blue-300"
+        >
+          <option value="fade">Fondu (fade)</option>
+          <option value="slide">Glissement (slide)</option>
+        </select>
+      </div>
+
+      {/* Paramètre animation Etablissement */}
+      <div className="bg-white rounded shadow p-4 flex flex-col gap-2">
+        <h2 className="font-semibold text-lg">Transition des établissements</h2>
+        <p className="text-sm text-gray-600">
+          Animation utilisée lors du changement d’établissement (boutons Précédent / Suivant).
+        </p>
+        <select
+          value={etabAnimation}
+          onChange={handleEtabChange}
+          className="mt-2 border rounded px-3 py-2 w-60 focus:outline-none focus:ring focus:border-blue-300"
+        >
+          <option value="fade">Fondu (fade)</option>
+          <option value="slide">Glissement (slide)</option>
+        </select>
+      </div>
     </div>
   );
 };
