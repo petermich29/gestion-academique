@@ -1,3 +1,4 @@
+#gestion-academique\backend\app\init_db.py
 from app.database import Base, engine
 from app.models import *  # Importer tous les modèles
 

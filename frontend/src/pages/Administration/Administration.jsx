@@ -5,7 +5,7 @@ import { FaTh, FaList, FaPlus } from "react-icons/fa";
 import { HiOutlineBuildingLibrary } from "react-icons/hi2";
 import { motion, AnimatePresence } from "framer-motion";
 
-const API_URL = "http://127.0.0.1:8000/api"; // ton backend FastAPI
+const API_URL = "http://127.0.0.1:8000/api";
 
 const Administration = () => {
   const [institutions, setInstitutions] = useState([]);
@@ -25,21 +25,18 @@ const Administration = () => {
 
   const navigate = useNavigate();
   const { setBreadcrumb } = useOutletContext() || {};
-
   const modalRef = useRef(null);
   const fileInputRef = useRef(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [modalPos, setModalPos] = useState({ top: 50, left: 0 });
 
-  // Liste fixe des types
   const typesInstitution = ["PRIVE", "PUBLIC"];
 
   useEffect(() => {
     if (setBreadcrumb) {
       setBreadcrumb([{ label: "Administration", path: "/administration" }]);
     }
-
     fetchInstitutions();
   }, [setBreadcrumb]);
 
@@ -89,36 +86,69 @@ const Administration = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+  e.preventDefault();
+  const newErrors = {};
 
-    const formData = new FormData();
-    formData.append("id_institution", form.id);
-    formData.append("nom", form.nom);
-    formData.append("type_institution", form.type);
-    formData.append("abbreviation", form.sigle);
-    formData.append("description", form.description);
-    if (form.logo) formData.append("logo_path", form.logo);
+  // ✔ Vérification côté frontend
+  if (!form.id) newErrors.id = "L'ID est obligatoire.";
+  if (!form.nom) newErrors.nom = "Le nom est obligatoire.";
+  if (!form.type) newErrors.type = "Le type est obligatoire.";
 
-    try {
-      const res = await fetch(`${API_URL}/institutions`, { method: "POST", body: formData });
-      if (!res.ok) throw new Error("Erreur lors de la création de l'institution");
-      const newInstitution = await res.json();
-      setInstitutions((prev) => [...prev, newInstitution]);
-      setModalOpen(false);
-      setForm({ id: "", nom: "", type: "", sigle: "", description: "", logo: null });
-    } catch (err) {
-      console.error(err);
-      alert("Erreur lors de la création de l'institution");
+  setErrors(newErrors);
+  if (Object.keys(newErrors).length > 0) return;
+
+  const formData = new FormData();
+  formData.append("id_institution", form.id);
+  formData.append("nom", form.nom);
+  formData.append("type_institution", form.type);
+  formData.append("abbreviation", form.sigle);
+  formData.append("description", form.description);
+  if (form.logo) formData.append("logo_file", form.logo);
+
+  try {
+    const res = await fetch(`${API_URL}/institutions`, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const errData = await res.json();
+
+      // ✔ Gestion des erreurs SQL venant du backend
+      if (errData.detail?.includes("id_institution")) {
+        setErrors({ id: "Cet ID existe déjà." });
+      } else if (errData.detail?.includes("nom")) {
+        setErrors({ nom: "Ce nom existe déjà." });
+      } else {
+        alert(errData.detail);
+      }
+
+      return;
     }
-  };
+
+    const newInst = await res.json();
+    setInstitutions((prev) => [...prev, newInst]);
+
+    setForm({
+      id: "",
+      nom: "",
+      type: "",
+      sigle: "",
+      description: "",
+      logo: null,
+    });
+
+    setErrors({});
+    setModalOpen(false);
+
+  } catch (err) {
+    alert("Erreur serveur : " + err.message);
+  }
+};
+
 
   const filtered = institutions
-    .filter((inst) =>
-      Object.values(inst)
-        .join(" ")
-        .toLowerCase()
-        .includes(search.toLowerCase())
-    )
+    .filter((inst) => Object.values(inst).join(" ").toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
       const valA = getField(a, sortField, "institutions_" + sortField).toString().toLowerCase();
       const valB = getField(b, sortField, "institutions_" + sortField).toString().toLowerCase();
@@ -177,7 +207,11 @@ const Administration = () => {
             <div key={getField(inst, "id_institution", "institutions_id_institution")}
                  onClick={() => handleClick(inst)}
                  className="cursor-pointer p-4 bg-white rounded-lg flex flex-col items-center gap-2 shadow hover:bg-blue-100 transition">
-              <HiOutlineBuildingLibrary className="w-20 h-20 text-gray-700" />
+              {inst.logo_path ? (
+                <img src={`http://127.0.0.1:8000${inst.logo_path}`} alt="Logo" className="w-20 h-20 object-cover mb-2 rounded-full" />
+              ) : (
+                <HiOutlineBuildingLibrary className="w-20 h-20 text-gray-700" />
+              )}
               <p className="text-lg font-semibold text-center">{getField(inst, "nom", "institutions_nom")}</p>
               <p className="text-gray-600 text-sm text-center">{getField(inst, "type_institution", "institutions_type_institution")}</p>
             </div>
@@ -197,7 +231,11 @@ const Administration = () => {
             <div key={getField(inst, "id_institution", "institutions_id_institution")}
                  onClick={() => handleClick(inst)}
                  className="cursor-pointer flex items-center gap-4 p-2 bg-white rounded shadow hover:bg-blue-100 transition">
-              <HiOutlineBuildingLibrary className="w-16 h-16 text-gray-700" />
+              {inst.logo_path ? (
+                <img src={`http://127.0.0.1:8000${inst.logo_path}`} alt="Logo" className="w-16 h-16 object-cover rounded-full" />
+              ) : (
+                <HiOutlineBuildingLibrary className="w-16 h-16 text-gray-700" />
+              )}
               <div>
                 <p className="text-lg font-semibold">{getField(inst, "nom", "institutions_nom")}</p>
                 <p className="text-gray-600 text-sm">{getField(inst, "type_institution", "institutions_type_institution")}</p>
@@ -221,7 +259,6 @@ const Administration = () => {
                         animate={{ y: 0, opacity: 1, transition: { type: "spring", stiffness: 120 } }}
                         exit={{ y: -300, opacity: 0 }}>
               <h2 className="text-xl font-bold mb-4 text-center">Nouvelle Institution</h2>
-
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <div className="flex flex-col items-center">
                   <div className="w-36 h-36 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center mb-2 cursor-pointer hover:ring-4 hover:ring-blue-300 transition"
@@ -237,7 +274,6 @@ const Administration = () => {
                        className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
                 <input type="text" name="nom" placeholder="Nom" value={form.nom} onChange={handleChange}
                        className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
-                
                 <select name="type" value={form.type} onChange={handleChange}
                         className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300">
                   <option value="">-- Sélectionner le type --</option>
@@ -245,12 +281,10 @@ const Administration = () => {
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
-
                 <input type="text" name="sigle" placeholder="Sigle / Abbréviation" value={form.sigle} onChange={handleChange}
                        className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
                 <textarea name="description" placeholder="Description" value={form.description} onChange={handleChange}
                           className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
-
                 <div className="flex justify-end gap-2 mt-2">
                   <button type="button" onClick={() => setModalOpen(false)}
                           className="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400 transition">Annuler</button>
