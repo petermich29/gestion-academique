@@ -1,7 +1,7 @@
 // frontend/src/pages/Administration/Administration.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { FaTh, FaList, FaPlus } from "react-icons/fa";
+import { FaTh, FaList, FaPlus, FaEdit } from "react-icons/fa";
 import { HiOutlineBuildingLibrary } from "react-icons/hi2";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -11,9 +11,11 @@ const Administration = () => {
   const [institutions, setInstitutions] = useState([]);
   const [search, setSearch] = useState("");
   const [view, setView] = useState("grid");
-  const [sortField, setSortField] = useState("nom");
-  const [sortOrder, setSortOrder] = useState("asc");
+  const [sortField] = useState("nom");
+  const [sortOrder] = useState("asc");
   const [modalOpen, setModalOpen] = useState(false);
+  const [editInstitution, setEditInstitution] = useState(null);
+
   const [form, setForm] = useState({
     id: "",
     nom: "",
@@ -35,9 +37,7 @@ const Administration = () => {
   const typesInstitution = ["PRIVE", "PUBLIC"];
 
   useEffect(() => {
-    if (setBreadcrumb) {
-      setBreadcrumb([{ label: "Administration", path: "/administration" }]);
-    }
+    if (setBreadcrumb) setBreadcrumb([{ label: "Administration", path: "/administration" }]);
     fetchInstitutions();
   }, [setBreadcrumb]);
 
@@ -56,6 +56,24 @@ const Administration = () => {
   };
 
   const handleAddInstitution = () => {
+    setEditInstitution(null);
+    setForm({ id: "", nom: "", type: "", sigle: "", description: "", logo: null });
+    const centerX = window.innerWidth / 2 - 300;
+    setModalPos({ top: 50, left: centerX });
+    setModalOpen(true);
+  };
+
+  const handleEdit = (inst, e) => {
+    e.stopPropagation();
+    setEditInstitution(inst);
+    setForm({
+      id: getField(inst, "id_institution", "institutions_id_institution"),
+      nom: getField(inst, "nom", "institutions_nom"),
+      type: getField(inst, "type_institution", "institutions_type_institution"),
+      sigle: inst.abbreviation || "",
+      description: inst.description || "",
+      logo: null,
+    });
     const centerX = window.innerWidth / 2 - 300;
     setModalPos({ top: 50, left: centerX });
     setModalOpen(true);
@@ -89,12 +107,9 @@ const Administration = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const newErrors = {};
-
-    // Vérifications frontend
     if (!form.id) newErrors.id = "L'ID est obligatoire.";
     if (!form.nom) newErrors.nom = "Le nom est obligatoire.";
     if (!form.type) newErrors.type = "Le type est obligatoire.";
-
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
@@ -108,27 +123,37 @@ const Administration = () => {
 
     try {
       const res = await fetch(`${API_URL}/institutions`, {
-        method: "POST",
+        method: editInstitution ? "PUT" : "POST",
         body: formData,
       });
 
       if (!res.ok) {
         const errData = await res.json();
         const errObj = {};
-
         if (errData.detail?.includes("id_institution")) errObj.id = "Cet ID existe déjà.";
         if (errData.detail?.includes("nom")) errObj.nom = "Ce nom existe déjà.";
-
         setErrors(errObj);
         return;
       }
 
       const newInst = await res.json();
-      setInstitutions((prev) => [...prev, newInst]);
+      if (editInstitution) {
+        setInstitutions((prev) =>
+          prev.map((i) =>
+            getField(i, "id_institution", "institutions_id_institution") ===
+            getField(editInstitution, "id_institution", "institutions_id_institution")
+              ? newInst
+              : i
+          )
+        );
+      } else {
+        setInstitutions((prev) => [...prev, newInst]);
+      }
+
       setForm({ id: "", nom: "", type: "", sigle: "", description: "", logo: null });
       setErrors({});
       setModalOpen(false);
-
+      setEditInstitution(null);
     } catch (err) {
       alert("Erreur serveur : " + err.message);
     }
@@ -146,7 +171,6 @@ const Administration = () => {
 
   return (
     <div className="flex flex-col gap-6 p-4" onMouseMove={handleMouseMove} onMouseUp={handleMouseUp}>
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <h1 className="text-2xl font-bold">Liste des institutions</h1>
         <div className="flex flex-col md:flex-row items-center gap-3 flex-wrap">
@@ -169,7 +193,6 @@ const Administration = () => {
 
       <hr className="border-gray-300" />
 
-      {/* LISTE / GRID */}
       {filtered.length === 0 ? (
         <div className="flex flex-col gap-3">
           <div onClick={handleAddInstitution} className="cursor-pointer flex items-center gap-4 p-4 border-2 border-dashed border-blue-300 rounded bg-blue-50 hover:bg-blue-100 transition">
@@ -193,7 +216,7 @@ const Administration = () => {
           {filtered.map((inst) => (
             <div key={getField(inst, "id_institution", "institutions_id_institution")}
                  onClick={() => handleClick(inst)}
-                 className="cursor-pointer p-4 bg-white rounded-lg flex flex-col items-center gap-2 shadow hover:bg-blue-100 transition">
+                 className="cursor-pointer p-4 bg-white rounded-lg flex flex-col items-center gap-2 shadow hover:bg-blue-100 transition relative">
               {inst.logo_path ? (
                 <img src={`http://127.0.0.1:8000${inst.logo_path}`} alt="Logo" className="w-20 h-20 object-cover mb-2 rounded-full" />
               ) : (
@@ -201,6 +224,12 @@ const Administration = () => {
               )}
               <p className="text-lg font-semibold text-center">{getField(inst, "nom", "institutions_nom")}</p>
               <p className="text-gray-600 text-sm text-center">{getField(inst, "type_institution", "institutions_type_institution")}</p>
+              <button
+                onClick={(e) => handleEdit(inst, e)}
+                className="absolute top-2 right-2 text-blue-600 hover:text-blue-800 p-1"
+              >
+                <FaEdit />
+              </button>
             </div>
           ))}
         </div>
@@ -217,7 +246,7 @@ const Administration = () => {
           {filtered.map((inst) => (
             <div key={getField(inst, "id_institution", "institutions_id_institution")}
                  onClick={() => handleClick(inst)}
-                 className="cursor-pointer flex items-center gap-4 p-2 bg-white rounded shadow hover:bg-blue-100 transition">
+                 className="cursor-pointer flex items-center gap-4 p-2 bg-white rounded shadow hover:bg-blue-100 transition relative">
               {inst.logo_path ? (
                 <img src={`http://127.0.0.1:8000${inst.logo_path}`} alt="Logo" className="w-16 h-16 object-cover rounded-full" />
               ) : (
@@ -227,12 +256,17 @@ const Administration = () => {
                 <p className="text-lg font-semibold">{getField(inst, "nom", "institutions_nom")}</p>
                 <p className="text-gray-600 text-sm">{getField(inst, "type_institution", "institutions_type_institution")}</p>
               </div>
+              <button
+                onClick={(e) => handleEdit(inst, e)}
+                className="absolute top-2 right-2 text-blue-600 hover:text-blue-800 p-1"
+              >
+                <FaEdit />
+              </button>
             </div>
           ))}
         </div>
       )}
 
-      {/* MODAL */}
       <AnimatePresence>
         {modalOpen && (
           <motion.div className="modal-overlay">
@@ -245,7 +279,7 @@ const Administration = () => {
               animate={{ y: 0, opacity: 1, transition: { type: "spring", stiffness: 120 } }}
               exit={{ y: -300, opacity: 0 }}
             >
-              <h2 className="modal-header">Nouvelle Institution</h2>
+              <h2 className="modal-header">{editInstitution ? "Modifier Institution" : "Nouvelle Institution"}</h2>
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <div className="flex flex-col items-center">
                   <div
@@ -278,7 +312,7 @@ const Administration = () => {
 
                 <div className="flex justify-end gap-2 mt-2">
                   <button type="button" onClick={() => setModalOpen(false)} className="btn btn-secondary">Annuler</button>
-                  <button type="submit" className="btn btn-primary">Créer</button>
+                  <button type="submit" className="btn btn-primary">{editInstitution ? "Modifier" : "Créer"}</button>
                 </div>
               </form>
             </motion.div>
