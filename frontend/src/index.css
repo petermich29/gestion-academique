@@ -2,11 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Style pour les éléments du menu */
+/* --------------------------
+   Styles généraux du menu
+--------------------------- */
 .item {
-  @apply block py-2 px-2 hover:bg-gray-700 rounded;
+  @apply block py-2 px-2 hover:bg-gray-700 rounded cursor-pointer transition;
 }
 
+/* --------------------------
+   Animations
+--------------------------- */
 @keyframes shake {
   0%, 100% { transform: translateX(0); }
   20% { transform: translateX(-5px); }
@@ -19,3 +24,67 @@
   animation: shake 0.3s ease-in-out;
 }
 
+@keyframes slide-in {
+  0% { transform: translateY(-20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out forwards;
+}
+
+/* --------------------------
+   Modal
+--------------------------- */
+.modal-overlay {
+  @apply fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4;
+}
+
+.modal-content {
+  @apply bg-white rounded-xl shadow-lg w-full max-w-lg p-6 relative cursor-move;
+}
+
+/* --------------------------
+   Formulaire
+--------------------------- */
+.form-input, .form-select, .form-textarea {
+  @apply border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300 w-full;
+}
+
+.form-input:invalid, .form-select:invalid, .form-textarea:invalid {
+  @apply border-red-500;
+}
+
+/* Boutons */
+.btn {
+  @apply px-4 py-2 rounded transition;
+}
+
+.btn-primary {
+  @apply bg-blue-600 text-white hover:bg-blue-700;
+}
+
+.btn-secondary {
+  @apply bg-gray-300 hover:bg-gray-400;
+}
+
+/* --------------------------
+   Messages d'erreur
+--------------------------- */
+.error-message {
+  @apply text-red-600 text-sm mt-1;
+}
+
+/* --------------------------
+   Message de succès
+--------------------------- */
+.success-message {
+  @apply fixed top-4 right-4 bg-blue-600 text-white px-4 py-2 rounded shadow-md z-50 animate-slide-in;
+}
+
+/* --------------------------
+   Drag handle pour modal
+--------------------------- */
+.modal-header {
+  @apply cursor-move font-bold text-lg mb-4 text-center;
+}

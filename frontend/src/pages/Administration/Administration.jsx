@@ -22,6 +22,7 @@ const Administration = () => {
     description: "",
     logo: null,
   });
+  const [errors, setErrors] = useState({});
 
   const navigate = useNavigate();
   const { setBreadcrumb } = useOutletContext() || {};
@@ -86,66 +87,52 @@ const Administration = () => {
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  const newErrors = {};
+    e.preventDefault();
+    const newErrors = {};
 
-  // ✔ Vérification côté frontend
-  if (!form.id) newErrors.id = "L'ID est obligatoire.";
-  if (!form.nom) newErrors.nom = "Le nom est obligatoire.";
-  if (!form.type) newErrors.type = "Le type est obligatoire.";
+    // Vérifications frontend
+    if (!form.id) newErrors.id = "L'ID est obligatoire.";
+    if (!form.nom) newErrors.nom = "Le nom est obligatoire.";
+    if (!form.type) newErrors.type = "Le type est obligatoire.";
 
-  setErrors(newErrors);
-  if (Object.keys(newErrors).length > 0) return;
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) return;
 
-  const formData = new FormData();
-  formData.append("id_institution", form.id);
-  formData.append("nom", form.nom);
-  formData.append("type_institution", form.type);
-  formData.append("abbreviation", form.sigle);
-  formData.append("description", form.description);
-  if (form.logo) formData.append("logo_file", form.logo);
+    const formData = new FormData();
+    formData.append("id_institution", form.id);
+    formData.append("nom", form.nom);
+    formData.append("type_institution", form.type);
+    formData.append("abbreviation", form.sigle);
+    formData.append("description", form.description);
+    if (form.logo) formData.append("logo_file", form.logo);
 
-  try {
-    const res = await fetch(`${API_URL}/institutions`, {
-      method: "POST",
-      body: formData,
-    });
+    try {
+      const res = await fetch(`${API_URL}/institutions`, {
+        method: "POST",
+        body: formData,
+      });
 
-    if (!res.ok) {
-      const errData = await res.json();
+      if (!res.ok) {
+        const errData = await res.json();
+        const errObj = {};
 
-      // ✔ Gestion des erreurs SQL venant du backend
-      if (errData.detail?.includes("id_institution")) {
-        setErrors({ id: "Cet ID existe déjà." });
-      } else if (errData.detail?.includes("nom")) {
-        setErrors({ nom: "Ce nom existe déjà." });
-      } else {
-        alert(errData.detail);
+        if (errData.detail?.includes("id_institution")) errObj.id = "Cet ID existe déjà.";
+        if (errData.detail?.includes("nom")) errObj.nom = "Ce nom existe déjà.";
+
+        setErrors(errObj);
+        return;
       }
 
-      return;
+      const newInst = await res.json();
+      setInstitutions((prev) => [...prev, newInst]);
+      setForm({ id: "", nom: "", type: "", sigle: "", description: "", logo: null });
+      setErrors({});
+      setModalOpen(false);
+
+    } catch (err) {
+      alert("Erreur serveur : " + err.message);
     }
-
-    const newInst = await res.json();
-    setInstitutions((prev) => [...prev, newInst]);
-
-    setForm({
-      id: "",
-      nom: "",
-      type: "",
-      sigle: "",
-      description: "",
-      logo: null,
-    });
-
-    setErrors({});
-    setModalOpen(false);
-
-  } catch (err) {
-    alert("Erreur serveur : " + err.message);
-  }
-};
-
+  };
 
   const filtered = institutions
     .filter((inst) => Object.values(inst).join(" ").toLowerCase().includes(search.toLowerCase()))
@@ -172,7 +159,7 @@ const Administration = () => {
           />
           <button
             onClick={() => setView(view === "grid" ? "list" : "grid")}
-            className="p-2 bg-gray-900 text-white rounded hover:bg-gray-700 flex items-center gap-2"
+            className="btn btn-primary flex items-center gap-2"
           >
             {view === "grid" ? <><FaList /><span className="hidden sm:inline text-sm">Vue liste</span></> :
             <><FaTh /><span className="hidden sm:inline text-sm">Vue miniatures</span></>}
@@ -248,21 +235,23 @@ const Administration = () => {
       {/* MODAL */}
       <AnimatePresence>
         {modalOpen && (
-          <motion.div initial={{ opacity: 0 }}
-                       animate={{ opacity: 1 }}
-                       exit={{ opacity: 0 }}
-                       className="fixed inset-0 bg-black/40 flex items-start justify-center z-50 p-4">
-            <motion.div ref={modalRef} onMouseDown={handleMouseDown}
-                        className="bg-white rounded-xl shadow-lg w-full max-w-lg p-6 relative cursor-move"
-                        style={{ top: modalPos.top, left: modalPos.left, position: "absolute" }}
-                        initial={{ y: -300, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1, transition: { type: "spring", stiffness: 120 } }}
-                        exit={{ y: -300, opacity: 0 }}>
-              <h2 className="text-xl font-bold mb-4 text-center">Nouvelle Institution</h2>
+          <motion.div className="modal-overlay">
+            <motion.div
+              ref={modalRef}
+              onMouseDown={handleMouseDown}
+              className="modal-content"
+              style={{ top: modalPos.top, left: modalPos.left, position: "absolute" }}
+              initial={{ y: -300, opacity: 0 }}
+              animate={{ y: 0, opacity: 1, transition: { type: "spring", stiffness: 120 } }}
+              exit={{ y: -300, opacity: 0 }}
+            >
+              <h2 className="modal-header">Nouvelle Institution</h2>
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <div className="flex flex-col items-center">
-                  <div className="w-36 h-36 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center mb-2 cursor-pointer hover:ring-4 hover:ring-blue-300 transition"
-                       onClick={() => fileInputRef.current.click()}>
+                  <div
+                    className="w-36 h-36 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center mb-2 cursor-pointer hover:ring-4 hover:ring-blue-300 transition"
+                    onClick={() => fileInputRef.current.click()}
+                  >
                     {form.logo ? (
                       <img src={URL.createObjectURL(form.logo)} alt="Logo" className="w-full h-full object-cover"/>
                     ) : <FaPlus className="text-gray-400 text-5xl"/>}
@@ -270,26 +259,26 @@ const Administration = () => {
                   <input type="file" accept="image/*" name="logo" ref={fileInputRef} onChange={handleChange} className="hidden"/>
                 </div>
 
-                <input type="text" name="id" placeholder="ID" value={form.id} onChange={handleChange}
-                       className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
-                <input type="text" name="nom" placeholder="Nom" value={form.nom} onChange={handleChange}
-                       className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
-                <select name="type" value={form.type} onChange={handleChange}
-                        className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300">
+                <input type="text" name="id" placeholder="ID" value={form.id} onChange={handleChange} className={`form-input ${errors.id ? "animate-shake border-red-500" : ""}`}/>
+                {errors.id && <p className="error-message">{errors.id}</p>}
+
+                <input type="text" name="nom" placeholder="Nom" value={form.nom} onChange={handleChange} className={`form-input ${errors.nom ? "animate-shake border-red-500" : ""}`}/>
+                {errors.nom && <p className="error-message">{errors.nom}</p>}
+
+                <select name="type" value={form.type} onChange={handleChange} className={`form-select ${errors.type ? "animate-shake border-red-500" : ""}`}>
                   <option value="">-- Sélectionner le type --</option>
                   {typesInstitution.map((t) => (
                     <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
-                <input type="text" name="sigle" placeholder="Sigle / Abbréviation" value={form.sigle} onChange={handleChange}
-                       className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
-                <textarea name="description" placeholder="Description" value={form.description} onChange={handleChange}
-                          className="border px-3 py-2 rounded focus:outline-none focus:ring focus:border-blue-300"/>
+                {errors.type && <p className="error-message">{errors.type}</p>}
+
+                <input type="text" name="sigle" placeholder="Sigle / Abbréviation" value={form.sigle} onChange={handleChange} className="form-input"/>
+                <textarea name="description" placeholder="Description" value={form.description} onChange={handleChange} className="form-textarea"/>
+
                 <div className="flex justify-end gap-2 mt-2">
-                  <button type="button" onClick={() => setModalOpen(false)}
-                          className="px-4 py-2 rounded bg-gray-300 hover:bg-gray-400 transition">Annuler</button>
-                  <button type="submit"
-                          className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition">Créer</button>
+                  <button type="button" onClick={() => setModalOpen(false)} className="btn btn-secondary">Annuler</button>
+                  <button type="submit" className="btn btn-primary">Créer</button>
                 </div>
               </form>
             </motion.div>
