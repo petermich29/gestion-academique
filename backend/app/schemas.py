@@ -1,4 +1,4 @@
-# app/schemas.py
+# gestion-academique\backend\app\schemas.py
 
 from pydantic import BaseModel
 from typing import Optional
