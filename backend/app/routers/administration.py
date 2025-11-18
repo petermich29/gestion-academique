@@ -54,6 +54,45 @@ def create_institution(
     db.refresh(institution)
     return institution
 
+# 🔹 Modifier une institution
+@router.put("/institutions", response_model=InstitutionSchema)
+def update_institution(
+    id_institution: str = Form(...),
+    nom: str = Form(...),
+    type_institution: str = Form(...),
+    abbreviation: str = Form(None),
+    description: str = Form(None),
+    logo_file: UploadFile = File(None),
+    db: Session = Depends(get_db),
+):
+    institution = db.query(Institution).filter(Institution.id_institution == id_institution).first()
+    if not institution:
+        raise HTTPException(status_code=404, detail="Institution non trouvée")
+
+    # Vérifier doublons pour le nom (sauf pour l'institution elle-même)
+    existing_nom = db.query(Institution).filter(Institution.nom == nom, Institution.id_institution != id_institution).first()
+    if existing_nom:
+        raise HTTPException(status_code=400, detail="Nom existe déjà")
+
+    # Mettre à jour les champs
+    institution.nom = nom
+    institution.type_institution = type_institution
+    institution.abbreviation = abbreviation
+    institution.description = description
+
+    # Gestion du logo
+    if logo_file:
+        file_ext = os.path.splitext(logo_file.filename)[1]
+        logo_path = f"/static/logos/{id_institution}{file_ext}"
+        with open(f"app{logo_path}", "wb") as buffer:
+            shutil.copyfileobj(logo_file.file, buffer)
+        institution.logo_path = logo_path
+
+    db.commit()
+    db.refresh(institution)
+    return institution
+
+
 # 🔹 Liste de toutes les institutions
 @router.get("/institutions", response_model=List[InstitutionSchema])
 def get_institutions(db: Session = Depends(get_db)):
