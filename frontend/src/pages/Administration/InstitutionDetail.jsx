@@ -438,6 +438,7 @@ const InstitutionDetail = () => {
 
                 {filteredSortedComposantes.map((comp) => {
                   const code = comp.Composante_code;
+                  const abbreviation = comp.Composante_abbreviation; // ✅ Récupération de l'abréviation
                   const label = comp.Composante_label;
 
                   return (
@@ -448,7 +449,7 @@ const InstitutionDetail = () => {
                     >
                       <BiSolidInstitution className="w-16 h-16 text-gray-700 mb-2" />
                       <h3 className="font-semibold text-center">{label}</h3>
-                      <p className="text-xs text-gray-500 mt-1">({code})</p>
+                      <p className="text-xs text-gray-500 mt-1">({abbreviation})</p>
                     </div>
                   );
                 })}

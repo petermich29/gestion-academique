@@ -6,26 +6,48 @@ from datetime import date, datetime # Ajout de date pour les champs Date
 # INSTITUTIONS
 # =====================
 
-class InstitutionBase(BaseModel):
-    id_institution: str # Institution_id
-    code: Optional[str] = None # Institution_code
-    nom: str # Institution_nom
-    type_institution: str # Institution_type
-    description: Optional[str] = None # Institution_description
-    abbreviation: Optional[str] = None # Institution_abbreviation
+## Schéma de base pour la CRÉATION
+class InstitutionCreate(BaseModel):
+    # L'ID est OBLIGATOIRE et est fourni par le frontend (ex: INST_0003)
+    id_institution: str = Field(..., description="Identifiant unique de l'institution (INST_XXXX)")
+    
+    # Le code est OBLIGATOIRE selon le modèle SQLAlchemy, il doit être fourni.
+    # Dans le contexte actuel, il est préférable de le rendre obligatoire dans le formulaire
+    # ou de le déduire dans l'API s'il n'est pas fourni.
+    code: str = Field(..., description="Code court unique de l'institution") 
+    
+    nom: str
+    type_institution: str
+    description: Optional[str] = None 
+    abbreviation: Optional[str] = None 
+    
+    class Config:
+        extra = "allow" 
+
+## Schéma pour la MISE À JOUR (incluant le chemin existant pour le logo)
+class InstitutionUpdate(InstitutionCreate):
     logo_path: Optional[str] = None
-     # Institution_logo_path
+    pass
+
+## Schéma de sortie (Réponse API) pour le mappage ORM/DB
 class InstitutionSchema(BaseModel):
-    Institution_id: str
-    Institution_code: Optional[str] = None
-    Institution_nom: str
-    Institution_type: str
-    Institution_description: Optional[str] = None
-    Institution_abbreviation: Optional[str] = None
-    Institution_logo_path: Optional[str] = None
+    # Utiliser les noms de champs du frontend/Pydantic
+    # et mapper aux noms réels des colonnes SQL via 'alias'
+
+    id_institution: str = Field(..., alias="Institution_id") # <-- Correction ici
+    code: str = Field(..., alias="Institution_code")         # <-- Correction ici
+    nom: str = Field(..., alias="Institution_nom")           # <-- Correction ici
+    type_institution: str = Field(..., alias="Institution_type") # <-- Correction ici
+    
+    description: Optional[str] = Field(None, alias="Institution_description")
+    abbreviation: Optional[str] = Field(None, alias="Institution_abbreviation")
+    logo_path: Optional[str] = Field(None, alias="Institution_logo_path") # <-- Correction ici
 
     class Config:
-        orm_mode = True  # ⚡ Permet à Pydantic de lire directement les attributs du modèle SQLAlchemy  # permet de mapper un objet SQLAlchemy sur le schema Pydantic
+        orm_mode = True # ⚡ Indispensable pour que Pydantic lise l'objet ORM
+        # Permet à Pydantic d'utiliser les noms de champs Pydantic (id_institution, nom, etc.) lors de la lecture de l'objet ORM, 
+        # en utilisant les valeurs des alias (Institution_id, Institution_nom, etc.)
+        allow_population_by_field_name = True
 
 # =====================
 # COMPOSANTES
