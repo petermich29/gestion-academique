@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const API_URL = "http://127.0.0.1:8000/api";
 
-// --- Icônes (inchangés) ---
+// --- Icônes existantes ---
 const LibraryIcon = (props) => (
   <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="3" width="20" height="18" rx="2" ry="2"></rect>
@@ -75,11 +75,26 @@ const SortIcon = ({ order, ...props }) => (
   </svg>
 );
 
-// Regex INST_0002
-// Regex pour ID institution
+// --- NOUVELLES ICÔNES POUR LES TOASTS ---
+const CheckCircleIcon = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+  </svg>
+);
+
+const XCircleIcon = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"></circle>
+    <line x1="15" y1="9" x2="9" y2="15"></line>
+    <line x1="9" y1="9" x2="15" y2="15"></line>
+  </svg>
+);
+
+// Regex ID institution
 const ID_REGEX = /INST_(\d+)/;
 
-// --- Nouvelle fonction pour trouver le prochain ID minimal disponible ---
+// Fonction ID minimal
 const getNextMinimalId = (existingIds) => {
   const usedNumbers = existingIds
     .map((id) => {
@@ -107,6 +122,24 @@ const Administration = () => {
 
   const [sortField, setSortField] = useState("nom");
   const [sortOrder, setSortOrder] = useState("asc");
+
+  // --- NOUVEAU: État pour les Toasts ---
+  const [toasts, setToasts] = useState([]);
+
+  // --- NOUVEAU: Fonction helper pour ajouter un toast ---
+  const addToast = (message, type = "success") => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    // Supprimer automatiquement après 3 secondes
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3000);
+  };
+
+  const removeToast = (id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+  // -------------------------------------
 
   const [form, setForm] = useState({
     id: "",
@@ -313,10 +346,11 @@ const Administration = () => {
           } else if (msg.includes("Le code")) {
             errObj.code = "Ce code d'institution est déjà utilisé.";
           } else {
-            window.alert(`Erreur lors de la ${method === "POST" ? "création" : "modification"} : ${msg}`);
+            // Remplace l'alert par un toast d'erreur
+            addToast(`Erreur : ${msg}`, "error");
           }
         } else {
-          window.alert("Erreur de validation : vérifier les champs.");
+          addToast("Erreur de validation : vérifier les champs.", "error");
         }
         setErrors(errObj);
         setIsSubmitting(false);
@@ -329,11 +363,19 @@ const Administration = () => {
           ? prev.map((i) => (i.Institution_id === editInstitution.Institution_id ? newInst : i))
           : [...prev, newInst]
       );
-      //if (!editInstitution) setLastInstitutionId(newInst.Institution_id);
+      
+      // --- MODIFICATION: Notification de succès ---
+      addToast(
+        editInstitution 
+          ? `Institution "${newInst.Institution_nom}" mise à jour avec succès.` 
+          : `Institution "${newInst.Institution_nom}" créée avec succès.`
+      );
+      // -------------------------------------------
+
       closeModal();
     } catch (err) {
       console.error("Erreur serveur:", err);
-      window.alert("Erreur de connexion au serveur : " + err.message);
+      addToast("Erreur de connexion au serveur", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -346,13 +388,15 @@ const Administration = () => {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        window.alert(`Erreur lors de la suppression: ${errData.detail || res.status}`);
-        return;
+        addToast(`Erreur lors de la suppression: ${errData.detail || res.status}`, "error");
+        return false; // Indique l'échec
       }
       setInstitutions((prev) => prev.filter((i) => i.Institution_id !== institutionId));
+      return true; // Indique le succès
     } catch (err) {
       console.error("Erreur suppression:", err);
-      window.alert("Erreur de connexion au serveur lors de la suppression.");
+      addToast("Erreur de connexion au serveur lors de la suppression.", "error");
+      return false;
     }
   };
 
@@ -376,8 +420,13 @@ const Administration = () => {
       setDeleteError("Le code saisi ne correspond pas au code de l'institution.");
       return;
     }
-    await handleDelete(institutionToDelete.Institution_id);
-    closeDeleteModal();
+    const success = await handleDelete(institutionToDelete.Institution_id);
+    if (success) {
+      // --- MODIFICATION: Notification de suppression ---
+      addToast("Institution supprimée avec succès.", "success");
+      // -----------------------------------------------
+      closeDeleteModal();
+    }
   };
 
   const sortInstitutions = (data) =>
@@ -429,7 +478,7 @@ const Administration = () => {
               alt={`Logo de ${inst.Institution_nom}`}
               className={
                 grid
-                  ? "w-20 h-20 object-cover mb-1 rounded-full border border-gray-200"   // ⬅️ agrandi
+                  ? "w-20 h-20 object-cover mb-1 rounded-full border border-gray-200"
                   : "w-10 h-10 object-cover rounded-full border border-gray-200 flex-shrink-0"
               }
             />
@@ -437,7 +486,7 @@ const Administration = () => {
             <LibraryIcon
               className={
                 grid
-                  ? "w-16 h-16 text-gray-700 mb-1"   // ⬅️ agrandi
+                  ? "w-16 h-16 text-gray-700 mb-1"
                   : "w-8 h-8 text-gray-700 flex-shrink-0"
               }
             />
@@ -475,7 +524,6 @@ const Administration = () => {
     );
   };
 
-
   const AddInstitutionButton = ({ grid = true }) => (
     <div
       onClick={() => openModal()}
@@ -499,7 +547,36 @@ const Administration = () => {
   );
 
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="flex flex-col gap-4 p-4 relative">
+      {/* --- NOUVEAU: Container des Toasts (Fixé en bas à droite) --- */}
+      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-[60] pointer-events-none">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 20, scale: 0.9 }}
+              layout
+              className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded shadow-lg text-white text-sm font-medium min-w-[300px] ${
+                toast.type === "error" ? "bg-red-500" : "bg-green-600"
+              }`}
+            >
+              <div className="flex-shrink-0 text-lg">
+                {toast.type === "error" ? <XCircleIcon /> : <CheckCircleIcon />}
+              </div>
+              <div className="flex-1">{toast.message}</div>
+              <button
+                onClick={() => removeToast(toast.id)}
+                className="opacity-70 hover:opacity-100 ml-2"
+              >
+                ✕
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       {/* HEADER */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-2 gap-3">
         <h2 className="text-xl font-semibold">Institutions ({filteredSorted.length})</h2>
@@ -565,7 +642,7 @@ const Administration = () => {
         </div>
       )}
 
-      {/* MODAL FORM (compact mais polices + grandes) */}
+      {/* MODAL FORM */}
       <AnimatePresence>
         {modalOpen && (
           <motion.div
@@ -603,6 +680,7 @@ const Administration = () => {
               </div>
 
               <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-4 text-sm">
+                {/* ... Contenu du formulaire inchangé ... */}
                 {/* Logo + id + code + nom */}
                 <div className="flex gap-3">
                   <div className="flex flex-col items-center gap-1">
