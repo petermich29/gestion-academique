@@ -1,16 +1,16 @@
-# \backend\app\routers\institutions_routes.py
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from sqlalchemy.orm import Session
-from typing import List, Optional
-import shutil
+#gestion-academique\backend\app\routers\institutions_routes.py
 import os
+import shutil
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Form, File, UploadFile, HTTPException
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError # 🚨 IMPORTANT : Importez IntegrityError
+import inspect # 🧪 Ajout pour le débogage de la fonction active
 
-# Importations des modèles et schémas
+# Importations des modèles et schémas (issus de votre contexte)
 from app.models import Institution, Composante, Domaine, Mention, Parcours
 from app.schemas import InstitutionSchema, ComposanteSchema, DomaineSchema, MentionSchema, ParcoursSchema
 from app.database import get_db
-from sqlalchemy.exc import IntegrityError # 🚨 IMPORTANT : Importez IntegrityError
-import inspect
 
 router = APIRouter(
     prefix="/institutions",
@@ -22,15 +22,15 @@ UPLOAD_DIR = "app/static/logos"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ------------------------------------
-#  INSTITUTION MANAGEMENT ENDPOINTS
+#   INSTITUTION MANAGEMENT ENDPOINTS
 # ------------------------------------
 
 # 🔹 Ajouter une institution (POST)
 @router.post("/", response_model=InstitutionSchema, summary="Ajouter une nouvelle institution")
 def create_institution(
     id_institution: str = Form(..., description="Identifiant unique de l'institution (ex: INST_0001)"),
-    # IMPORTANT : Gardez Optional[str] ici pour la flexibilité du formulaire
-    code: Optional[str] = Form(..., description="Code court unique de l'institution (ex: UFIV)"), 
+    # CHANGEMENT MAJEUR : Retrait de Optional[str] pour forcer l'obligation dans la validation FastAPI/Form
+    code: str = Form(..., description="Code court unique de l'institution (ex: UFIV)"), 
     nom: str = Form(..., description="Nom complet de l'institution (ex: Université de Fianarantsoa)"),
     type_institution: str = Form(..., description="Type de l'institution (ex: PRIVE, PUBLIC)"),
     abbreviation: Optional[str] = Form(None, description="Abréviation (ex: UF)"),
@@ -47,8 +47,9 @@ def create_institution(
     # --- ÉTAPE 1: DÉBOGAGE ET VÉRIFICATION OBLIGATOIRE DU CODE ---
     print(f"--- [DEBUG 1] Valeur brute reçue pour 'code': {code} (Type: {type(code)}) ---")
 
-    # Si 'code' est None ou une chaîne vide après nettoyage (strip).
-    if code is None or (isinstance(code, str) and not code.strip()):
+    # Le code est maintenant garanti d'être une chaîne (FastAPI échouerait avant si None), 
+    # mais nous vérifions toujours qu'il n'est pas vide après nettoyage.
+    if not code.strip():
         print("--- [DEBUG ÉCHEC] Condition Code obligatoire (400) atteinte. Code manquant ou vide. ---")
         raise HTTPException(
             status_code=400,
@@ -129,7 +130,6 @@ def create_institution(
     db.refresh(institution)
     return institution
 
-
 # ------------------------------------
 # 🔹 Liste de toutes les institutions (GET)
 @router.get("/", response_model=list[InstitutionSchema], summary="Liste de toutes les institutions")
@@ -168,35 +168,48 @@ def update_institution(
 ):
     """Met à jour les informations d'une institution existante identifiée par id_institution."""
     
+    # 1. Pré-traitement des données
+    clean_code = code.strip()
+    clean_nom = nom.strip()
+    # Convertir les chaînes vides en None pour les champs optionnels
+    abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
+    description_db = description.strip() if description and description.strip() else None
+
+    # 2. Vérification de l'existence de l'institution
     institution = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
     
     if not institution:
         raise HTTPException(status_code=404, detail="Institution non trouvée")
 
+    # 3. Vérification de l'unicité
+    
     # Vérification de l'unicité du CODE (excluant l'institution actuelle)
+    if not clean_code: # Le code ne doit pas être vide
+        raise HTTPException(status_code=400, detail="Le code de l'institution ne peut pas être vide.")
+
     existing_code = db.query(Institution).filter(
-        Institution.Institution_code == code, 
+        Institution.Institution_code == clean_code, 
         Institution.Institution_id != id_institution
     ).first()
     if existing_code:
-        raise HTTPException(status_code=400, detail=f"Le code '{code}' existe déjà pour une autre institution.")
+        raise HTTPException(status_code=400, detail=f"Le code '{clean_code}' existe déjà pour une autre institution.")
 
     # Vérification de l'unicité du NOM (excluant l'institution actuelle)
     existing_nom = db.query(Institution).filter(
-        Institution.Institution_nom == nom, 
+        Institution.Institution_nom == clean_nom, 
         Institution.Institution_id != id_institution
     ).first()
     if existing_nom:
-        raise HTTPException(status_code=400, detail=f"Le nom '{nom}' existe déjà pour une autre institution.")
+        raise HTTPException(status_code=400, detail=f"Le nom '{clean_nom}' existe déjà pour une autre institution.")
 
-    # Mise à jour des champs
-    institution.Institution_code = code 
-    institution.Institution_nom = nom
+    # 4. Mise à jour des champs
+    institution.Institution_code = clean_code
+    institution.Institution_nom = clean_nom
     institution.Institution_type = type_institution
-    institution.Institution_abbreviation = abbreviation
-    institution.Institution_description = description
+    institution.Institution_abbreviation = abbreviation_db # Utilisation de la version nettoyée/None
+    institution.Institution_description = description_db # Utilisation de la version nettoyée/None
 
-    # Gestion du logo (si un nouveau fichier est fourni)
+    # 5. Gestion du logo (si un nouveau fichier est fourni)
     if logo_file and logo_file.filename:
         file_ext = os.path.splitext(logo_file.filename)[1]
         logo_path = f"/static/logos/{id_institution}{file_ext}"
@@ -209,7 +222,20 @@ def update_institution(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erreur lors de l'enregistrement du nouveau logo: {e}")
 
-    db.commit()
+    # 6. Tentative de commit avec gestion d'erreur DB
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Envoie une erreur 400 si un problème de contrainte survient au commit
+        raise HTTPException(
+            status_code=400, 
+            detail="Violation de contrainte de base de données lors de la mise à jour (Code non unique ou champ obligatoire manquant)."
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue lors de la mise à jour: {e}")
+        
     db.refresh(institution)
     return institution
 
