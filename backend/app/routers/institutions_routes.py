@@ -1,0 +1,163 @@
+#\backend\app\routers\institutions_routes.py
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from sqlalchemy.orm import Session
+from typing import List
+import shutil
+import os
+
+# Importations des modèles et schémas
+from app.models import Institution, Composante, Domaine, Mention, Parcours
+from app.schemas import InstitutionSchema, ComposanteSchema, DomaineSchema, MentionSchema, ParcoursSchema
+from app.database import get_db
+
+router = APIRouter(
+    prefix="/institutions", # ⬅️ Toutes les routes de ce fichier commenceront par /composantes
+    tags=["Institutions"],
+)
+
+# Configuration du dossier d'upload
+UPLOAD_DIR = "app/static/logos"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# ------------------------------------
+#  INSTITUTION MANAGEMENT ENDPOINTS (Chemins: /institutions/...)
+# ------------------------------------
+
+# 🔹 Ajouter une institution (POST)
+# Chemin réel grâce à main.py: /api/institutions
+@router.post("/", response_model=InstitutionSchema, summary="Ajouter une nouvelle institution")
+def create_institution(
+    id_institution: str = Form(..., description="Identifiant unique de l'institution (ex: UNIV_FIAN)"),
+    nom: str = Form(..., description="Nom complet de l'institution (ex: Université de Fianarantsoa)"),
+    type_institution: str = Form(..., description="Type de l'institution (ex: Université, École, Centre)"),
+    abbreviation: str = Form(None, description="Abréviation (ex: UF)"),
+    description: str = Form(None, description="Description ou mission"),
+    logo_file: UploadFile = File(None, description="Fichier du logo de l'institution"),
+    db: Session = Depends(get_db),
+):
+    """
+    Crée une nouvelle institution académique dans la base de données.
+    """
+    
+    if db.query(Institution).filter(Institution.Institution_id == id_institution).first():
+        raise HTTPException(status_code=400, detail=f"L'ID institution '{id_institution}' existe déjà.")
+    
+    if db.query(Institution).filter(Institution.Institution_nom == nom).first():
+        raise HTTPException(status_code=400, detail=f"Le nom '{nom}' existe déjà.")
+    
+    # Gestion du logo
+    logo_path = None
+    if logo_file:
+        file_ext = os.path.splitext(logo_file.filename)[1]
+        logo_path = f"/static/logos/{id_institution}{file_ext}"
+        file_location = f"app{logo_path}"
+        
+        try:
+            with open(file_location, "wb") as buffer:
+                shutil.copyfileobj(logo_file.file, buffer)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erreur lors de l'enregistrement du logo: {e}")
+
+    institution = Institution(
+        Institution_id=id_institution,
+        Institution_nom=nom,
+        Institution_type=type_institution,
+        Institution_abbreviation=abbreviation,
+        Institution_description=description,
+        Institution_logo_path=logo_path
+    )
+    
+    db.add(institution)
+    db.commit()
+    db.refresh(institution)
+    return institution
+
+# 🔹 Liste de toutes les institutions (GET)
+@router.get("/", response_model=list[InstitutionSchema], summary="Liste de toutes les institutions")
+def get_institutions(db: Session = Depends(get_db)):
+    """Retourne la liste complète de toutes les institutions."""
+    return db.query(Institution).all()
+
+# 🔹 Détails d'une institution (GET by ID)
+@router.get("/{id_institution}", response_model=InstitutionSchema, summary="Détails d'une institution par ID")
+def get_institution(id_institution: str, db: Session = Depends(get_db)):
+    """
+    Récupère les détails d'une institution spécifique.
+    Retourne 404 si non trouvée.
+    """
+    institution = (
+        db.query(Institution)
+        .filter(Institution.Institution_id == id_institution) 
+        .first()
+    )
+    if not institution:
+        raise HTTPException(status_code=404, detail="Institution non trouvée")
+    return institution
+
+# 🔹 Modifier une institution (PUT)
+@router.put("/", response_model=InstitutionSchema, summary="Modifier une institution existante")
+def update_institution(
+    id_institution: str = Form(..., description="Identifiant de l'institution à modifier"),
+    nom: str = Form(..., description="Nouveau nom complet"),
+    type_institution: str = Form(..., description="Nouveau type"),
+    abbreviation: str = Form(None, description="Nouvelle abréviation"),
+    description: str = Form(None, description="Nouvelle description"),
+    logo_file: UploadFile = File(None, description="Nouveau fichier de logo (optionnel)"),
+    db: Session = Depends(get_db),
+):
+    """Met à jour les informations d'une institution existante identifiée par id_institution."""
+    
+    institution = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
+    
+    if not institution:
+        raise HTTPException(status_code=404, detail="Institution non trouvée")
+
+    existing_nom = db.query(Institution).filter(
+        Institution.Institution_nom == nom, 
+        Institution.Institution_id != id_institution
+    ).first()
+    if existing_nom:
+        raise HTTPException(status_code=400, detail=f"Le nom '{nom}' existe déjà pour une autre institution.")
+
+    institution.Institution_nom = nom
+    institution.Institution_type = type_institution
+    institution.Institution_abbreviation = abbreviation
+    institution.Institution_description = description
+
+    # Gestion du logo (si un nouveau fichier est fourni)
+    if logo_file:
+        file_ext = os.path.splitext(logo_file.filename)[1]
+        logo_path = f"/static/logos/{id_institution}{file_ext}"
+        file_location = f"app{logo_path}"
+        
+        try:
+            with open(file_location, "wb") as buffer:
+                shutil.copyfileobj(logo_file.file, buffer)
+            institution.Institution_logo_path = logo_path 
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erreur lors de l'enregistrement du nouveau logo: {e}")
+
+    db.commit()
+    db.refresh(institution)
+    return institution
+
+# 🔹 Supprimer une institution (DELETE)
+@router.delete("/{id_institution}", status_code=204, summary="Supprimer une institution")
+def delete_institution(id_institution: str, db: Session = Depends(get_db)):
+    """Supprime une institution par son identifiant unique."""
+    institution = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
+    if not institution:
+        raise HTTPException(status_code=404, detail="Institution non trouvée")
+        
+    # Supprimer le logo s'il existe (Institution_logo_path)
+    if institution.Institution_logo_path:
+        file_location = f"app{institution.Institution_logo_path}"
+        if os.path.exists(file_location):
+            try:
+                os.remove(file_location)
+            except Exception as e:
+                print(f"Avertissement: Impossible de supprimer le fichier logo {file_location}. Erreur: {e}")
+
+    db.delete(institution)
+    db.commit()
+    return {"detail": "Institution supprimée avec succès"}

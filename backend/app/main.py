@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles  # <-- à ajouter
 from app.core.config import settings
-from app.routers import administration
+from app.routers import administration, composantes_routes, institutions_routes
 from app.database import engine
 from app.models import Base
 
@@ -23,6 +23,8 @@ app.add_middleware(
 
 # Inclure les routes avec prefix /api
 app.include_router(administration.router, prefix="/api")
+app.include_router(institutions_routes.router, prefix="/api") 
+app.include_router(composantes_routes.router, prefix="/api")
 
 # ----------------------------
 # Servir les fichiers statiques

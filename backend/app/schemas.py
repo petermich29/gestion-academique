@@ -1,83 +1,498 @@
-# gestion-academique\backend\app\schemas.py
-
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
-
+from datetime import date, datetime # Ajout de date pour les champs Date
 
 # =====================
 # INSTITUTIONS
 # =====================
 
 class InstitutionBase(BaseModel):
-    id_institution: str
-    nom: str
-    type_institution: str
-    description: Optional[str] = None
-    logo_path: str | None = None   # correspond au champ dans models.Institution
-    abbreviation: Optional[str] = None 
-
-
-class InstitutionSchema(InstitutionBase):
-    """Schéma retourné en lecture (response_model)."""
+    id_institution: str # Institution_id
+    code: Optional[str] = None # Institution_code
+    nom: str # Institution_nom
+    type_institution: str # Institution_type
+    description: Optional[str] = None # Institution_description
+    abbreviation: Optional[str] = None # Institution_abbreviation
+    logo_path: Optional[str] = None
+     # Institution_logo_path
+class InstitutionSchema(BaseModel):
+    Institution_id: str
+    Institution_code: Optional[str] = None
+    Institution_nom: str
+    Institution_type: str
+    Institution_description: Optional[str] = None
+    Institution_abbreviation: Optional[str] = None
+    Institution_logo_path: Optional[str] = None
 
     class Config:
-        # 👉 Si tu es en Pydantic v1 :
-        orm_mode = True
-        # 👉 Si tu es en Pydantic v2, tu peux utiliser à la place :
-        # from_attributes = True
-
-
-# Tu pourras plus tard ajouter InstitutionCreate / InstitutionUpdate si tu fais du POST/PUT :
-class InstitutionCreate(BaseModel):
-    id_institution: str
-    nom: str
-    type_institution: str
-    description: Optional[str] = None
-    logo_path: Optional[str] = None
-    abbreviation: Optional[str] = None   # ✅
-
-class InstitutionUpdate(BaseModel):
-    nom: Optional[str] = None
-    type_institution: Optional[str] = None
-    description: Optional[str] = None
-    logo_path: Optional[str] = None
-    abbreviation: Optional[str] = None   # ✅
-
-
+        orm_mode = True  # ⚡ Permet à Pydantic de lire directement les attributs du modèle SQLAlchemy  # permet de mapper un objet SQLAlchemy sur le schema Pydantic
 
 # =====================
 # COMPOSANTES
 # =====================
 
+# 1. Schéma de base
+# Contient les champs de base, utilisé par Base et Create
 class ComposanteBase(BaseModel):
-    code: str
-    label: Optional[str] = None
-    description: Optional[str] = None
-    logo_path: str | None = None   # correspond à models.Composante.logo_path
-    id_institution: str
-    abbreviation: Optional[str] = None
+    # Les champs sont nommés de manière snake_case standard en Python, 
+    # mais reflètent les noms de colonnes de votre modèle SQLAlchemy
+    Composante_code: str = Field(..., max_length=50, description="Code unique de la composante (ex: FS-UFI)")
+    Composante_label: str = Field(..., max_length=100, description="Nom complet de la composante (ex: Faculté des Sciences)")
+    
+    Composante_description: Optional[str] = Field(None, description="Description détaillée de l'établissement")
+    Composante_abbreviation: Optional[str] = Field(None, max_length=20, description="Abréviation (ex: FS)")
+    Composante_logo_path: Optional[str] = Field(None, max_length=255, description="Chemin vers le logo de la composante")
 
+    # Clé étrangère
+    Institution_id_fk: str = Field(..., max_length=10, description="ID de l'institution parente")
 
+# 2. Schéma de Création (pour la requête POST)
+# Hérite de Base et ne contient pas les champs gérés par la base de données (ID)
+class ComposanteCreate(ComposanteBase):
+    """Schéma utilisé pour la création d'une nouvelle composante (requête POST)."""
+    pass
+
+# 3. Schéma de Mise à Jour (pour la requête PUT/PATCH)
+# Tous les champs sont optionnels pour permettre des mises à jour partielles
+class ComposanteUpdate(BaseModel):
+    """Schéma utilisé pour la mise à jour d'une composante existante (requête PUT/PATCH)."""
+    Composante_code: Optional[str] = Field(None, max_length=50)
+    Composante_label: Optional[str] = Field(None, max_length=100)
+    Composante_description: Optional[str] = None
+    Composante_abbreviation: Optional[str] = Field(None, max_length=20)
+    Composante_logo_path: Optional[str] = Field(None, max_length=255)
+    Institution_id_fk: Optional[str] = Field(None, max_length=10)
+
+# 4. Schéma de Réponse (pour la requête GET)
+# Contient tous les champs, y compris l'identifiant généré par la base
 class ComposanteSchema(ComposanteBase):
-    """Schéma retourné en lecture (response_model)."""
+    """Schéma utilisé pour la sérialisation des données en réponse (requête GET)."""
+    Composante_id: str = Field(..., max_length=12, description="Clé primaire de la composante")
+    
+    # Configuration Pydantic pour mapper les objets SQLAlchemy
+    class Config:
+        orm_mode = True 
+        # Anciennement `orm_mode = True`, permet de lire les données
+        # à partir d'un objet de modèle SQLAlchemy.
+
+# =====================
+# DOMAINES
+# =====================
+
+class DomaineBase(BaseModel):
+    code: Optional[str] = None # Domaine_code
+    label: Optional[str] = None # Domaine_label
+    description: Optional[str] = None # Domaine_description
+
+class DomaineSchema(DomaineBase):
+    id_domaine: str # Domaine_id
 
     class Config:
         orm_mode = True
-        # ou from_attributes = True en Pydantic v2
 
+# =====================
+# MENTIONS
+# =====================
 
-class ComposanteCreate(BaseModel):
-    code: str
-    label: Optional[str] = None
-    description: Optional[str] = None
-    logo_path: Optional[str] = None
-    id_institution: str
-    abbreviation: Optional[str] = None   # ✅
+class MentionBase(BaseModel):
+    code: str # Mention_code
+    label: Optional[str] = None # Mention_label
+    description: Optional[str] = None # Mention_description
+    abbreviation: Optional[str] = None # Mention_abbreviation
+    logo_path: Optional[str] = None # Mention_logo_path
+    id_composante: str # Composante_id_fk
+    id_domaine: str # Domaine_id_fk
 
-class ComposanteUpdate(BaseModel):
-    label: Optional[str] = None
-    description: Optional[str] = None
-    logo_path: Optional[str] = None
-    id_institution: Optional[str] = None
-    abbreviation: Optional[str] = None   # ✅
+class MentionSchema(MentionBase):
+    id_mention: str # Mention_id
 
+    class Config:
+        orm_mode = True
+
+# =====================
+# PARCOURS
+# =====================
+
+class ParcoursBase(BaseModel):
+    code: str # Parcours_code
+    label: Optional[str] = None # Parcours_label
+    description: Optional[str] = None # Parcours_description
+    abbreviation: Optional[str] = None # Parcours_abbreviation
+    logo_path: Optional[str] = None # Parcours_logo_path
+    date_creation: Optional[date] = None # Parcours_date_creation
+    date_fin: Optional[date] = None # Parcours_date_fin
+    id_mention: str # Mention_id_fk
+    # Renommé pour correspondre à la FK
+    id_type_formation_defaut: str # Parcours_type_formation_defaut_id_fk
+
+class ParcoursSchema(ParcoursBase):
+    id_parcours: str # Parcours_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# CYCLES (LMD)
+# =====================
+
+class CycleBase(BaseModel):
+    code: Optional[str] = None # Cycle_code
+    label: str # Cycle_label
+
+class CycleSchema(CycleBase):
+    id_cycle: str # Cycle_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# NIVEAUX (L1, M2, D3, ...)
+# =====================
+
+class NiveauBase(BaseModel):
+    code: Optional[str] = None # Niveau_code
+    label: Optional[str] = None # Niveau_label
+    id_cycle: str # Cycle_id_fk
+
+class NiveauSchema(NiveauBase):
+    id_niveau: str # Niveau_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# SEMESTRES
+# =====================
+
+class SemestreBase(BaseModel):
+    code: Optional[str] = None # Semestre_code
+    numero: str # Semestre_numero
+    id_niveau: str # Niveau_id_fk
+
+class SemestreSchema(SemestreBase):
+    id_semestre: str # Semestre_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# UNITES D'ENSEIGNEMENT (UE)
+# =====================
+
+class UniteEnseignementBase(BaseModel):
+    code: str # UE_code
+    intitule: str # UE_intitule
+    credit: int # UE_credit
+    id_semestre: str # Semestre_id_fk
+
+class UniteEnseignementSchema(UniteEnseignementBase):
+    id_ue: str # UE_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# ELEMENTS CONSTITUTIFS (EC)
+# =====================
+
+class ElementConstitutifBase(BaseModel):
+    code: str # EC_code
+    intitule: str # EC_intitule
+    coefficient: int = 1 # EC_coefficient
+    id_ue: str # UE_id_fk
+
+class ElementConstitutifSchema(ElementConstitutifBase):
+    id_ec: str # EC_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# PARCOURS NIVEAU (Association)
+# =====================
+
+class ParcoursNiveauBase(BaseModel):
+    id_parcours: str # Parcours_id_fk
+    id_niveau: str # Niveau_id_fk
+    ordre: Optional[int] = None # ParcoursNiveau_ordre
+
+class ParcoursNiveauSchema(ParcoursNiveauBase):
+    id_parcours_niveau: str # ParcoursNiveau_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# SESSIONS D'EXAMEN
+# =====================
+
+class SessionExamenBase(BaseModel):
+    code: Optional[str] = None # SessionExamen_code
+    label: str # SessionExamen_label
+
+class SessionExamenSchema(SessionExamenBase):
+    id_session_examen: str # SessionExamen_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# MODES D'INSCRIPTION
+# =====================
+
+class ModeInscriptionBase(BaseModel):
+    code: Optional[str] = None # ModeInscription_code
+    label: str # ModeInscription_label
+    description: Optional[str] = None # ModeInscription_description
+
+class ModeInscriptionSchema(ModeInscriptionBase):
+    id_mode_inscription: str # ModeInscription_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# TYPES DE FORMATION
+# =====================
+
+class TypeFormationBase(BaseModel):
+    code: str # TypeFormation_code
+    label: str # TypeFormation_label
+    description: Optional[str] = None # TypeFormation_description
+
+class TypeFormationSchema(TypeFormationBase):
+    id_type_formation: str # TypeFormation_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# ANNÉE UNIVERSITAIRE
+# =====================
+
+class AnneeUniversitaireBase(BaseModel):
+    annee: Optional[str] = None # AnneeUniversitaire_annee
+    description: Optional[str] = None # AnneeUniversitaire_description
+    ordre: int # AnneeUniversitaire_ordre
+
+class AnneeUniversitaireSchema(AnneeUniversitaireBase):
+    id_annee_universitaire: str # AnneeUniversitaire_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# ÉTUDIANT
+# =====================
+
+class EtudiantBase(BaseModel):
+    numero_inscription: Optional[str] = None # Etudiant_numero_inscription
+    nom: str # Etudiant_nom
+    prenoms: Optional[str] = None # Etudiant_prenoms
+    sexe: Optional[str] = None # Etudiant_sexe
+    date_naissance: Optional[date] = None # Etudiant_naissance_date
+    lieu_naissance: Optional[str] = None # Etudiant_naissance_lieu
+    nationalite: Optional[str] = None # Etudiant_nationalite
+    bacc_annee: Optional[int] = None # Etudiant_bacc_annee
+    bacc_serie: Optional[str] = None # Etudiant_bacc_serie
+    bacc_numero: Optional[str] = None # Etudiant_bacc_numero
+    bacc_centre: Optional[str] = None # Etudiant_bacc_centre
+    bacc_mention: Optional[str] = None # Etudiant_bacc_mention
+    adresse: Optional[str] = None # Etudiant_adresse
+    telephone: Optional[str] = None # Etudiant_telephone
+    mail: Optional[str] = None # Etudiant_mail
+    cin: Optional[str] = None # Etudiant_cin
+    cin_date: Optional[date] = None # Etudiant_cin_date
+    cin_lieu: Optional[str] = None # Etudiant_cin_lieu
+    photo_profil_path: Optional[str] = None # Etudiant_photo_profil_path
+    scan_cin_path: Optional[str] = None # Etudiant_scan_cin_path
+    scan_releves_notes_bacc_path: Optional[str] = None # Etudiant_scan_releves_notes_bacc_path
+
+class EtudiantSchema(EtudiantBase):
+    id_etudiant: str # Etudiant_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# INSCRIPTION
+# =====================
+
+class InscriptionBase(BaseModel):
+    id_etudiant: str # Etudiant_id_fk
+    id_annee_universitaire: str # AnneeUniversitaire_id_fk
+    id_parcours: str # Parcours_id_fk
+    id_semestre: str # Semestre_id_fk
+    id_mode_inscription: Optional[str] = None # ModeInscription_id_fk
+    date_inscription: date # Inscription_date
+    credit_acquis_semestre: int = 0 # Inscription_credit_acquis_semestre
+    is_semestre_valide: bool = False # Inscription_is_semestre_valide
+
+class InscriptionSchema(InscriptionBase):
+    # La clé primaire est Inscription_id (qui est l'ancienne Inscription_code)
+    id_inscription: str # Inscription_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# RÉSULTAT SEMESTRE
+# =====================
+
+class ResultatSemestreBase(BaseModel):
+    id_etudiant: str # Etudiant_id_fk
+    id_semestre: str # Semestre_id_fk
+    id_annee_universitaire: str # AnneeUniversitaire_id_fk
+    id_session_examen: str # SessionExamen_id_fk
+    statut_validation: str # ResultatSemestre_statut_validation (V, NV, AJ)
+    credits_acquis: Optional[float] = None # ResultatSemestre_credits_acquis
+    moyenne_obtenue: Optional[float] = None # ResultatSemestre_moyenne_obtenue
+
+class ResultatSemestreSchema(ResultatSemestreBase):
+    id_resultat_semestre: str # ResultatSemestre_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# RÉSULTAT UE
+# =====================
+
+class ResultatUEBase(BaseModel):
+    id_etudiant: str # Etudiant_id_fk
+    id_ue: str # UE_id_fk
+    id_annee_universitaire: str # AnneeUniversitaire_id_fk
+    id_session_examen: str # SessionExamen_id_fk
+    moyenne: float # ResultatUE_moyenne
+    is_acquise: bool = False # ResultatUE_is_acquise
+    credit_obtenu: int = 0 # ResultatUE_credit_obtenu
+
+class ResultatUESchema(ResultatUEBase):
+    id_resultat_ue: str # ResultatUE_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# NOTE (Par EC et Session)
+# =====================
+
+class NoteBase(BaseModel):
+    id_etudiant: str # Etudiant_id_fk
+    id_ec: str # EC_id_fk
+    id_annee_universitaire: str # AnneeUniversitaire_id_fk
+    id_session_examen: str # SessionExamen_id_fk
+    valeur: float # Note_valeur
+
+class NoteSchema(NoteBase):
+    id_note: str # Note_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# SUIVI CRÉDIT CYCLE
+# =====================
+
+class SuiviCreditCycleBase(BaseModel):
+    id_etudiant: str # Etudiant_id_fk
+    id_cycle: str # Cycle_id_fk
+    credit_total_acquis: int = 0 # SuiviCreditCycle_credit_total_acquis
+    is_cycle_valide: bool = False # SuiviCreditCycle_is_cycle_valide
+
+class SuiviCreditCycleSchema(SuiviCreditCycleBase):
+    id_suivi_credit_cycle: str # SuiviCreditCycle_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# ENSEIGNANT
+# =====================
+
+class EnseignantBase(BaseModel):
+    matricule: Optional[str] = None # Enseignant_matricule
+    nom: str # Enseignant_nom
+    prenoms: Optional[str] = None # Enseignant_prenoms
+    sexe: Optional[str] = None # Enseignant_sexe
+    date_naissance: Optional[date] = None # Enseignant_date_naissance
+    grade: Optional[str] = None # Enseignant_grade
+    statut: str # Enseignant_statut (PERM, VAC)
+    id_composante_affectation: Optional[str] = None # Composante_id_affectation_fk
+    cin: Optional[str] = None # Enseignant_cin
+    cin_date: Optional[date] = None # Enseignant_cin_date
+    cin_lieu: Optional[str] = None # Enseignant_cin_lieu
+    telephone: Optional[str] = None # Enseignant_telephone
+    mail: Optional[str] = None # Enseignant_mail
+    rib: Optional[str] = None # Enseignant_rib
+    photo_profil_path: Optional[str] = None # Enseignant_photo_profil_path
+    scan_cin_path: Optional[str] = None # Enseignant_scan_cin_path
+
+class EnseignantSchema(EnseignantBase):
+    id_enseignant: str # Enseignant_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# TYPE ENSEIGNEMENT
+# =====================
+
+class TypeEnseignementBase(BaseModel):
+    code: Optional[str] = None # TypeEnseignement_code
+    label: str # TypeEnseignement_label
+
+class TypeEnseignementSchema(TypeEnseignementBase):
+    id_type_enseignement: str # TypeEnseignement_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# VOLUME HORAIRE EC
+# =====================
+
+class VolumeHoraireECBase(BaseModel):
+    id_ec: str # EC_id_fk
+    id_type_enseignement: str # TypeEnseignement_id_fk
+    id_annee_universitaire: str # AnneeUniversitaire_id_fk
+    volume_heure: float # VolumeHoraireEC_volume_heure
+
+class VolumeHoraireECSchema(VolumeHoraireECBase):
+    id_volume_horaire_ec: str # VolumeHoraireEC_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# AFFECTATION EC
+# =====================
+
+class AffectationECBase(BaseModel):
+    id_enseignant: str # Enseignant_id_fk
+    id_ec: str # EC_id_fk
+    id_type_enseignement: str # TypeEnseignement_id_fk
+    id_annee_universitaire: str # AnneeUniversitaire_id_fk
+    volume_heure_effectif: Optional[float] = None # AffectationEC_volume_heure_effectif
+
+class AffectationECSchema(AffectationECBase):
+    id_affectation_ec: str # AffectationEC_id
+
+    class Config:
+        orm_mode = True
+
+# =====================
+# JURY
+# =====================
+
+class JuryBase(BaseModel):
+    id_enseignant: str # Enseignant_id_fk (Président)
+    id_semestre: str # Semestre_id_fk
+    id_annee_universitaire: str # AnneeUniversitaire_id_fk
+    date_nomination: Optional[date] = None # Jury_date_nomination
+
+class JurySchema(JuryBase):
+    id_jury: str # Jury_id
+
+    class Config:
+        orm_mode = True
