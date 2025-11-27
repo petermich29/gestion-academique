@@ -123,23 +123,18 @@ const Administration = () => {
   const [sortField, setSortField] = useState("nom");
   const [sortOrder, setSortOrder] = useState("asc");
 
-  // --- NOUVEAU: État pour les Toasts ---
+  // --- Toasts ---
   const [toasts, setToasts] = useState([]);
-
-  // --- NOUVEAU: Fonction helper pour ajouter un toast ---
   const addToast = (message, type = "success") => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
-    // Supprimer automatiquement après 3 secondes
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
   };
-
   const removeToast = (id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
-  // -------------------------------------
 
   const [form, setForm] = useState({
     id: "",
@@ -186,7 +181,9 @@ const Administration = () => {
         }
         const data = await res.json();
         const list = Array.isArray(data) ? data : [];
-        setInstitutions(list);
+        // On initialise un cacheBust pour chaque institution existante
+        const listWithCache = list.map((inst) => ({ ...inst, _cacheBust: Date.now() }));
+        setInstitutions(listWithCache);
       } catch (err) {
         console.error("Erreur de connexion/réseau:", err);
       } finally {
@@ -346,7 +343,6 @@ const Administration = () => {
           } else if (msg.includes("Le code")) {
             errObj.code = "Ce code d'institution est déjà utilisé.";
           } else {
-            // Remplace l'alert par un toast d'erreur
             addToast(`Erreur : ${msg}`, "error");
           }
         } else {
@@ -358,19 +354,23 @@ const Administration = () => {
       }
 
       const newInst = await res.json();
+      const cacheBust = Date.now();
+
       setInstitutions((prev) =>
         editInstitution
-          ? prev.map((i) => (i.Institution_id === editInstitution.Institution_id ? newInst : i))
-          : [...prev, newInst]
+          ? prev.map((i) =>
+              i.Institution_id === editInstitution.Institution_id
+                ? { ...newInst, _cacheBust: cacheBust }
+                : i
+            )
+          : [...prev, { ...newInst, _cacheBust: cacheBust }]
       );
-      
-      // --- MODIFICATION: Notification de succès ---
+
       addToast(
-        editInstitution 
-          ? `Institution "${newInst.Institution_nom}" mise à jour avec succès.` 
+        editInstitution
+          ? `Institution "${newInst.Institution_nom}" mise à jour avec succès.`
           : `Institution "${newInst.Institution_nom}" créée avec succès.`
       );
-      // -------------------------------------------
 
       closeModal();
     } catch (err) {
@@ -389,10 +389,10 @@ const Administration = () => {
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         addToast(`Erreur lors de la suppression: ${errData.detail || res.status}`, "error");
-        return false; // Indique l'échec
+        return false;
       }
       setInstitutions((prev) => prev.filter((i) => i.Institution_id !== institutionId));
-      return true; // Indique le succès
+      return true;
     } catch (err) {
       console.error("Erreur suppression:", err);
       addToast("Erreur de connexion au serveur lors de la suppression.", "error");
@@ -422,9 +422,7 @@ const Administration = () => {
     }
     const success = await handleDelete(institutionToDelete.Institution_id);
     if (success) {
-      // --- MODIFICATION: Notification de suppression ---
       addToast("Institution supprimée avec succès.", "success");
-      // -----------------------------------------------
       closeDeleteModal();
     }
   };
@@ -460,6 +458,11 @@ const Administration = () => {
     const baseList =
       "flex items-center gap-3 p-2 bg-white rounded shadow hover:shadow-md hover:bg-blue-50 duration-200";
 
+    const logoSrc =
+      inst.Institution_logo_path
+        ? `http://127.0.0.1:8000${inst.Institution_logo_path}${inst._cacheBust ? `?t=${inst._cacheBust}` : ""}`
+        : null;
+
     return (
       <motion.div
         layout
@@ -472,9 +475,9 @@ const Administration = () => {
           onClick={handleClick}
           className={`flex w-full ${grid ? "flex-col items-center" : "flex-row items-center gap-3"}`}
         >
-          {inst.Institution_logo_path ? (
+          {logoSrc ? (
             <img
-              src={`http://127.0.0.1:8000${inst.Institution_logo_path}`}
+              src={logoSrc}
               alt={`Logo de ${inst.Institution_nom}`}
               className={
                 grid
@@ -548,7 +551,7 @@ const Administration = () => {
 
   return (
     <div className="flex flex-col gap-4 p-4 relative">
-      {/* --- NOUVEAU: Container des Toasts (Fixé en bas à droite) --- */}
+      {/* Toasts */}
       <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-[60] pointer-events-none">
         <AnimatePresence>
           {toasts.map((toast) => (
@@ -680,19 +683,18 @@ const Administration = () => {
               </div>
 
               <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-4 text-sm">
-                {/* ... Contenu du formulaire inchangé ... */}
                 {/* Logo + id + code + nom */}
                 <div className="flex gap-3">
                   <div className="flex flex-col items-center gap-1">
                     <div
                       className="w-20 h-20 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center cursor-pointer ring-1 ring-gray-300 hover:ring-blue-400 transition"
-                      onClick={() => fileInputRef.current.click()}
+                      onClick={() => fileInputRef.current && fileInputRef.current.click()}
                     >
                       {form.logo ? (
                         <img src={URL.createObjectURL(form.logo)} alt="Logo Preview" className="w-full h-full object-cover" />
                       ) : form.logoPath ? (
                         <img
-                          src={`http://127.0.0.1:8000${form.logoPath}`}
+                          src={`http://127.0.0.1:8000${form.logoPath}?t=${Date.now()}`}
                           alt="Existing Logo"
                           className="w-full h-full object-cover"
                         />
@@ -758,7 +760,7 @@ const Administration = () => {
                   </div>
                 </div>
 
-                {/* Type / abbréviation */}
+                {/* Type / abréviation */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <label className="flex flex-col gap-0.5">
                     <span className="text-sm text-gray-700">Type</span>
