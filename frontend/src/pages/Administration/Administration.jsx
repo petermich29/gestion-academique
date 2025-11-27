@@ -2,17 +2,17 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 // --- IMPORTS MIS À JOUR ---
 // Le chemin d'accès relatif est ajusté: Administration.jsx est dans pages/Administration
 // Il faut remonter de deux niveaux pour atteindre src/, puis descendre dans components/ui
 import { 
   LibraryIcon, ThIcon, ListIcon, PlusIcon, EditIcon, SpinnerIcon, TrashIcon, SortIcon 
-} from "../../../components/ui/Icons";
-import { AppStyles } from "../../../components/ui/AppStyles";
-import { ToastContainer } from "../../../components/ui/Toast";
-import { DraggableModal, ConfirmModal } from "../../../components/ui/Modal";
+} from "../../components/ui/Icons";
+import { AppStyles } from "../../components/ui/AppStyles";
+import { ToastContainer } from "../../components/ui/Toast";
+import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
 // --------------------------
 
 const API_URL = "http://127.0.0.1:8000/api";
@@ -199,39 +199,45 @@ const Administration = () => {
 
   const InstitutionItem = ({ inst, grid }) => (
     <motion.div
-      layout
+      // 2. UTILISATION: On injecte les props d'animation partagées ici
+      {...AppStyles.animation.itemProps}
+      
+      // La classe CSS
       className={grid ? AppStyles.item.grid : AppStyles.item.list}
       onClick={() => navigate(`/institution/${inst.Institution_id}`)}
     >
-      <div className={`flex w-full ${grid ? "flex-col items-center" : "flex-row items-center gap-3"}`}>
+      <div className={`flex-shrink-0 flex items-center justify-center overflow-hidden rounded-full border border-gray-100 bg-gray-50 ${grid ? "w-20 h-20 mb-2" : "w-10 h-10"}`}>
         {inst.Institution_logo_path ? (
           <img
             src={`http://127.0.0.1:8000${inst.Institution_logo_path}`}
             alt="logo"
-            className={grid ? AppStyles.item.imgGrid : AppStyles.item.imgList}
+            className="w-full h-full object-cover"
           />
         ) : (
-          <LibraryIcon className={grid ? "w-16 h-16 text-gray-700 mb-1" : "w-8 h-8 text-gray-700 flex-shrink-0"} />
+          <LibraryIcon className={grid ? "w-8 h-8 text-gray-400" : "w-5 h-5 text-gray-400"} />
         )}
-        <div className={grid ? "text-center w-full" : "flex-1 min-w-0"}>
-          <p className={grid ? AppStyles.item.titleGrid : AppStyles.item.titleList}>{inst.Institution_nom}</p>
-          <p className="text-gray-600 text-sm truncate">{inst.Institution_type}</p>
-          <p className="text-gray-500 text-xs">{inst.Institution_code}</p>
-        </div>
       </div>
-      <div className={`flex gap-1 absolute ${grid ? "top-2 right-2" : "right-2"}`}>
-        <EditIcon className="text-blue-600 hover:text-blue-800 cursor-pointer p-1 z-10" onClick={(e) => { e.stopPropagation(); openModal(inst); }} />
-        <TrashIcon className="text-red-600 hover:text-red-800 cursor-pointer p-1 z-10" onClick={(e) => { e.stopPropagation(); setInstitutionToDelete(inst); setDeleteCodeInput(""); setDeleteModalOpen(true); }} />
+      
+      <div className={grid ? "text-center w-full px-2" : "flex-1 min-w-0"}>
+        <p className={grid ? AppStyles.item.titleGrid : AppStyles.item.titleList}>{inst.Institution_nom}</p>
+        <p className={AppStyles.item.subtext}>
+            {inst.Institution_type} • {inst.Institution_code}
+        </p>
+      </div>
+
+      <div className={`flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute ${grid ? "top-2 right-2 bg-white/90 p-1 rounded shadow-sm" : "right-3"}`}>
+        <EditIcon className="text-blue-600 hover:bg-blue-50 cursor-pointer p-1.5 rounded" onClick={(e) => { e.stopPropagation(); openModal(inst); }} />
+        <TrashIcon className="text-red-600 hover:bg-red-50 cursor-pointer p-1.5 rounded" onClick={(e) => { e.stopPropagation(); setInstitutionToDelete(inst); setDeleteCodeInput(""); setDeleteModalOpen(true); }} />
       </div>
     </motion.div>
   );
 
   const AddButton = ({ grid }) => (
     <div onClick={() => openModal()} className={grid ? AppStyles.addCard.grid : AppStyles.addCard.list}>
-      <div className={`${AppStyles.addCard.iconContainer} ${grid ? "w-12 h-12" : "w-10 h-10"}`}>
-        <PlusIcon className="text-blue-600" />
+      <div className={`${AppStyles.addCard.iconContainer} ${grid ? "w-12 h-12 text-2xl" : "w-8 h-8 text-lg"}`}>
+        <PlusIcon />
       </div>
-      <p className="text-base font-semibold text-blue-700">Ajouter</p>
+      <p className="text-sm font-semibold text-blue-700">Ajouter</p>
     </div>
   );
 
@@ -252,13 +258,13 @@ const Administration = () => {
             onChange={(e) => setSearch(e.target.value)}
             className={AppStyles.input.text}
           />
-          <div className="flex items-center gap-1 border rounded px-2 py-1 bg-white text-sm">
-            <span className="font-semibold text-gray-600">Tri :</span>
-            <select value={sortField} onChange={(e) => setSortField(e.target.value)} className="border-none bg-transparent outline-none">
+          <div className="flex items-center gap-1 border border-gray-300 rounded px-2 py-1 bg-white text-sm">
+            <span className="font-semibold text-gray-600 text-xs uppercase">Tri :</span>
+            <select value={sortField} onChange={(e) => setSortField(e.target.value)} className="border-none bg-transparent outline-none cursor-pointer text-gray-700 font-medium">
               <option value="nom">Nom</option>
               <option value="code">Code</option>
             </select>
-            <button onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}><SortIcon order={sortOrder} /></button>
+            <button onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")} className="hover:text-blue-600 p-1"><SortIcon order={sortOrder} /></button>
           </div>
           <button onClick={() => setView(view === "grid" ? "list" : "grid")} className={AppStyles.button.icon}>
             {view === "grid" ? <ListIcon /> : <ThIcon />}
@@ -266,14 +272,16 @@ const Administration = () => {
         </div>
       </div>
 
-      <hr className="border-t border-gray-200" />
-
-      {/* LIST/GRID */}
+      {/* LIST/GRID AVEC ANIMATION */}
       <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" : "flex flex-col gap-2"}>
         <AddButton grid={view === "grid"} />
-        {filteredSorted.map((inst) => (
-          <InstitutionItem key={inst.Institution_id} inst={inst} grid={view === "grid"} />
-        ))}
+        
+        {/* 3. WRAPPER: Ajouter AnimatePresence autour de la liste */}
+        <AnimatePresence {...AppStyles.animation.presenceProps}>
+          {filteredSorted.map((inst) => (
+            <InstitutionItem key={inst.Institution_id} inst={inst} grid={view === "grid"} />
+          ))}
+        </AnimatePresence>
       </div>
 
       {/* MODAL FORM */}
