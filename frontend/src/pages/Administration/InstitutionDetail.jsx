@@ -7,11 +7,12 @@ import { BiSolidInstitution } from "react-icons/bi";
 import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
 
 import { 
-  ThIcon, ListIcon, PlusIcon, EditIcon, SpinnerIcon, TrashIcon, SortIcon, LibraryIcon
+  ThIcon, ListIcon, PlusIcon, EditIcon, SpinnerIcon, SortIcon, LibraryIcon
 } from "../../components/ui/Icons";
 import { AppStyles } from "../../components/ui/AppStyles";
 import { ToastContainer } from "../../components/ui/Toast";
 import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
+import { CardItem } from "../../components/ui/CardItem"; // ✅ Import du nouveau composant
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -132,7 +133,6 @@ const InstitutionDetail = () => {
       setModalOpen(true);
     } else {
       // MODE CRÉATION : Récupérer le prochain ID
-      // On met un placeholder en attendant la réponse de l'API
       setForm({ 
         id: "Chargement...", 
         code: "", 
@@ -339,46 +339,21 @@ const InstitutionDetail = () => {
           <p className="text-sm font-semibold text-blue-700">Ajouter</p>
         </div>
 
+        {/* ✅ Utilisation du CardItem et AnimatePresence */}
         <AnimatePresence mode="popLayout">
           {filteredComposantes.map((comp) => (
-            <motion.div
-              layout
+            <CardItem
               key={comp.Composante_code}
-              initial={{ opacity: 0, scale: 0.9 }} 
-              animate={{ opacity: 1, scale: 1 }} 
-              exit={{ opacity: 0, scale: 0.9 }}
-              transition={{ duration: 0.2 }}
-              // CORRECTION: Application dynamique de la classe CSS
-              className={view === "grid" ? AppStyles.item.grid : AppStyles.item.list}
+              viewMode={view}
+              // Logique spécifique : Affiche abréviation en titre si dispo, sinon Label.
+              title={comp.Composante_abbreviation || comp.Composante_label}
+              subTitle={comp.Composante_abbreviation ? comp.Composante_label : comp.Composante_code}
+              imageSrc={comp.Composante_logo_path ? `${API_BASE_URL}${comp.Composante_logo_path}` : null}
+              PlaceholderIcon={BiSolidInstitution} 
               onClick={() => navigate(`/institution/${id}/etablissement/${comp.Composante_code}`, { state: { composante: comp } })}
-            >
-              <div className={`flex-shrink-0 flex items-center justify-center overflow-hidden rounded-full border border-gray-100 bg-gray-50 ${view === "grid" ? "w-20 h-20 mb-2" : "w-10 h-10"}`}>
-                {comp.Composante_logo_path ? (
-                  <img src={`${API_BASE_URL}${comp.Composante_logo_path}`} className="w-full h-full object-cover" alt="logo" />
-                ) : (
-                  <BiSolidInstitution className="text-gray-400 text-2xl" />
-                )}
-              </div>
-
-              <div className={view === "grid" ? "text-center w-full px-2" : "flex-1 min-w-0"}>
-                {/* AFFICHAGE : On affiche l'abréviation en priorité pour le titre,
-                   et le nom complet en dessous (ou l'inverse selon votre préférence).
-                   Ici je respecte la demande : "afficher l'abréviation".
-                */}
-                <h3 className={view === "grid" ? AppStyles.item.titleGrid : AppStyles.item.titleList}>
-                  {comp.Composante_abbreviation || comp.Composante_label}
-                </h3>
-                <p className={AppStyles.item.subtext}>
-                   {/* Si on affiche l'abréviation en titre, on met le nom complet ici, sinon le code */}
-                   {comp.Composante_abbreviation ? comp.Composante_label : comp.Composante_code}
-                </p>
-              </div>
-
-              <div className={`flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute ${view === "grid" ? "top-2 right-2 bg-white/90 p-1 rounded shadow-sm" : "right-3"}`}>
-                <button onClick={(e) => { e.stopPropagation(); openModal(comp); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><EditIcon /></button>
-                <button onClick={(e) => { e.stopPropagation(); handleDeleteClick(comp); }} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><TrashIcon /></button>
-              </div>
-            </motion.div>
+              onEdit={() => openModal(comp)}
+              onDelete={() => handleDeleteClick(comp)}
+            />
           ))}
         </AnimatePresence>
       </div>

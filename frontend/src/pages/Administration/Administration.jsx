@@ -2,18 +2,15 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 
-// --- IMPORTS MIS À JOUR ---
-// Le chemin d'accès relatif est ajusté: Administration.jsx est dans pages/Administration
-// Il faut remonter de deux niveaux pour atteindre src/, puis descendre dans components/ui
 import { 
-  LibraryIcon, ThIcon, ListIcon, PlusIcon, EditIcon, SpinnerIcon, TrashIcon, SortIcon 
+  LibraryIcon, ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
 } from "../../components/ui/Icons";
 import { AppStyles } from "../../components/ui/AppStyles";
 import { ToastContainer } from "../../components/ui/Toast";
 import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
-// --------------------------
+import { CardItem } from "../../components/ui/CardItem"; // ✅ Import du nouveau composant
 
 const API_URL = "http://127.0.0.1:8000/api";
 const ID_REGEX = /INST_(\d+)/;
@@ -197,41 +194,7 @@ const Administration = () => {
       return sortOrder === "asc" ? vA.localeCompare(vB) : vB.localeCompare(a.Institution_nom);
     });
 
-  const InstitutionItem = ({ inst, grid }) => (
-    <motion.div
-      // 2. UTILISATION: On injecte les props d'animation partagées ici
-      {...AppStyles.animation.itemProps}
-      
-      // La classe CSS
-      className={grid ? AppStyles.item.grid : AppStyles.item.list}
-      onClick={() => navigate(`/institution/${inst.Institution_id}`)}
-    >
-      <div className={`flex-shrink-0 flex items-center justify-center overflow-hidden rounded-full border border-gray-100 bg-gray-50 ${grid ? "w-20 h-20 mb-2" : "w-10 h-10"}`}>
-        {inst.Institution_logo_path ? (
-          <img
-            src={`http://127.0.0.1:8000${inst.Institution_logo_path}`}
-            alt="logo"
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <LibraryIcon className={grid ? "w-8 h-8 text-gray-400" : "w-5 h-5 text-gray-400"} />
-        )}
-      </div>
-      
-      <div className={grid ? "text-center w-full px-2" : "flex-1 min-w-0"}>
-        <p className={grid ? AppStyles.item.titleGrid : AppStyles.item.titleList}>{inst.Institution_nom}</p>
-        <p className={AppStyles.item.subtext}>
-            {inst.Institution_type} • {inst.Institution_code}
-        </p>
-      </div>
-
-      <div className={`flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute ${grid ? "top-2 right-2 bg-white/90 p-1 rounded shadow-sm" : "right-3"}`}>
-        <EditIcon className="text-blue-600 hover:bg-blue-50 cursor-pointer p-1.5 rounded" onClick={(e) => { e.stopPropagation(); openModal(inst); }} />
-        <TrashIcon className="text-red-600 hover:bg-red-50 cursor-pointer p-1.5 rounded" onClick={(e) => { e.stopPropagation(); setInstitutionToDelete(inst); setDeleteCodeInput(""); setDeleteModalOpen(true); }} />
-      </div>
-    </motion.div>
-  );
-
+  // Bouton Ajouter personnalisé
   const AddButton = ({ grid }) => (
     <div onClick={() => openModal()} className={grid ? AppStyles.addCard.grid : AppStyles.addCard.list}>
       <div className={`${AppStyles.addCard.iconContainer} ${grid ? "w-12 h-12 text-2xl" : "w-8 h-8 text-lg"}`}>
@@ -272,14 +235,29 @@ const Administration = () => {
         </div>
       </div>
 
-      {/* LIST/GRID AVEC ANIMATION */}
+      {/* LIST/GRID */}
       <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" : "flex flex-col gap-2"}>
         <AddButton grid={view === "grid"} />
         
-        {/* 3. WRAPPER: Ajouter AnimatePresence autour de la liste */}
+        {/* ✅ Utilisation de AnimatePresence pour gérer les sorties */}
         <AnimatePresence {...AppStyles.animation.presenceProps}>
           {filteredSorted.map((inst) => (
-            <InstitutionItem key={inst.Institution_id} inst={inst} grid={view === "grid"} />
+            // ✅ Utilisation du CardItem pour éviter le blink et uniformiser le style
+            <CardItem
+              key={inst.Institution_id}
+              viewMode={view}
+              title={inst.Institution_nom}
+              subTitle={`${inst.Institution_type} • ${inst.Institution_code}`}
+              imageSrc={inst.Institution_logo_path ? `http://127.0.0.1:8000${inst.Institution_logo_path}` : null}
+              PlaceholderIcon={LibraryIcon}
+              onClick={() => navigate(`/institution/${inst.Institution_id}`)}
+              onEdit={() => openModal(inst)}
+              onDelete={() => {
+                setInstitutionToDelete(inst);
+                setDeleteCodeInput("");
+                setDeleteModalOpen(true);
+              }}
+            />
           ))}
         </AnimatePresence>
       </div>
@@ -297,8 +275,8 @@ const Administration = () => {
                 className="w-20 h-20 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center cursor-pointer ring-1 hover:ring-blue-400"
                 onClick={() => fileInputRef.current.click()}
               >
-                {form.logo ? <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover" /> : 
-                 form.logoPath ? <img src={`http://127.0.0.1:8000${form.logoPath}`} className="w-full h-full object-cover" /> : 
+                {form.logo ? <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover" alt="Preview"/> : 
+                 form.logoPath ? <img src={`http://127.0.0.1:8000${form.logoPath}`} className="w-full h-full object-cover" alt="Logo"/> : 
                  <PlusIcon className="text-gray-400 text-2xl" />}
               </div>
               <input type="file" ref={fileInputRef} onChange={handleChange} className="hidden" name="logo" />
