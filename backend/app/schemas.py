@@ -1,300 +1,266 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
-from datetime import date, datetime # Ajout de date pour les champs Date
+from typing import Optional, List
+from datetime import date
+
+# ==========================================
+# CONFIGURATION GLOBALE
+# ==========================================
+# Cette configuration permet de :
+# 1. Lire les objets SQLAlchemy (from_attributes=True)
+# 2. Accepter les noms de champs API (ex: 'code') OU les noms DB (ex: 'Institution_code')
+base_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # =====================
 # INSTITUTIONS
 # =====================
 
-## Schéma de base pour la CRÉATION
 class InstitutionCreate(BaseModel):
-    # L'ID est OBLIGATOIRE et est fourni par le frontend (ex: INST_0003)
-    id_institution: str = Field(..., description="Identifiant unique de l'institution (INST_XXXX)")
-    
-    # Le code est OBLIGATOIRE selon le modèle SQLAlchemy, il doit être fourni.
-    # Dans le contexte actuel, il est préférable de le rendre obligatoire dans le formulaire
-    # ou de le déduire dans l'API s'il n'est pas fourni.
-    code: str = Field(..., description="Code court unique de l'institution") 
-    
-    nom: str
-    type_institution: str
-    description: Optional[str] = None 
-    abbreviation: Optional[str] = None 
-    
-    class Config:
-        extra = "allow" 
-
-## Schéma pour la MISE À JOUR (incluant le chemin existant pour le logo)
-class InstitutionUpdate(InstitutionCreate):
-    logo_path: Optional[str] = None
-    pass
-
-## Schéma de sortie (Réponse API) pour le mappage ORM/DB
-class InstitutionSchema(BaseModel):
-    # Utiliser les noms de champs du frontend/Pydantic
-    # et mapper aux noms réels des colonnes SQL via 'alias'
-
-    id_institution: str = Field(..., alias="Institution_id") # <-- Correction ici
-    code: str = Field(..., alias="Institution_code")         # <-- Correction ici
-    nom: str = Field(..., alias="Institution_nom")           # <-- Correction ici
-    type_institution: str = Field(..., alias="Institution_type") # <-- Correction ici
-    
+    id_institution: str = Field(..., alias="Institution_id", description="ID unique (ex: INST_0001)")
+    code: str = Field(..., alias="Institution_code")
+    nom: str = Field(..., alias="Institution_nom")
+    type_institution: str = Field(..., alias="Institution_type")
     description: Optional[str] = Field(None, alias="Institution_description")
     abbreviation: Optional[str] = Field(None, alias="Institution_abbreviation")
-    logo_path: Optional[str] = Field(None, alias="Institution_logo_path") # <-- Correction ici
+    
+    model_config = ConfigDict(extra="allow")
 
-    class Config:
-        orm_mode = True # ⚡ Indispensable pour que Pydantic lise l'objet ORM
-        # Permet à Pydantic d'utiliser les noms de champs Pydantic (id_institution, nom, etc.) lors de la lecture de l'objet ORM, 
-        # en utilisant les valeurs des alias (Institution_id, Institution_nom, etc.)
-        allow_population_by_field_name = True
+class InstitutionUpdate(InstitutionCreate):
+    logo_path: Optional[str] = Field(None, alias="Institution_logo_path")
+
+class InstitutionSchema(InstitutionCreate):
+    logo_path: Optional[str] = Field(None, alias="Institution_logo_path")
+    
+    model_config = base_config
 
 # =====================
 # COMPOSANTES
 # =====================
 
-# 1. Schéma de base
-# Contient les champs de base, utilisé par Base et Create
 class ComposanteBase(BaseModel):
-    # Les champs sont nommés de manière snake_case standard en Python, 
-    # mais reflètent les noms de colonnes de votre modèle SQLAlchemy
-    Composante_code: str = Field(..., max_length=50, description="Code unique de la composante (ex: FS-UFI)")
-    Composante_label: str = Field(..., max_length=100, description="Nom complet de la composante (ex: Faculté des Sciences)")
-    
-    Composante_description: Optional[str] = Field(None, description="Description détaillée de l'établissement")
-    Composante_abbreviation: Optional[str] = Field(None, max_length=20, description="Abréviation (ex: FS)")
-    Composante_logo_path: Optional[str] = Field(None, max_length=255, description="Chemin vers le logo de la composante")
+    code: str = Field(..., alias="Composante_code", max_length=50)
+    label: str = Field(..., alias="Composante_label", max_length=100)
+    description: Optional[str] = Field(None, alias="Composante_description")
+    abbreviation: Optional[str] = Field(None, alias="Composante_abbreviation", max_length=20)
+    logo_path: Optional[str] = Field(None, alias="Composante_logo_path", max_length=255)
+    id_institution: str = Field(..., alias="Institution_id_fk", max_length=10)
 
-    # Clé étrangère
-    Institution_id_fk: str = Field(..., max_length=10, description="ID de l'institution parente")
+    model_config = base_config
 
-# 2. Schéma de Création (pour la requête POST)
-# Hérite de Base et ne contient pas les champs gérés par la base de données (ID)
 class ComposanteCreate(ComposanteBase):
-    """Schéma utilisé pour la création d'une nouvelle composante (requête POST)."""
     pass
 
-# 3. Schéma de Mise à Jour (pour la requête PUT/PATCH)
-# Tous les champs sont optionnels pour permettre des mises à jour partielles
 class ComposanteUpdate(BaseModel):
-    """Schéma utilisé pour la mise à jour d'une composante existante (requête PUT/PATCH)."""
-    Composante_code: Optional[str] = Field(None, max_length=50)
-    Composante_label: Optional[str] = Field(None, max_length=100)
-    Composante_description: Optional[str] = None
-    Composante_abbreviation: Optional[str] = Field(None, max_length=20)
-    Composante_logo_path: Optional[str] = Field(None, max_length=255)
-    Institution_id_fk: Optional[str] = Field(None, max_length=10)
-
-# 4. Schéma de Réponse (pour la requête GET)
-# Contient tous les champs, y compris l'identifiant généré par la base
-class ComposanteSchema(ComposanteBase):
-    """Schéma utilisé pour la sérialisation des données en réponse (requête GET)."""
-    Composante_id: str = Field(..., max_length=12, description="Clé primaire de la composante")
+    code: Optional[str] = Field(None, alias="Composante_code")
+    label: Optional[str] = Field(None, alias="Composante_label")
+    description: Optional[str] = Field(None, alias="Composante_description")
+    abbreviation: Optional[str] = Field(None, alias="Composante_abbreviation")
+    logo_path: Optional[str] = Field(None, alias="Composante_logo_path")
+    id_institution: Optional[str] = Field(None, alias="Institution_id_fk")
     
-    # Configuration Pydantic pour mapper les objets SQLAlchemy
-    class Config:
-        orm_mode = True 
-        # Anciennement `orm_mode = True`, permet de lire les données
-        # à partir d'un objet de modèle SQLAlchemy.
+    model_config = base_config
 
-# =====================
-# DOMAINES
-# =====================
+class ComposanteSchema(ComposanteBase):
+    id_composante: str = Field(..., alias="Composante_id", max_length=12)
+    
+    model_config = base_config
 
 # =====================
 # DOMAINES
 # =====================
 
 class DomaineBase(BaseModel):
-    # En lecture/update, ces champs peuvent être optionnels ou déjà remplis
     code: Optional[str] = Field(None, alias="Domaine_code")
     label: Optional[str] = Field(None, alias="Domaine_label")
     description: Optional[str] = Field(None, alias="Domaine_description")
+    
+    model_config = base_config
 
-    class Config:
-        allow_population_by_field_name = True
-
-# Schéma spécifique pour la CREATION (POST)
 class DomaineCreate(BaseModel):
-    # Ici, on force la présence des données
-    code: str = Field(..., description="Code unique (ex: SCI)")
-    label: str = Field(..., description="Libellé du domaine (ex: Sciences et Technologies)")
-    description: Optional[str] = None
+    code: str = Field(..., alias="Domaine_code")
+    label: str = Field(..., alias="Domaine_label")
+    description: Optional[str] = Field(None, alias="Domaine_description")
 
 class DomaineSchema(DomaineBase):
-    # L'ID est généré par le backend, on le renvoie en lecture
     id_domaine: str = Field(..., alias="Domaine_id")
+    
+    model_config = base_config
 
-    class Config:
-        orm_mode = True
-        allow_population_by_field_name = True
+# =====================
+# PARCOURS (Déplacé avant Mentions pour référence)
+# =====================
+
+class ParcoursBase(BaseModel):
+    code: str = Field(..., alias="Parcours_code")
+    label: Optional[str] = Field(None, alias="Parcours_label") # ou nom_parcours
+    description: Optional[str] = Field(None, alias="Parcours_description")
+    abbreviation: Optional[str] = Field(None, alias="Parcours_abbreviation")
+    logo_path: Optional[str] = Field(None, alias="Parcours_logo_path")
+    date_creation: Optional[date] = Field(None, alias="Parcours_date_creation")
+    date_fin: Optional[date] = Field(None, alias="Parcours_date_fin")
+    
+    id_mention: str = Field(..., alias="Mention_id_fk")
+    id_type_formation_defaut: str = Field(..., alias="Parcours_type_formation_defaut_id_fk")
+    
+    model_config = base_config
+
+class ParcoursSchema(ParcoursBase):
+    id_parcours: str = Field(..., alias="Parcours_id")
+    # Pour compatibilité avec le frontend qui attend peut-être nom_parcours
+    nom_parcours: Optional[str] = Field(None, alias="Parcours_label") 
+
+    model_config = base_config
 
 # =====================
 # MENTIONS
 # =====================
 
 class MentionBase(BaseModel):
-    code: str # Mention_code
-    label: Optional[str] = None # Mention_label
-    description: Optional[str] = None # Mention_description
-    abbreviation: Optional[str] = None # Mention_abbreviation
-    logo_path: Optional[str] = None # Mention_logo_path
-    id_composante: str # Composante_id_fk
-    id_domaine: str # Domaine_id_fk
+    code: str = Field(..., alias="Mention_code")
+    label: Optional[str] = Field(None, alias="Mention_label")
+    description: Optional[str] = Field(None, alias="Mention_description")
+    abbreviation: Optional[str] = Field(None, alias="Mention_abbreviation")
+    logo_path: Optional[str] = Field(None, alias="Mention_logo_path")
+    
+    id_composante: str = Field(..., alias="Composante_id_fk")
+    id_domaine: str = Field(..., alias="Domaine_id_fk")
+
+    model_config = base_config
 
 class MentionSchema(MentionBase):
-    id_mention: str # Mention_id
+    id_mention: str = Field(..., alias="Mention_id")
+    
+    # 🔥 AJOUT IMPORTANT pour l'affichage des puces dans EtablissementDetail
+    parcours: List[ParcoursSchema] = []
 
-    class Config:
-        orm_mode = True
-
-# =====================
-# PARCOURS
-# =====================
-
-class ParcoursBase(BaseModel):
-    code: str # Parcours_code
-    label: Optional[str] = None # Parcours_label
-    description: Optional[str] = None # Parcours_description
-    abbreviation: Optional[str] = None # Parcours_abbreviation
-    logo_path: Optional[str] = None # Parcours_logo_path
-    date_creation: Optional[date] = None # Parcours_date_creation
-    date_fin: Optional[date] = None # Parcours_date_fin
-    id_mention: str # Mention_id_fk
-    # Renommé pour correspondre à la FK
-    id_type_formation_defaut: str # Parcours_type_formation_defaut_id_fk
-
-class ParcoursSchema(ParcoursBase):
-    id_parcours: str # Parcours_id
-
-    class Config:
-        orm_mode = True
+    model_config = base_config
 
 # =====================
 # CYCLES (LMD)
 # =====================
 
 class CycleBase(BaseModel):
-    code: Optional[str] = None # Cycle_code
-    label: str # Cycle_label
+    code: Optional[str] = Field(None, alias="Cycle_code")
+    label: str = Field(..., alias="Cycle_label")
+    
+    model_config = base_config
 
 class CycleSchema(CycleBase):
-    id_cycle: str # Cycle_id
-
-    class Config:
-        orm_mode = True
+    id_cycle: str = Field(..., alias="Cycle_id")
+    
+    model_config = base_config
 
 # =====================
 # NIVEAUX (L1, M2, D3, ...)
 # =====================
 
 class NiveauBase(BaseModel):
-    code: Optional[str] = None # Niveau_code
-    label: Optional[str] = None # Niveau_label
-    id_cycle: str # Cycle_id_fk
+    code: Optional[str] = Field(None, alias="Niveau_code")
+    label: Optional[str] = Field(None, alias="Niveau_label")
+    id_cycle: str = Field(..., alias="Cycle_id_fk")
+    
+    model_config = base_config
 
 class NiveauSchema(NiveauBase):
-    id_niveau: str # Niveau_id
-
-    class Config:
-        orm_mode = True
+    id_niveau: str = Field(..., alias="Niveau_id")
+    
+    model_config = base_config
 
 # =====================
 # SEMESTRES
 # =====================
 
 class SemestreBase(BaseModel):
-    code: Optional[str] = None # Semestre_code
-    numero: str # Semestre_numero
-    id_niveau: str # Niveau_id_fk
+    code: Optional[str] = Field(None, alias="Semestre_code")
+    numero: str = Field(..., alias="Semestre_numero")
+    id_niveau: str = Field(..., alias="Niveau_id_fk")
+    
+    model_config = base_config
 
 class SemestreSchema(SemestreBase):
-    id_semestre: str # Semestre_id
-
-    class Config:
-        orm_mode = True
+    id_semestre: str = Field(..., alias="Semestre_id")
+    
+    model_config = base_config
 
 # =====================
 # UNITES D'ENSEIGNEMENT (UE)
 # =====================
 
 class UniteEnseignementBase(BaseModel):
-    code: str # UE_code
-    intitule: str # UE_intitule
-    credit: int # UE_credit
-    id_semestre: str # Semestre_id_fk
+    code: str = Field(..., alias="UE_code")
+    intitule: str = Field(..., alias="UE_intitule")
+    credit: int = Field(..., alias="UE_credit")
+    id_semestre: str = Field(..., alias="Semestre_id_fk")
+    
+    model_config = base_config
 
 class UniteEnseignementSchema(UniteEnseignementBase):
-    id_ue: str # UE_id
-
-    class Config:
-        orm_mode = True
+    id_ue: str = Field(..., alias="UE_id")
+    
+    model_config = base_config
 
 # =====================
 # ELEMENTS CONSTITUTIFS (EC)
 # =====================
 
 class ElementConstitutifBase(BaseModel):
-    code: str # EC_code
-    intitule: str # EC_intitule
-    coefficient: int = 1 # EC_coefficient
-    id_ue: str # UE_id_fk
+    code: str = Field(..., alias="EC_code")
+    intitule: str = Field(..., alias="EC_intitule")
+    coefficient: int = Field(1, alias="EC_coefficient")
+    id_ue: str = Field(..., alias="UE_id_fk")
+    
+    model_config = base_config
 
 class ElementConstitutifSchema(ElementConstitutifBase):
-    id_ec: str # EC_id
-
-    class Config:
-        orm_mode = True
+    id_ec: str = Field(..., alias="EC_id")
+    
+    model_config = base_config
 
 # =====================
 # PARCOURS NIVEAU (Association)
 # =====================
 
 class ParcoursNiveauBase(BaseModel):
-    id_parcours: str # Parcours_id_fk
-    id_niveau: str # Niveau_id_fk
-    ordre: Optional[int] = None # ParcoursNiveau_ordre
+    id_parcours: str = Field(..., alias="Parcours_id_fk")
+    id_niveau: str = Field(..., alias="Niveau_id_fk")
+    ordre: Optional[int] = Field(None, alias="ParcoursNiveau_ordre")
+    
+    model_config = base_config
 
 class ParcoursNiveauSchema(ParcoursNiveauBase):
-    id_parcours_niveau: str # ParcoursNiveau_id
-
-    class Config:
-        orm_mode = True
+    id_parcours_niveau: str = Field(..., alias="ParcoursNiveau_id")
+    
+    model_config = base_config
 
 # =====================
 # SESSIONS D'EXAMEN
 # =====================
 
 class SessionExamenBase(BaseModel):
-    code: Optional[str] = None # SessionExamen_code
-    label: str # SessionExamen_label
+    code: Optional[str] = Field(None, alias="SessionExamen_code")
+    label: str = Field(..., alias="SessionExamen_label")
+    
+    model_config = base_config
 
 class SessionExamenSchema(SessionExamenBase):
-    id_session_examen: str # SessionExamen_id
-
-    class Config:
-        orm_mode = True
+    id_session_examen: str = Field(..., alias="SessionExamen_id")
+    
+    model_config = base_config
 
 # =====================
 # MODES D'INSCRIPTION
 # =====================
 
 class ModeInscriptionBase(BaseModel):
-    # On autorise le backend à recevoir "code" ou "ModeInscription_code"
     code: Optional[str] = Field(None, alias="ModeInscription_code")
     label: Optional[str] = Field(None, alias="ModeInscription_label")
     description: Optional[str] = Field(None, alias="ModeInscription_description")
     
-    class Config:
-        allow_population_by_field_name = True
+    model_config = base_config
 
 class ModeInscriptionSchema(ModeInscriptionBase):
-    # Mapping exact vers la colonne SQL : ModeInscription_id
     id_mode_inscription: str = Field(..., alias="ModeInscription_id")
-
-    class Config:
-        orm_mode = True
-        allow_population_by_field_name = True
+    
+    model_config = base_config
 
 # =====================
 # TYPES DE FORMATION
@@ -305,15 +271,12 @@ class TypeFormationBase(BaseModel):
     label: str = Field(..., alias="TypeFormation_label")
     description: Optional[str] = Field(None, alias="TypeFormation_description")
     
-    class Config:
-        allow_population_by_field_name = True
+    model_config = base_config
 
 class TypeFormationSchema(TypeFormationBase):
     id_type_formation: str = Field(..., alias="TypeFormation_id")
-
-    class Config:
-        orm_mode = True
-        allow_population_by_field_name = True
+    
+    model_config = base_config
 
 # =====================
 # ANNÉE UNIVERSITAIRE
@@ -324,168 +287,186 @@ class AnneeUniversitaireBase(BaseModel):
     description: Optional[str] = Field(None, alias="AnneeUniversitaire_description")
     ordre: int = Field(..., alias="AnneeUniversitaire_ordre")
     
-    class Config:
-        allow_population_by_field_name = True
+    model_config = base_config
 
 class AnneeUniversitaireSchema(AnneeUniversitaireBase):
     id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id")
-
-    class Config:
-        orm_mode = True
-        allow_population_by_field_name = True
+    
+    model_config = base_config
 
 # =====================
 # ÉTUDIANT
 # =====================
 
 class EtudiantBase(BaseModel):
-    numero_inscription: Optional[str] = None # Etudiant_numero_inscription
-    nom: str # Etudiant_nom
-    prenoms: Optional[str] = None # Etudiant_prenoms
-    sexe: Optional[str] = None # Etudiant_sexe
-    date_naissance: Optional[date] = None # Etudiant_naissance_date
-    lieu_naissance: Optional[str] = None # Etudiant_naissance_lieu
-    nationalite: Optional[str] = None # Etudiant_nationalite
-    bacc_annee: Optional[int] = None # Etudiant_bacc_annee
-    bacc_serie: Optional[str] = None # Etudiant_bacc_serie
-    bacc_numero: Optional[str] = None # Etudiant_bacc_numero
-    bacc_centre: Optional[str] = None # Etudiant_bacc_centre
-    bacc_mention: Optional[str] = None # Etudiant_bacc_mention
-    adresse: Optional[str] = None # Etudiant_adresse
-    telephone: Optional[str] = None # Etudiant_telephone
-    mail: Optional[str] = None # Etudiant_mail
-    cin: Optional[str] = None # Etudiant_cin
-    cin_date: Optional[date] = None # Etudiant_cin_date
-    cin_lieu: Optional[str] = None # Etudiant_cin_lieu
-    photo_profil_path: Optional[str] = None # Etudiant_photo_profil_path
-    scan_cin_path: Optional[str] = None # Etudiant_scan_cin_path
-    scan_releves_notes_bacc_path: Optional[str] = None # Etudiant_scan_releves_notes_bacc_path
+    numero_inscription: Optional[str] = Field(None, alias="Etudiant_numero_inscription")
+    nom: str = Field(..., alias="Etudiant_nom")
+    prenoms: Optional[str] = Field(None, alias="Etudiant_prenoms")
+    sexe: Optional[str] = Field(None, alias="Etudiant_sexe")
+    date_naissance: Optional[date] = Field(None, alias="Etudiant_naissance_date")
+    lieu_naissance: Optional[str] = Field(None, alias="Etudiant_naissance_lieu")
+    nationalite: Optional[str] = Field(None, alias="Etudiant_nationalite")
+    
+    # Infos Bacc
+    bacc_annee: Optional[int] = Field(None, alias="Etudiant_bacc_annee")
+    bacc_serie: Optional[str] = Field(None, alias="Etudiant_bacc_serie")
+    bacc_numero: Optional[str] = Field(None, alias="Etudiant_bacc_numero")
+    bacc_centre: Optional[str] = Field(None, alias="Etudiant_bacc_centre")
+    bacc_mention: Optional[str] = Field(None, alias="Etudiant_bacc_mention")
+    
+    # Contact
+    adresse: Optional[str] = Field(None, alias="Etudiant_adresse")
+    telephone: Optional[str] = Field(None, alias="Etudiant_telephone")
+    mail: Optional[str] = Field(None, alias="Etudiant_mail")
+    
+    # Identité
+    cin: Optional[str] = Field(None, alias="Etudiant_cin")
+    cin_date: Optional[date] = Field(None, alias="Etudiant_cin_date")
+    cin_lieu: Optional[str] = Field(None, alias="Etudiant_cin_lieu")
+    
+    # Chemins Fichiers
+    photo_profil_path: Optional[str] = Field(None, alias="Etudiant_photo_profil_path")
+    scan_cin_path: Optional[str] = Field(None, alias="Etudiant_scan_cin_path")
+    scan_releves_notes_bacc_path: Optional[str] = Field(None, alias="Etudiant_scan_releves_notes_bacc_path")
+
+    model_config = base_config
 
 class EtudiantSchema(EtudiantBase):
-    id_etudiant: str # Etudiant_id
-
-    class Config:
-        orm_mode = True
+    id_etudiant: str = Field(..., alias="Etudiant_id")
+    
+    model_config = base_config
 
 # =====================
 # INSCRIPTION
 # =====================
 
 class InscriptionBase(BaseModel):
-    id_etudiant: str # Etudiant_id_fk
-    id_annee_universitaire: str # AnneeUniversitaire_id_fk
-    id_parcours: str # Parcours_id_fk
-    id_semestre: str # Semestre_id_fk
-    id_mode_inscription: Optional[str] = None # ModeInscription_id_fk
-    date_inscription: date # Inscription_date
-    credit_acquis_semestre: int = 0 # Inscription_credit_acquis_semestre
-    is_semestre_valide: bool = False # Inscription_is_semestre_valide
+    id_etudiant: str = Field(..., alias="Etudiant_id_fk")
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
+    id_parcours: str = Field(..., alias="Parcours_id_fk")
+    id_semestre: str = Field(..., alias="Semestre_id_fk")
+    id_mode_inscription: Optional[str] = Field(None, alias="ModeInscription_id_fk")
+    
+    date_inscription: date = Field(..., alias="Inscription_date")
+    credit_acquis_semestre: int = Field(0, alias="Inscription_credit_acquis_semestre")
+    is_semestre_valide: bool = Field(False, alias="Inscription_is_semestre_valide")
+    
+    model_config = base_config
 
 class InscriptionSchema(InscriptionBase):
-    # La clé primaire est Inscription_id (qui est l'ancienne Inscription_code)
-    id_inscription: str # Inscription_id
-
-    class Config:
-        orm_mode = True
+    id_inscription: str = Field(..., alias="Inscription_id")
+    
+    model_config = base_config
 
 # =====================
 # RÉSULTAT SEMESTRE
 # =====================
 
 class ResultatSemestreBase(BaseModel):
-    id_etudiant: str # Etudiant_id_fk
-    id_semestre: str # Semestre_id_fk
-    id_annee_universitaire: str # AnneeUniversitaire_id_fk
-    id_session_examen: str # SessionExamen_id_fk
-    statut_validation: str # ResultatSemestre_statut_validation (V, NV, AJ)
-    credits_acquis: Optional[float] = None # ResultatSemestre_credits_acquis
-    moyenne_obtenue: Optional[float] = None # ResultatSemestre_moyenne_obtenue
+    id_etudiant: str = Field(..., alias="Etudiant_id_fk")
+    id_semestre: str = Field(..., alias="Semestre_id_fk")
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
+    id_session_examen: str = Field(..., alias="SessionExamen_id_fk")
+    
+    statut_validation: str = Field(..., alias="ResultatSemestre_statut_validation")
+    credits_acquis: Optional[float] = Field(None, alias="ResultatSemestre_credits_acquis")
+    moyenne_obtenue: Optional[float] = Field(None, alias="ResultatSemestre_moyenne_obtenue")
+    
+    model_config = base_config
 
 class ResultatSemestreSchema(ResultatSemestreBase):
-    id_resultat_semestre: str # ResultatSemestre_id
-
-    class Config:
-        orm_mode = True
+    id_resultat_semestre: str = Field(..., alias="ResultatSemestre_id")
+    
+    model_config = base_config
 
 # =====================
 # RÉSULTAT UE
 # =====================
 
 class ResultatUEBase(BaseModel):
-    id_etudiant: str # Etudiant_id_fk
-    id_ue: str # UE_id_fk
-    id_annee_universitaire: str # AnneeUniversitaire_id_fk
-    id_session_examen: str # SessionExamen_id_fk
-    moyenne: float # ResultatUE_moyenne
-    is_acquise: bool = False # ResultatUE_is_acquise
-    credit_obtenu: int = 0 # ResultatUE_credit_obtenu
+    id_etudiant: str = Field(..., alias="Etudiant_id_fk")
+    id_ue: str = Field(..., alias="UE_id_fk")
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
+    id_session_examen: str = Field(..., alias="SessionExamen_id_fk")
+    
+    moyenne: float = Field(..., alias="ResultatUE_moyenne")
+    is_acquise: bool = Field(False, alias="ResultatUE_is_acquise")
+    credit_obtenu: int = Field(0, alias="ResultatUE_credit_obtenu")
+    
+    model_config = base_config
 
 class ResultatUESchema(ResultatUEBase):
-    id_resultat_ue: str # ResultatUE_id
-
-    class Config:
-        orm_mode = True
+    id_resultat_ue: str = Field(..., alias="ResultatUE_id")
+    
+    model_config = base_config
 
 # =====================
 # NOTE (Par EC et Session)
 # =====================
 
 class NoteBase(BaseModel):
-    id_etudiant: str # Etudiant_id_fk
-    id_ec: str # EC_id_fk
-    id_annee_universitaire: str # AnneeUniversitaire_id_fk
-    id_session_examen: str # SessionExamen_id_fk
-    valeur: float # Note_valeur
+    id_etudiant: str = Field(..., alias="Etudiant_id_fk")
+    id_ec: str = Field(..., alias="EC_id_fk")
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
+    id_session_examen: str = Field(..., alias="SessionExamen_id_fk")
+    
+    valeur: float = Field(..., alias="Note_valeur")
+    
+    model_config = base_config
 
 class NoteSchema(NoteBase):
-    id_note: str # Note_id
-
-    class Config:
-        orm_mode = True
+    id_note: str = Field(..., alias="Note_id")
+    
+    model_config = base_config
 
 # =====================
 # SUIVI CRÉDIT CYCLE
 # =====================
 
 class SuiviCreditCycleBase(BaseModel):
-    id_etudiant: str # Etudiant_id_fk
-    id_cycle: str # Cycle_id_fk
-    credit_total_acquis: int = 0 # SuiviCreditCycle_credit_total_acquis
-    is_cycle_valide: bool = False # SuiviCreditCycle_is_cycle_valide
+    id_etudiant: str = Field(..., alias="Etudiant_id_fk")
+    id_cycle: str = Field(..., alias="Cycle_id_fk")
+    credit_total_acquis: int = Field(0, alias="SuiviCreditCycle_credit_total_acquis")
+    is_cycle_valide: bool = Field(False, alias="SuiviCreditCycle_is_cycle_valide")
+    
+    model_config = base_config
 
 class SuiviCreditCycleSchema(SuiviCreditCycleBase):
-    id_suivi_credit_cycle: str # SuiviCreditCycle_id
-
-    class Config:
-        orm_mode = True
+    id_suivi_credit_cycle: str = Field(..., alias="SuiviCreditCycle_id")
+    
+    model_config = base_config
 
 # =====================
 # ENSEIGNANT
 # =====================
 
 class EnseignantBase(BaseModel):
-    matricule: Optional[str] = None # Enseignant_matricule
-    nom: str # Enseignant_nom
-    prenoms: Optional[str] = None # Enseignant_prenoms
-    sexe: Optional[str] = None # Enseignant_sexe
-    date_naissance: Optional[date] = None # Enseignant_date_naissance
-    grade: Optional[str] = None # Enseignant_grade
-    statut: str # Enseignant_statut (PERM, VAC)
-    id_composante_affectation: Optional[str] = None # Composante_id_affectation_fk
-    cin: Optional[str] = None # Enseignant_cin
-    cin_date: Optional[date] = None # Enseignant_cin_date
-    cin_lieu: Optional[str] = None # Enseignant_cin_lieu
-    telephone: Optional[str] = None # Enseignant_telephone
-    mail: Optional[str] = None # Enseignant_mail
-    rib: Optional[str] = None # Enseignant_rib
-    photo_profil_path: Optional[str] = None # Enseignant_photo_profil_path
-    scan_cin_path: Optional[str] = None # Enseignant_scan_cin_path
+    matricule: Optional[str] = Field(None, alias="Enseignant_matricule")
+    nom: str = Field(..., alias="Enseignant_nom")
+    prenoms: Optional[str] = Field(None, alias="Enseignant_prenoms")
+    sexe: Optional[str] = Field(None, alias="Enseignant_sexe")
+    date_naissance: Optional[date] = Field(None, alias="Enseignant_date_naissance")
+    grade: Optional[str] = Field(None, alias="Enseignant_grade")
+    statut: str = Field(..., alias="Enseignant_statut") # PERM, VAC
+    
+    id_composante_affectation: Optional[str] = Field(None, alias="Composante_id_affectation_fk")
+    
+    cin: Optional[str] = Field(None, alias="Enseignant_cin")
+    cin_date: Optional[date] = Field(None, alias="Enseignant_cin_date")
+    cin_lieu: Optional[str] = Field(None, alias="Enseignant_cin_lieu")
+    telephone: Optional[str] = Field(None, alias="Enseignant_telephone")
+    mail: Optional[str] = Field(None, alias="Enseignant_mail")
+    rib: Optional[str] = Field(None, alias="Enseignant_rib")
+    
+    photo_profil_path: Optional[str] = Field(None, alias="Enseignant_photo_profil_path")
+    scan_cin_path: Optional[str] = Field(None, alias="Enseignant_scan_cin_path")
+
+    model_config = base_config
 
 class EnseignantSchema(EnseignantBase):
-    id_enseignant: str # Enseignant_id
-
-    class Config:
-        orm_mode = True
+    id_enseignant: str = Field(..., alias="Enseignant_id")
+    
+    model_config = base_config
 
 # =====================
 # TYPE ENSEIGNEMENT
@@ -495,61 +476,61 @@ class TypeEnseignementBase(BaseModel):
     code: Optional[str] = Field(None, alias="TypeEnseignement_code")
     label: str = Field(..., alias="TypeEnseignement_label")
     
-    class Config:
-        allow_population_by_field_name = True
+    model_config = base_config
 
 class TypeEnseignementSchema(TypeEnseignementBase):
     id_type_enseignement: str = Field(..., alias="TypeEnseignement_id")
-
-    class Config:
-        orm_mode = True
-        allow_population_by_field_name = True
+    
+    model_config = base_config
 
 # =====================
 # VOLUME HORAIRE EC
 # =====================
 
 class VolumeHoraireECBase(BaseModel):
-    id_ec: str # EC_id_fk
-    id_type_enseignement: str # TypeEnseignement_id_fk
-    id_annee_universitaire: str # AnneeUniversitaire_id_fk
-    volume_heure: float # VolumeHoraireEC_volume_heure
+    id_ec: str = Field(..., alias="EC_id_fk")
+    id_type_enseignement: str = Field(..., alias="TypeEnseignement_id_fk")
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
+    volume_heure: float = Field(..., alias="VolumeHoraireEC_volume_heure")
+    
+    model_config = base_config
 
 class VolumeHoraireECSchema(VolumeHoraireECBase):
-    id_volume_horaire_ec: str # VolumeHoraireEC_id
-
-    class Config:
-        orm_mode = True
+    id_volume_horaire_ec: str = Field(..., alias="VolumeHoraireEC_id")
+    
+    model_config = base_config
 
 # =====================
 # AFFECTATION EC
 # =====================
 
 class AffectationECBase(BaseModel):
-    id_enseignant: str # Enseignant_id_fk
-    id_ec: str # EC_id_fk
-    id_type_enseignement: str # TypeEnseignement_id_fk
-    id_annee_universitaire: str # AnneeUniversitaire_id_fk
-    volume_heure_effectif: Optional[float] = None # AffectationEC_volume_heure_effectif
+    id_enseignant: str = Field(..., alias="Enseignant_id_fk")
+    id_ec: str = Field(..., alias="EC_id_fk")
+    id_type_enseignement: str = Field(..., alias="TypeEnseignement_id_fk")
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
+    volume_heure_effectif: Optional[float] = Field(None, alias="AffectationEC_volume_heure_effectif")
+    
+    model_config = base_config
 
 class AffectationECSchema(AffectationECBase):
-    id_affectation_ec: str # AffectationEC_id
-
-    class Config:
-        orm_mode = True
+    id_affectation_ec: str = Field(..., alias="AffectationEC_id")
+    
+    model_config = base_config
 
 # =====================
 # JURY
 # =====================
 
 class JuryBase(BaseModel):
-    id_enseignant: str # Enseignant_id_fk (Président)
-    id_semestre: str # Semestre_id_fk
-    id_annee_universitaire: str # AnneeUniversitaire_id_fk
-    date_nomination: Optional[date] = None # Jury_date_nomination
+    id_enseignant: str = Field(..., alias="Enseignant_id_fk") # Président
+    id_semestre: str = Field(..., alias="Semestre_id_fk")
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
+    date_nomination: Optional[date] = Field(None, alias="Jury_date_nomination")
+    
+    model_config = base_config
 
 class JurySchema(JuryBase):
-    id_jury: str # Jury_id
-
-    class Config:
-        orm_mode = True
+    id_jury: str = Field(..., alias="Jury_id")
+    
+    model_config = base_config

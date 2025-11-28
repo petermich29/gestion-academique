@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaGraduationCap, FaChevronLeft } from "react-icons/fa";
+import { FaGraduationCap, FaChevronLeft, FaCircle, FaLayerGroup } from "react-icons/fa"; 
 
 import { 
   ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
@@ -21,10 +21,9 @@ const EtablissementDetail = () => {
   const location = useLocation();
   const { setBreadcrumb } = useOutletContext() || {};
 
-  // Données
+  // --- ÉTATS ---
   const [etablissement, setEtablissement] = useState(location.state?.composante || null);
   const [mentions, setMentions] = useState([]);
-  // NOUVEL ÉTAT POUR LES DOMAINES
   const [domaines, setDomaines] = useState([]); 
   
   // UI States
@@ -57,7 +56,7 @@ const EtablissementDetail = () => {
       id: "", 
       nom: "", 
       code: "", 
-      domaine_id: "", // Correspond au select
+      domaine_id: "", 
       abbreviation: "", 
       description: "", 
       logo: null, 
@@ -66,24 +65,22 @@ const EtablissementDetail = () => {
   const [errors, setErrors] = useState({});
   const fileInputRef = useRef(null);
 
-  // --- 1. CHARGEMENT DES DONNÉES (MODIFIÉ) ---
+  // --- 1. CHARGEMENT DES DONNÉES ---
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
         let currentEtab = etablissement;
         
-        // 1. Charger l'Établissement (Composante) si non présent
+        // A. Charger l'Établissement si manquant
         if (!currentEtab) {
           const res = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
-          if (!res.ok) {
-              const errDetail = await res.json().catch(() => ({ detail: "Inconnue" }));
-              throw new Error("Établissement introuvable. Detail: " + errDetail.detail);
-          }
+          if (!res.ok) throw new Error("Établissement introuvable.");
           currentEtab = await res.json();
           setEtablissement(currentEtab);
         }
 
+        // B. Breadcrumb
         if (setBreadcrumb) {
           setBreadcrumb([
             { label: "Administration", path: "/administration" },
@@ -92,24 +89,23 @@ const EtablissementDetail = () => {
           ]);
         }
         
-        // VÉRIFICATION CRITIQUE : Avoir l'ID avant de chercher les mentions
-        if (!currentEtab.Composante_id) {
-            throw new Error("ID de composante manquant. Impossible de charger les mentions.");
+        // C. Récupérer les DOMAINES
+        const resDomaines = await fetch(`${API_BASE_URL}/api/domaines/`); 
+        if (resDomaines.ok) {
+            setDomaines(await resDomaines.json());
         }
-        
-        // 2. Récupérer la liste des DOMAINES (POUR LE SELECT)
-        const resDomaines = await fetch(`${API_BASE_URL}/api/domaines/`);
-        const dataDomaines = resDomaines.ok ? await resDomaines.json() : [];
-        setDomaines(Array.isArray(dataDomaines) ? dataDomaines : []);
 
-        // 3. Récupérer les Mentions via l'ID de la composante (CORRECTIF POUR LE CHARGEMENT)
-        const resMentions = await fetch(`${API_BASE_URL}/api/mentions/composante/${currentEtab.Composante_id}`);
-        const dataMentions = resMentions.ok ? await resMentions.json() : [];
-        setMentions(Array.isArray(dataMentions) ? dataMentions : []);
+        // D. Récupérer les Mentions (avec Parcours inclus)
+        if (currentEtab.Composante_id) {
+            const resMentions = await fetch(`${API_BASE_URL}/api/mentions/composante/${currentEtab.Composante_id}`);
+            if (resMentions.ok) {
+                setMentions(await resMentions.json());
+            }
+        }
 
       } catch (err) {
         addToast("Erreur chargement: " + err.message, "error");
-        console.error("Erreur de chargement:", err);
+        console.error(err);
       } finally {
         setIsLoading(false);
       }
@@ -117,21 +113,28 @@ const EtablissementDetail = () => {
     fetchData();
   }, [etablissementId, institutionId, setBreadcrumb]); 
 
-  // --- 2. GESTION DU FORMULAIRE (CRUD) ---
+  // --- HELPER : Trouver le nom du domaine ---
+  const getDomaineLabel = (id) => {
+    if (!id || domaines.length === 0) return "Domaine inconnu";
+    const dom = domaines.find(d => d.Domaine_id === id);
+    return dom ? dom.Domaine_label : id;
+  };
+
+  // --- 2. GESTION DU FORMULAIRE ---
   const openModal = async (ment = null) => {
     setErrors({});
     if (ment) {
       setEditMention(ment);
-      // MAPPING : Les clés viennent de schemas.py (MentionSchema)
+      // Correction : Utilisation des clés API correctes (Mention_label, etc.)
       setForm({
-        id: ment.id_mention,
-        nom: ment.label, 
-        code: ment.code,
-        domaine_id: ment.id_domaine || "", // Utiliser l'ID du domaine
-        abbreviation: ment.abbreviation || "",
-        description: ment.description || "",
+        id: ment.id_mention || ment.Mention_id,
+        nom: ment.Mention_label || ment.label || "", 
+        code: ment.Mention_code || ment.code || "",
+        domaine_id: ment.id_domaine || ment.Domaine_id_fk || "", 
+        abbreviation: ment.Mention_abbreviation || ment.abbreviation || "",
+        description: ment.Mention_description || ment.description || "",
         logo: null,
-        logoPath: ment.logo_path || ""
+        logoPath: ment.Mention_logo_path || ment.logo_path || ""
       });
       setModalOpen(true);
     } else {
@@ -140,7 +143,7 @@ const EtablissementDetail = () => {
           id: "Chargement...", 
           nom: "", 
           code: "", 
-          domaine_id: "", // Valeur initiale vide pour le select
+          domaine_id: "", 
           abbreviation: "", 
           description: "", 
           logo: null, 
@@ -174,12 +177,10 @@ const EtablissementDetail = () => {
     e.preventDefault();
     setIsSubmitting(true);
     
-    // Validation
     const newErrors = {};
     if (!form.nom.trim()) newErrors.nom = "Le nom est requis.";
     if (!form.code.trim()) newErrors.code = "Le code est requis.";
-    // Validation du Domaine ID
-    if (!form.domaine_id.trim()) newErrors.domaine_id = "Veuillez sélectionner un domaine.";
+    if (!form.domaine_id) newErrors.domaine_id = "Le domaine est requis.";
     
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -202,7 +203,9 @@ const EtablissementDetail = () => {
       let method = "POST";
 
       if (editMention) {
-        url += `${editMention.id_mention}`; // Utilise id_mention (schema)
+        // Utiliser l'ID correct
+        const idToUpdate = editMention.id_mention || editMention.Mention_id;
+        url += `${idToUpdate}`; 
         method = "PUT";
       }
 
@@ -214,10 +217,14 @@ const EtablissementDetail = () => {
       
       const savedMention = await res.json();
       
-      setMentions(prev => editMention 
-        ? prev.map(m => m.id_mention === savedMention.id_mention ? savedMention : m) 
-        : [...prev, savedMention]
-      );
+      setMentions(prev => {
+         const savedId = savedMention.id_mention || savedMention.Mention_id;
+         if (editMention) {
+            return prev.map(m => (m.id_mention === savedId || m.Mention_id === savedId) ? savedMention : m);
+         }
+         return [...prev, savedMention];
+      });
+
       addToast(editMention ? "Mention modifiée" : "Mention créée");
       closeModal();
     } catch (e) {
@@ -237,15 +244,18 @@ const EtablissementDetail = () => {
 
   const confirmDelete = async () => {
     if (!mentionToDelete) return;
-    if (deleteInput.trim().toLowerCase() !== mentionToDelete.label.toLowerCase()) {
+    const nameToCheck = mentionToDelete.Mention_label || mentionToDelete.label;
+    
+    if (deleteInput.trim().toLowerCase() !== nameToCheck.toLowerCase()) {
       setDeleteError("Le nom ne correspond pas.");
       return;
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/mentions/${mentionToDelete.id_mention}`, { method: "DELETE" });
+      const idToDelete = mentionToDelete.id_mention || mentionToDelete.Mention_id;
+      const res = await fetch(`${API_BASE_URL}/api/mentions/${idToDelete}`, { method: "DELETE" });
       if (res.ok) {
-        setMentions(prev => prev.filter(m => m.id_mention !== mentionToDelete.id_mention));
+        setMentions(prev => prev.filter(m => (m.id_mention || m.Mention_id) !== idToDelete));
         addToast("Mention supprimée");
         setDeleteModalOpen(false);
       } else {
@@ -256,23 +266,35 @@ const EtablissementDetail = () => {
     }
   };
 
-  // --- 4. FILTRES ET TRI ---
+  // --- 4. RENDER ---
+  
+  // Fonction de tri et filtre
   const filteredMentions = mentions
-    .filter(m => ( (m.label || "") + (m.abbreviation || "") + (m.code || "")).toLowerCase().includes(search.toLowerCase()))
+    .filter(m => {
+        const label = m.Mention_label || m.label || "";
+        const abbr = m.Mention_abbreviation || m.abbreviation || "";
+        const code = m.Mention_code || m.code || "";
+        return (label + abbr + code).toLowerCase().includes(search.toLowerCase());
+    })
     .sort((a, b) => {
-      const vA = sortField === 'label' ? (a.label || "") : (a.abbreviation || "");
-      const vB = sortField === 'label' ? (b.label || "") : (b.abbreviation || "");
+      const labelA = a.Mention_label || a.label || "";
+      const labelB = b.Mention_label || b.label || "";
+      const codeA = a.Mention_code || a.code || "";
+      const codeB = b.Mention_code || b.code || "";
+      
+      const vA = sortField === 'label' ? labelA : codeA;
+      const vB = sortField === 'label' ? labelB : codeB;
       return sortOrder === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
     });
 
-  if (isLoading) return <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600" />;</div>;
+  if (isLoading) return <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600" /></div>;
   if (!etablissement) return <div className="p-10 text-center">Établissement introuvable.</div>;
 
   return (
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      {/* HEADER DE L'ÉTABLISSEMENT */}
+      {/* HEADER ÉTABLISSEMENT */}
       <motion.div 
         initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} 
         className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 relative"
@@ -297,7 +319,6 @@ const EtablissementDetail = () => {
             <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded font-mono font-bold">{etablissement.Composante_code}</span>
             {etablissement.Composante_abbreviation && <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded border">{etablissement.Composante_abbreviation}</span>}
           </div>
-          {etablissement.Composante_description && <p className="text-gray-500 text-sm max-w-3xl italic">{etablissement.Composante_description}</p>}
         </div>
       </motion.div>
 
@@ -311,7 +332,7 @@ const EtablissementDetail = () => {
              <span className="font-semibold text-gray-600 text-xs uppercase">Tri:</span>
              <select value={sortField} onChange={(e) => setSortField(e.target.value)} className="border-none bg-transparent outline-none cursor-pointer text-gray-700 font-medium">
                 <option value="label">Nom</option>
-                <option value="abbreviation">Abréviation</option>
+                <option value="abbreviation">Code</option>
              </select>
              <button onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")} className="hover:text-blue-600 p-1"><SortIcon order={sortOrder} /></button>
           </div>
@@ -322,7 +343,7 @@ const EtablissementDetail = () => {
         </div>
       </div>
 
-      {/* CONTENU (GRILLE / LISTE) */}
+      {/* LISTE / GRILLE */}
       <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" : "flex flex-col gap-2"}>
         {/* Bouton Ajouter */}
         <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
@@ -332,27 +353,76 @@ const EtablissementDetail = () => {
           <p className="text-sm font-semibold text-blue-700">Ajouter</p>
         </div>
 
-        {/* Liste des Mentions */}
+        {/* Cartes Mentions */}
         <AnimatePresence mode="popLayout">
-          {filteredMentions.map((ment) => (
-            <CardItem
-              key={ment.id_mention} // id_mention via Schema
-              viewMode={view}
-              title={ment.label}    // label via Schema
-              subTitle={ment.code}  // code via Schema
-              imageSrc={ment.logo_path ? `${API_BASE_URL}${ment.logo_path}` : null} // logo_path via Schema
-              PlaceholderIcon={FaGraduationCap} 
-              onClick={() => { /* Navigation future */ }}
-              onEdit={() => openModal(ment)}
-              onDelete={() => handleDeleteClick(ment)}
-            />
-          ))}
+          {filteredMentions.map((ment) => {
+             // 1. Récupération sécurisée du nom de la Mention
+             const mentionName = ment.Mention_label || ment.label || "Nom inconnu";
+             const mentionCode = ment.Mention_code || ment.code;
+             const logoPath = ment.Mention_logo_path || ment.logo_path;
+             const mentionId = ment.id_mention || ment.Mention_id;
+
+             // 2. Récupération du Nom du Domaine
+             const domaineId = ment.id_domaine || ment.Domaine_id_fk;
+             const domaineLabel = getDomaineLabel(domaineId);
+
+             // 3. Gestion des Parcours
+             const parcoursList = ment.parcours || [];
+             const parcoursCount = parcoursList.length;
+
+             return (
+              <CardItem
+                key={mentionId}
+                viewMode={view}
+                // Modification ici : Afficher le NOM de la mention, et le DOMAINE en sous-titre
+                title={mentionName}
+                subTitle={<span className="flex items-center gap-1"><FaLayerGroup className="text-[10px]"/> {domaineLabel}</span>}
+                imageSrc={logoPath ? `${API_BASE_URL}${logoPath}` : null} 
+                PlaceholderIcon={FaGraduationCap} 
+                onClick={() => { /* Navigation future */ }}
+                onEdit={() => openModal(ment)}
+                onDelete={() => handleDeleteClick(ment)}
+              >
+                  {/* LOGIQUE D'AFFICHAGE PARCOURS (GRILLE vs LISTE) */}
+                  <div className="mt-3 pt-2 border-t border-gray-100 w-full">
+                      
+                      {/* CAS GRILLE : AFFICHER LE NOMBRE DE PARCOURS */}
+                      {view === "grid" && (
+                          <div className="flex items-center justify-between">
+                             <span className="text-[10px] font-bold text-gray-400 uppercase">Parcours</span>
+                             <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100">
+                                {parcoursCount}
+                             </span>
+                          </div>
+                      )}
+
+                      {/* CAS LISTE : AFFICHER LES NOMS DES PARCOURS */}
+                      {view === "list" && (
+                          <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold text-gray-400 uppercase mr-2">Parcours :</span>
+                              {parcoursCount > 0 ? (
+                                  parcoursList.map((parcours, idx) => (
+                                      <span key={idx} className="flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2 py-0.5 rounded">
+                                          <FaCircle className="w-1.5 h-1.5 text-green-500" />
+                                          {parcours.nom_parcours || parcours.Parcours_label || parcours.label}
+                                      </span>
+                                  ))
+                              ) : (
+                                  <span className="text-xs text-gray-400 italic">Aucun parcours</span>
+                              )}
+                          </div>
+                      )}
+                  </div>
+              </CardItem>
+            );
+          })}
         </AnimatePresence>
       </div>
 
       {/* MODAL AJOUT/EDITION */}
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editMention ? "Modifier la Mention" : "Nouvelle Mention"}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {/* ... Le reste du formulaire reste identique, attention juste aux valeurs 'value={...}' qui doivent utiliser form.x ... */}
             <div className="flex gap-4">
                 <div className="flex flex-col items-center gap-2">
                    <div className="w-20 h-20 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center cursor-pointer hover:border-blue-400 overflow-hidden" onClick={() => fileInputRef.current.click()}>
@@ -369,11 +439,9 @@ const EtablissementDetail = () => {
                         <span className={AppStyles.input.label}>ID</span>
                         <input type="text" value={form.id} disabled className={AppStyles.input.formControlDisabled} />
                     </label>
-                    
                     <label className="block">
                         <span className={AppStyles.input.label}>Code Mention <span className="text-red-500">*</span></span>
                         <input type="text" name="code" value={form.code} onChange={handleChange} className={`${AppStyles.input.formControl} uppercase font-bold ${errors.code ? "border-red-500" : ""}`} placeholder="Ex: MEN_INFO" />
-                        {errors.code && <span className={AppStyles.input.errorText}>{errors.code}</span>}
                     </label>
                 </div>
             </div>
@@ -381,12 +449,10 @@ const EtablissementDetail = () => {
             <label className="block">
                 <span className={AppStyles.input.label}>Nom de la mention <span className="text-red-500">*</span></span>
                 <input type="text" name="nom" value={form.nom} onChange={handleChange} className={`${AppStyles.input.formControl} ${errors.nom ? "border-red-500" : ""}`} placeholder="Ex: Informatique" />
-                {errors.nom && <span className={AppStyles.input.errorText}>{errors.nom}</span>}
             </label>
             
             <div className="grid grid-cols-2 gap-4">
                 <label className="block">
-                    {/* CHAMP SÉLECTEUR DOMAINE (MODIFIÉ) */}
                     <span className={AppStyles.input.label}>Domaine <span className="text-red-500">*</span></span>
                     <select 
                         name="domaine_id" 
@@ -396,13 +462,11 @@ const EtablissementDetail = () => {
                     >
                         <option value="" disabled>Sélectionnez un domaine</option>
                         {domaines.map(d => (
-                            // Utilise id_domaine, label, code du DomaineSchema
-                            <option key={d.id_domaine} value={d.id_domaine}>
-                                {d.label} ({d.code})
+                            <option key={d.Domaine_id} value={d.Domaine_id}>
+                                {d.Domaine_label} ({d.Domaine_code})
                             </option>
                         ))}
                     </select>
-                    {errors.domaine_id && <span className={AppStyles.input.errorText}>{errors.domaine_id}</span>}
                 </label>
 
                 <label className="block">
@@ -427,14 +491,14 @@ const EtablissementDetail = () => {
 
       {/* MODAL SUPPRESSION */}
       <ConfirmModal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} title="Supprimer la mention ?">
-          <p className="text-gray-600 mb-2">Cela supprimera la mention : <b>{mentionToDelete?.label}</b></p>
-          <p className="text-xs text-gray-500 mb-2">Veuillez taper le nom complet pour confirmer :</p>
+          <p className="text-gray-600 mb-2">Cela supprimera la mention : <b>{mentionToDelete?.Mention_label || mentionToDelete?.label}</b> et tous ses parcours associés.</p>
+          <p className="text-xs text-gray-500 mb-2">Tapez le nom complet pour confirmer :</p>
           <input 
             type="text" 
             value={deleteInput} 
             onChange={(e) => { setDeleteInput(e.target.value); setDeleteError(""); }} 
             className={`w-full ${AppStyles.input.formControl} ${deleteError ? "border-red-500" : ""}`}
-            placeholder={mentionToDelete?.label}
+            placeholder={mentionToDelete?.Mention_label || mentionToDelete?.label}
           />
           {deleteError && <span className={AppStyles.input.errorText}>{deleteError}</span>}
           <div className="flex justify-end gap-2 mt-4">

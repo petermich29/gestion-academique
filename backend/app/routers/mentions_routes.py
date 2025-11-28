@@ -1,14 +1,14 @@
 # backend/app/routers/mentions_routes.py
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import os
 import shutil
 import re 
 
-from app.models import Mention, Composante, Domaine
+from app.models import Mention, Composante, Domaine, Parcours
 from app.schemas import MentionSchema
 from app.database import get_db
 
@@ -59,12 +59,22 @@ def get_next_id(db: Session = Depends(get_db)):
 # Lister les mentions d'une composante spécifique
 @router.get("/composante/{composante_id}", response_model=List[MentionSchema])
 def get_mentions_by_composante(composante_id: str, db: Session = Depends(get_db)):
-    # Vérifie si la composante existe
+    """
+    Récupère les mentions d'une composante incluant leurs parcours associés.
+    """
+    # 1. Vérifie si la composante existe
     composante = db.query(Composante).filter(Composante.Composante_id == composante_id).first()
     if not composante:
         raise HTTPException(status_code=404, detail="Composante introuvable")
-        
-    mentions = db.query(Mention).filter(Mention.Composante_id_fk == composante_id).all()
+    
+    # 2. Récupère les mentions avec chargement optimisé des parcours
+    # Assurez-vous que la relation 'parcours' est définie dans le modèle SQLAlchemy 'Mention'
+    mentions = (
+        db.query(Mention)
+        .filter(Mention.Composante_id_fk == composante_id)
+        .options(joinedload(Mention.parcours)) # Eager Loading des parcours
+        .all()
+    )
     return mentions
 
 # Créer une Mention
