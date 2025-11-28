@@ -1,11 +1,11 @@
-// src/pages/parametres/Parametres.jsx
 import React, { useEffect, useState } from "react";
+import PageWrapper from "../../components/PageWrapper";
 
 const Parametres = () => {
   const [headerAnimation, setHeaderAnimation] = useState("fade");
   const [etabAnimation, setEtabAnimation] = useState("fade");
 
-  // Charger les valeurs au montage
+  // Charger les valeurs sauvegardées
   useEffect(() => {
     const savedHeader = localStorage.getItem("headerAnimation") || "fade";
     const savedEtab = localStorage.getItem("etabAnimation") || "fade";
@@ -26,8 +26,7 @@ const Parametres = () => {
   };
 
   return (
-    <div className="p-6 flex flex-col gap-6">
-      <h1 className="text-xl font-semibold mb-2">Paramètres</h1>
+    <PageWrapper title="Paramètres">
       <p className="text-gray-600 mb-4">
         Personnalisez le comportement visuel de l'application.
       </p>
@@ -38,6 +37,7 @@ const Parametres = () => {
         <p className="text-sm text-gray-600">
           Animation utilisée lors de l’affichage d’une institution (page InstitutionDetail).
         </p>
+
         <select
           value={headerAnimation}
           onChange={handleHeaderChange}
@@ -54,6 +54,7 @@ const Parametres = () => {
         <p className="text-sm text-gray-600">
           Animation utilisée lors du changement d’établissement (boutons Précédent / Suivant).
         </p>
+
         <select
           value={etabAnimation}
           onChange={handleEtabChange}
@@ -63,7 +64,7 @@ const Parametres = () => {
           <option value="slide">Glissement (slide)</option>
         </select>
       </div>
-    </div>
+    </PageWrapper>
   );
 };
 

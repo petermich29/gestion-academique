@@ -1,18 +1,19 @@
-# backend/app/main.py
+# app/main.py
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles  # <-- à ajouter
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
-from app.routers import composantes_routes, institutions_routes
+
+# Imports des routeurs
+from app.routers import composantes_routes, institutions_routes, mentions_routes, domaines_routes, metadonnees_routes # <--- AJOUT
 from app.database import engine
 from app.models import Base
 
-# Création des tables si elles n'existent pas
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Gestion Académique")
 
-# Middleware CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.FRONTEND_URL],  
@@ -21,12 +22,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Inclure les routes avec prefix /api
+# Inclusion des routes
 app.include_router(institutions_routes.router, prefix="/api") 
 app.include_router(composantes_routes.router, prefix="/api")
+app.include_router(mentions_routes.router, prefix="/api")
+app.include_router(domaines_routes.router, prefix="/api")
+app.include_router(metadonnees_routes.router, prefix="/api") # <--- AJOUT
 
-# ----------------------------
-# Servir les fichiers statiques
-# ----------------------------
-# Assure-toi que le dossier app/static/logos existe
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

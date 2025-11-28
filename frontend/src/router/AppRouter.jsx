@@ -33,14 +33,7 @@ import Resultats from "../pages/services/Resultats";
 import Releves from "../pages/services/Releves";
 
 // Métadonnées
-import Institutions from "../pages/metas/Institutions";
-import Composante from "../pages/metas/Composante";
-import Domaine from "../pages/metas/Domaine";
-import TypeInscription from "../pages/metas/TypeInscription";
-import ModeInscription from "../pages/metas/ModeInscription";
-import AnneeUniversitaire from "../pages/metas/AnneeUniversitaire";
-import TypeEnseignement from "../pages/metas/TypeEnseignement";
-import ModeEnseignement from "../pages/metas/ModeEnseignement";
+import Metadonnees from "../pages/Metas/Metadonnees";
 
 import Parametres from "../pages/Parametres/Parametres";
 
@@ -55,10 +48,8 @@ const AppRouter = () => (
         {/* Administration */}
         <Route path="/administration" element={<Administration />} />
         <Route path="/institution/:id" element={<InstitutionDetail />} />
-        <Route
-          path="/institution/:id/etablissement/:code"
-          element={<EtablissementDetail />}
-        />
+        <Route path="/institution/:id/etablissement/:etablissementId" element={<EtablissementDetail />} />
+      
         <Route path="/mention" element={<Mention />} />
         <Route path="/parcours" element={<Parcours />} />
         <Route path="/ue" element={<UE />} />
@@ -83,14 +74,7 @@ const AppRouter = () => (
         <Route path="/releves" element={<Releves />} />
 
         {/* Métadonnées */}
-        <Route path="/institutions" element={<Institutions />} />
-        <Route path="/composante" element={<Composante />} />
-        <Route path="/domaine" element={<Domaine />} />
-        <Route path="/type-inscription" element={<TypeInscription />} />
-        <Route path="/mode-inscription" element={<ModeInscription />} />
-        <Route path="/annee-universitaire" element={<AnneeUniversitaire />} />
-        <Route path="/type-enseignement" element={<TypeEnseignement />} />
-        <Route path="/mode-enseignement" element={<ModeEnseignement />} />
+        <Route path="/metadonnees" element={<Metadonnees />} />
 
         {/* Paramètres */}
         <Route path="/parametres" element={<Parametres />} />

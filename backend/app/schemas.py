@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 from datetime import date, datetime # Ajout de date pour les champs Date
 
@@ -101,16 +101,33 @@ class ComposanteSchema(ComposanteBase):
 # DOMAINES
 # =====================
 
+# =====================
+# DOMAINES
+# =====================
+
 class DomaineBase(BaseModel):
-    code: Optional[str] = None # Domaine_code
-    label: Optional[str] = None # Domaine_label
-    description: Optional[str] = None # Domaine_description
+    # En lecture/update, ces champs peuvent être optionnels ou déjà remplis
+    code: Optional[str] = Field(None, alias="Domaine_code")
+    label: Optional[str] = Field(None, alias="Domaine_label")
+    description: Optional[str] = Field(None, alias="Domaine_description")
+
+    class Config:
+        allow_population_by_field_name = True
+
+# Schéma spécifique pour la CREATION (POST)
+class DomaineCreate(BaseModel):
+    # Ici, on force la présence des données
+    code: str = Field(..., description="Code unique (ex: SCI)")
+    label: str = Field(..., description="Libellé du domaine (ex: Sciences et Technologies)")
+    description: Optional[str] = None
 
 class DomaineSchema(DomaineBase):
-    id_domaine: str # Domaine_id
+    # L'ID est généré par le backend, on le renvoie en lecture
+    id_domaine: str = Field(..., alias="Domaine_id")
 
     class Config:
         orm_mode = True
+        allow_population_by_field_name = True
 
 # =====================
 # MENTIONS
@@ -263,45 +280,59 @@ class SessionExamenSchema(SessionExamenBase):
 # =====================
 
 class ModeInscriptionBase(BaseModel):
-    code: Optional[str] = None # ModeInscription_code
-    label: str # ModeInscription_label
-    description: Optional[str] = None # ModeInscription_description
+    # On autorise le backend à recevoir "code" ou "ModeInscription_code"
+    code: Optional[str] = Field(None, alias="ModeInscription_code")
+    label: Optional[str] = Field(None, alias="ModeInscription_label")
+    description: Optional[str] = Field(None, alias="ModeInscription_description")
+    
+    class Config:
+        allow_population_by_field_name = True
 
 class ModeInscriptionSchema(ModeInscriptionBase):
-    id_mode_inscription: str # ModeInscription_id
+    # Mapping exact vers la colonne SQL : ModeInscription_id
+    id_mode_inscription: str = Field(..., alias="ModeInscription_id")
 
     class Config:
         orm_mode = True
+        allow_population_by_field_name = True
 
 # =====================
 # TYPES DE FORMATION
 # =====================
 
 class TypeFormationBase(BaseModel):
-    code: str # TypeFormation_code
-    label: str # TypeFormation_label
-    description: Optional[str] = None # TypeFormation_description
+    code: str = Field(..., alias="TypeFormation_code")
+    label: str = Field(..., alias="TypeFormation_label")
+    description: Optional[str] = Field(None, alias="TypeFormation_description")
+    
+    class Config:
+        allow_population_by_field_name = True
 
 class TypeFormationSchema(TypeFormationBase):
-    id_type_formation: str # TypeFormation_id
+    id_type_formation: str = Field(..., alias="TypeFormation_id")
 
     class Config:
         orm_mode = True
+        allow_population_by_field_name = True
 
 # =====================
 # ANNÉE UNIVERSITAIRE
 # =====================
 
 class AnneeUniversitaireBase(BaseModel):
-    annee: Optional[str] = None # AnneeUniversitaire_annee
-    description: Optional[str] = None # AnneeUniversitaire_description
-    ordre: int # AnneeUniversitaire_ordre
+    annee: Optional[str] = Field(None, alias="AnneeUniversitaire_annee")
+    description: Optional[str] = Field(None, alias="AnneeUniversitaire_description")
+    ordre: int = Field(..., alias="AnneeUniversitaire_ordre")
+    
+    class Config:
+        allow_population_by_field_name = True
 
 class AnneeUniversitaireSchema(AnneeUniversitaireBase):
-    id_annee_universitaire: str # AnneeUniversitaire_id
+    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id")
 
     class Config:
         orm_mode = True
+        allow_population_by_field_name = True
 
 # =====================
 # ÉTUDIANT
@@ -461,14 +492,18 @@ class EnseignantSchema(EnseignantBase):
 # =====================
 
 class TypeEnseignementBase(BaseModel):
-    code: Optional[str] = None # TypeEnseignement_code
-    label: str # TypeEnseignement_label
+    code: Optional[str] = Field(None, alias="TypeEnseignement_code")
+    label: str = Field(..., alias="TypeEnseignement_label")
+    
+    class Config:
+        allow_population_by_field_name = True
 
 class TypeEnseignementSchema(TypeEnseignementBase):
-    id_type_enseignement: str # TypeEnseignement_id
+    id_type_enseignement: str = Field(..., alias="TypeEnseignement_id")
 
     class Config:
         orm_mode = True
+        allow_population_by_field_name = True
 
 # =====================
 # VOLUME HORAIRE EC
