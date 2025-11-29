@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaBookOpen } from "react-icons/fa";
+import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaBookOpen, FaLayerGroup, FaCircle } from "react-icons/fa";
 
 import { 
   ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
@@ -21,25 +21,38 @@ const MentionDetail = () => {
   const location = useLocation();
   const { setBreadcrumb } = useOutletContext() || {};
 
-  // --- ÉTATS ---
+  // --- ÉTATS DONNÉES ---
   const [mention, setMention] = useState(location.state?.mention || null);
   const [etablissement, setEtablissement] = useState(location.state?.etablissement || null);
-  const [institution, setInstitution] = useState(null); // Ajout pour le breadcrumb
+  const [institution, setInstitution] = useState(location.state?.institution || null);
   const [parcours, setParcours] = useState([]);
   
-  // Listes de référence pour les formulaires / Navigation
-  const [mentionsList, setMentionsList] = useState([]); 
-  const [typesFormation, setTypesFormation] = useState([]); 
+  const [mentionsList, setMentionsList] = useState([]); // Pour la navigation Prev/Next
+  const [typesFormation, setTypesFormation] = useState([]); // **NOUVEAU : Types de Formation Dynamiques**
 
-  // UI States
+  // --- ÉTATS UI ---
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [view, setView] = useState("grid");
   const [search, setSearch] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
-
-  // Toasts
   const [toasts, setToasts] = useState([]);
+
+  // --- MODALES ET FORMULAIRE ---
+  const [modalOpen, setModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [editParcours, setEditParcours] = useState(null);
+  const [parcoursToDelete, setParcoursToDelete] = useState(null);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  
+  const [form, setForm] = useState({ 
+      id: "", code: "", label: "", abbreviation: "", description: "", 
+      type_formation: "", logo: null, logoPath: "" 
+  });
+  const [errors, setErrors] = useState({});
+  const fileInputRef = useRef(null);
+
   const addToast = (message, type = "success") => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -47,41 +60,21 @@ const MentionDetail = () => {
   };
   const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
-  // Modales
-  const [modalOpen, setModalOpen] = useState(false);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [editParcours, setEditParcours] = useState(null);
-  const [parcoursToDelete, setParcoursToDelete] = useState(null);
-  const [deleteInput, setDeleteInput] = useState("");
+  // =========================================================
+  // 1. CHARGEMENT DES DONNÉES
+  // =========================================================
   
-  // Formulaire
-  const [form, setForm] = useState({ 
-      id: "", code: "", label: "", abbreviation: "", description: "", 
-      type_formation: "TYPE_01", logo: null, logoPath: "" 
-  });
-  const [errors, setErrors] = useState({});
-  const fileInputRef = useRef(null);
-
-  // --- 1. CHARGEMENT DES DONNÉES ---
-  
-  // A. Charger Types de Formation (Reference)
-  useEffect(() => {
-      const fetchTypes = async () => {
-          setTypesFormation([
-              { id: 'TYPE_01', label: 'Formation Initiale (FI)' },
-              { id: 'TYPE_02', label: 'Formation Continue (FC)' },
-              { id: 'TYPE_03', label: 'Formation à Distance (FAD)' },
-          ]);
-      };
-      fetchTypes();
-  }, []);
-
-  // B. Charger Données Principales (Institution, Etab, Mention)
   useEffect(() => {
     setIsLoading(true);
     const fetchData = async () => {
       try {
-        // 1. Charger Institution (pour le Breadcrumb nom correct)
+        // --- 1. CHARGEMENT DES TYPES DE FORMATION (NOUVEAU) ---
+        const resTypes = await fetch(`${API_BASE_URL}/api/metadonnees/types-formation`);
+        if (resTypes.ok) {
+            setTypesFormation(await resTypes.json());
+        }
+
+        // --- 2. Chargement Institution, Etablissement, Mention (Si manquants) ---
         let currentInst = institution;
         if(!currentInst) {
              const resInst = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
@@ -90,12 +83,9 @@ const MentionDetail = () => {
                  setInstitution(currentInst);
              }
         }
-
-        // 2. Charger Etablissement (si manquant)
+        
         let currentEtab = etablissement;
         if (!currentEtab) {
-            // Attention: etablissementId est souvent un CODE (ex: FDS), pas un ID numérique
-            // L'API doit supporter le fetch par ID ou Code, ou on utilise la liste
             const resEtab = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
             if(resEtab.ok) {
                 currentEtab = await resEtab.json();
@@ -103,7 +93,6 @@ const MentionDetail = () => {
             }
         }
 
-        // 3. Charger Mention
         let currentMention = mention;
         if (!currentMention || currentMention.Mention_id !== mentionId) {
             const res = await fetch(`${API_BASE_URL}/api/mentions/${mentionId}`);
@@ -112,23 +101,25 @@ const MentionDetail = () => {
             setMention(currentMention);
         }
 
-        // 4. Charger Parcours
         if (currentMention.parcours) {
             setParcours(currentMention.parcours);
         }
 
-        // 5. Mise à jour Breadcrumb (CORRECTION #1)
+        // --- 3. MISE À JOUR DU BREADCRUMB ---
         if (setBreadcrumb) {
+            const institutionLabel = currentInst?.Institution_nom || institutionId;
+            const etablissementLabel = currentEtab?.Composante_abbreviation || currentEtab?.Composante_label || etablissementId;
+
             setBreadcrumb([
                 { label: "Administration", path: `/administration` },
-                { label: currentInst?.Institution_nom || institutionId, path: `/institution/${institutionId}` },
-                { label: currentEtab?.Composante_abbreviation || currentEtab?.Composante_label || etablissementId, path: `/institution/${institutionId}/etablissement/${etablissementId}` },
-                { label: currentMention.Mention_label, path: "#" }, // La mention est la page courante
+                { label: institutionLabel, path: `/institution/${institutionId}` },
+                { label: etablissementLabel, path: `/institution/${institutionId}/etablissement/${etablissementId}` },
+                { label: currentMention.Mention_label, path: "#" },
             ]);
         }
 
       } catch (err) {
-        addToast("Erreur chargement: " + err.message, "error");
+        addToast("Erreur chargement des données: " + err.message, "error");
       } finally {
         setIsLoading(false);
       }
@@ -136,94 +127,111 @@ const MentionDetail = () => {
     fetchData();
   }, [mentionId, etablissementId, institutionId, setBreadcrumb]);
 
-
-  // C. Charger la liste des mentions pour la navigation (Next/Prev) (CORRECTION #3)
+  // Chargement Liste des Mentions pour la Navigation (Prev/Next)
   useEffect(() => {
      const fetchMentionsList = async () => {
-         // On a besoin de l'ID numérique de l'établissement, pas juste le code 'etablissementId'
+         // Nécessite l'ID de la Composante/Etablissement pour charger la liste
          if(!etablissement?.Composante_id) return; 
-
          try {
              const res = await fetch(`${API_BASE_URL}/api/mentions/composante/${etablissement.Composante_id}`);
              if(res.ok) {
                  const data = await res.json();
                  setMentionsList(data.sort((a,b) => a.Mention_code.localeCompare(b.Mention_code)));
              }
-         } catch(e) { console.error("Err navigation mentions", e); }
+         } catch(e) { console.error(e); }
      };
      fetchMentionsList();
-  }, [etablissement]); // Dépend de l'objet etablissement chargé
+  }, [etablissement]);
 
+  // =========================================================
+  // 2. NAVIGATION ET UI
+  // =========================================================
 
-  // --- 2. NAVIGATION ENTRE MENTIONS ---
   const handleNavigate = (direction) => {
       if (!mentionsList.length || !mention) return;
       const idx = mentionsList.findIndex(m => m.Mention_id === mention.Mention_id);
       if (idx === -1) return;
       
       const newIdx = direction === 'prev' ? idx - 1 : idx + 1;
+      
       if (newIdx >= 0 && newIdx < mentionsList.length) {
           const nextM = mentionsList[newIdx];
-          // On garde l'état de l'établissement pour éviter le rechargement
           navigate(`/institution/${institutionId}/etablissement/${etablissementId}/mention/${nextM.Mention_id}`, {
               state: { mention: nextM, etablissement, institution }
           });
-          // Forcer la mise à jour locale immédiate pour fluidité
           setMention(nextM);
-          if(nextM.parcours) setParcours(nextM.parcours);
+          if(nextM.parcours) setParcours(nextM.parcours); // Mise à jour des parcours
       }
   };
-
+  
   const isFirst = mentionsList.length > 0 && mention && mentionsList[0].Mention_id === mention.Mention_id;
   const isLast = mentionsList.length > 0 && mention && mentionsList[mentionsList.length - 1].Mention_id === mention.Mention_id;
 
-  // --- 3. CRUD PARCOURS ---
+  // Helper pour trouver le label du type de formation
+  const getTypeFormationLabel = (id) => {
+      const type = typesFormation.find(t => t.TypeFormation_id === id);
+      return type ? type.TypeFormation_label : id;
+  }
+
+  // =========================================================
+  // 3. GESTION DU FORMULAIRE (CRUD PARCOURS)
+  // =========================================================
 
   const openModal = async (p = null) => {
+    // 1. Réinitialiser les erreurs
     setErrors({});
-    
-    if (p) {
-        // Mode ÉDITION
-        setEditParcours(p);
-        setForm({
-            id: p.Parcours_id,
-            code: p.Parcours_code,
-            label: p.Parcours_label || p.nom_parcours,
-            abbreviation: p.Parcours_abbreviation || "",
-            description: p.Parcours_description || "",
-            type_formation: p.Parcours_type_formation_defaut_id_fk || "TYPE_01",
-            logo: null,
-            logoPath: p.Parcours_logo_path || ""
-        });
-        setModalOpen(true);
-    } else {
-        // Mode CRÉATION
-        setEditParcours(null);
-        setForm({ 
-            id: "Chargement...", 
-            code: "", label: "", abbreviation: "", description: "", 
-            type_formation: "TYPE_01", logo: null, logoPath: "" 
-        });
-        setModalOpen(true); // Ouvrir immédiatement pour feedback visuel
 
-        // (CORRECTION #2) : Fetch direct au lieu d'une fonction externe indéfinie
-        try {
-            const res = await fetch(`${API_BASE_URL}/api/parcours/next-id`);
-            if(res.ok) {
-                const nextId = await res.json();
-                setForm(prev => ({ ...prev, id: nextId }));
-            } else {
-                setForm(prev => ({ ...prev, id: "NOUVEAU" }));
-            }
-        } catch(e) {
-            console.error("Erreur ID Parcours", e);
-            setForm(prev => ({ ...prev, id: "..." }));
+    if (p) {
+      // MODE MODIFICATION : Pré-remplir le formulaire avec les données du parcours (p)
+      setEditParcours(p);
+      setForm({
+        id: p.Parcours_id,
+        code: p.Parcours_code,
+        label: p.Parcours_label || p.nom_parcours,
+        abbreviation: p.Parcours_abbreviation || "",
+        description: p.Parcours_description || "",
+        // Clé importante pour la sélection du type de formation
+        type_formation: p.Parcours_type_formation_defaut_id_fk || "", 
+        logo: null, 
+        logoPath: p.Parcours_logo_path || ""
+      });
+      setModalOpen(true);
+    } else {
+      // MODE CRÉATION : Initialiser le formulaire
+      setEditParcours(null);
+      setForm({ 
+        id: "Chargement...", 
+        code: "", 
+        label: "", 
+        abbreviation: "", 
+        description: "", 
+        type_formation: "", // Remise à zéro
+        logo: null, 
+        logoPath: "" 
+      });
+      setModalOpen(true);
+
+      // Récupération de l'ID suivant de manière ASYNCHRONE
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/parcours/next-id`); 
+        if (res.ok) {
+          const nextId = await res.json();
+          // Mettre à jour uniquement l'ID une fois qu'il est disponible
+          setForm(prev => ({ ...prev, id: nextId }));
         }
+      } catch (e) {
+        console.error("Erreur lors de la récupération du prochain ID:", e);
+        // Laisse l'ID à "Chargement..." en cas d'échec
+      }
     }
   };
 
-  const closeModal = () => { setModalOpen(false); setEditParcours(null); };
-
+  const closeModal = () => { 
+    setModalOpen(false); 
+    setEditParcours(null); 
+    setErrors({}); 
+  };
+  
   const handleFormChange = (e) => {
       const { name, value, files } = e.target;
       if (name === "logo" && files) setForm(prev => ({ ...prev, logo: files[0] }));
@@ -236,9 +244,11 @@ const MentionDetail = () => {
       setIsSubmitting(true);
       
       const newErrors = {};
-      if(!form.code) newErrors.code = "Code requis";
-      if(!form.label) newErrors.label = "Libellé requis";
-      if(Object.keys(newErrors).length > 0) {
+      if (!form.label.trim()) newErrors.label = "Le libellé est requis.";
+      if (!form.code.trim()) newErrors.code = "Le code est requis.";
+      if (!form.type_formation) newErrors.type_formation = "Le type de formation est requis.";
+
+      if (Object.keys(newErrors).length > 0) {
           setErrors(newErrors);
           setIsSubmitting(false);
           return;
@@ -247,13 +257,13 @@ const MentionDetail = () => {
       const formData = new FormData();
       formData.append("code", form.code);
       formData.append("label", form.label);
-      formData.append("id_type_formation", form.type_formation);
-      formData.append("abbreviation", form.abbreviation);
-      formData.append("description", form.description);
+      formData.append("id_type_formation", form.type_formation); // ID Type Formation
+      if(form.abbreviation) formData.append("abbreviation", form.abbreviation);
+      if(form.description) formData.append("description", form.description);
       if(form.logo) formData.append("logo_file", form.logo);
 
       try {
-          let url = `${API_BASE_URL}/api/mentions/parcours/`;
+          let url = `${API_BASE_URL}/api/parcours/`; // Route standard pour CRUD parcours
           let method = "POST";
           
           if(editParcours) {
@@ -261,199 +271,222 @@ const MentionDetail = () => {
               method = "PUT";
               formData.append("parcours_id", editParcours.Parcours_id);
           } else {
-              // Si création, on envoie aussi l'ID de la mention parent
-              // Si le backend génère l'ID, pas besoin d'envoyer form.id, sinon :
+              // En mode création, on lie le parcours à la mention
               formData.append("id_parcours", form.id);
               formData.append("id_mention", mention.Mention_id);
           }
 
           const res = await fetch(url, { method, body: formData });
-          if(!res.ok) throw new Error("Erreur sauvegarde parcours");
+          if(!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.detail || "Erreur sauvegarde parcours");
+          }
           
           const saved = await res.json();
-          setParcours(prev => editParcours 
-            ? prev.map(p => p.Parcours_id === saved.Parcours_id ? saved : p)
-            : [...prev, saved]
-          );
-          
-          addToast(editParcours ? "Parcours modifié" : "Parcours créé");
+          // Mise à jour de la liste des parcours
+          setParcours(prev => editParcours ? prev.map(p => p.Parcours_id === saved.Parcours_id ? saved : p) : [...prev, saved]);
+          addToast(editParcours ? "Parcours modifié avec succès." : "Parcours créé avec succès.");
           closeModal();
-      } catch(e) {
-          addToast(e.message, "error");
-      } finally {
-          setIsSubmitting(false);
+      } catch(e) { 
+          addToast(e.message, "error"); 
+      } finally { 
+          setIsSubmitting(false); 
       }
   };
 
-  const handleDelete = (p) => {
-      setParcoursToDelete(p);
-      setDeleteInput("");
-      setDeleteModalOpen(true);
-  };
+  // =========================================================
+  // 4. SUPPRESSION
+  // =========================================================
 
+  const handleDelete = (p) => { 
+    setParcoursToDelete(p); 
+    setDeleteInput(""); 
+    setDeleteError("");
+    setDeleteModalOpen(true); 
+  };
+  
   const confirmDelete = async () => {
       if(!parcoursToDelete) return;
-      if(deleteInput !== parcoursToDelete.Parcours_code) {
-          addToast("Le code ne correspond pas", "error");
+      const codeToCheck = parcoursToDelete.Parcours_code;
+
+      if(deleteInput !== codeToCheck) {
+          setDeleteError("Le code ne correspond pas.");
           return;
       }
+
       try {
-          const res = await fetch(`${API_BASE_URL}/api/mentions/parcours/${parcoursToDelete.Parcours_id}`, { method: "DELETE" });
+          const res = await fetch(`${API_BASE_URL}/api/parcours/${parcoursToDelete.Parcours_id}`, { method: "DELETE" });
           if(res.ok) {
               setParcours(prev => prev.filter(p => p.Parcours_id !== parcoursToDelete.Parcours_id));
-              addToast("Parcours supprimé");
+              addToast("Parcours supprimé.");
               setDeleteModalOpen(false);
+          } else {
+              throw new Error("Impossible de supprimer le parcours.");
           }
-      } catch(e) { addToast("Erreur suppression", "error"); }
+      } catch(e) { 
+          addToast(e.message, "error"); 
+      }
   };
 
-  // --- 4. RENDER ---
+  // =========================================================
+  // 5. RENDER
+  // =========================================================
 
   const filteredParcours = parcours.filter(p => 
-      (p.Parcours_label || "").toLowerCase().includes(search.toLowerCase()) || 
+      (p.Parcours_label || p.nom_parcours || "").toLowerCase().includes(search.toLowerCase()) ||
       (p.Parcours_code || "").toLowerCase().includes(search.toLowerCase())
-  ).sort((a,b) => {
-      const vA = a.Parcours_label || "";
-      const vB = b.Parcours_label || "";
-      return sortOrder === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
-  });
+  ).sort((a,b) => sortOrder === 'asc' 
+      ? (a.Parcours_label||a.nom_parcours||"").localeCompare(b.Parcours_label||b.nom_parcours||"") 
+      : (b.Parcours_label||b.nom_parcours||"").localeCompare(a.Parcours_label||a.nom_parcours||""));
 
-  if(isLoading) return <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600" /></div>;
+  if(isLoading) return (
+    <div className={AppStyles.pageContainer}>
+        <div className={AppStyles.header.container}>
+            <h2 className={AppStyles.mainTitle}>Détails de la Mention</h2>
+        </div>
+        <hr className={AppStyles.separator} />
+        <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600" /></div>
+    </div>
+  );
   if(!mention) return <div className="p-10 text-center">Mention introuvable</div>;
 
   return (
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
-
-      {/* HEADER PAGE */}
+      
+      {/* TITRE ET BANDEAU INFO MENTION */}
       <div className={AppStyles.header.container}>
-         <h2 className={AppStyles.mainTitle}>Détails de la Mention</h2>
+          <h2 className={AppStyles.mainTitle}>Détails de la Mention</h2>
       </div>
       <hr className={AppStyles.separator} />
 
-      {/* INFO MENTION (NAVIGABLE) */}
       <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1, y:0}} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 relative">
           <div className="flex-shrink-0 mx-auto md:mx-0">
-             {mention.Mention_logo_path ? (
-                 <img src={`${API_BASE_URL}${mention.Mention_logo_path}`} className="w-24 h-24 object-contain border rounded-lg bg-gray-50 p-2" alt="Logo"/>
-             ) : (
-                 <div className="w-24 h-24 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400"><FaGraduationCap className="w-10 h-10"/></div>
-             )}
+             {mention.Mention_logo_path ? <img src={`${API_BASE_URL}${mention.Mention_logo_path}`} className="w-24 h-24 object-contain rounded-lg border bg-gray-50 p-2" alt="Logo Mention" /> : <div className="w-24 h-24 bg-gray-100 flex items-center justify-center text-gray-400 rounded-lg"><FaGraduationCap className="w-10 h-10"/></div>}
           </div>
-          <div className="flex-1 text-center md:text-left space-y-2">
+          <div className="flex-1 space-y-2 text-center md:text-left">
               <div 
-                  className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 cursor-pointer hover:text-blue-600 flex items-center gap-1 justify-center md:justify-start"
+                  className="text-xs font-bold text-gray-400 uppercase cursor-pointer hover:text-blue-600 flex items-center gap-1 justify-center md:justify-start" 
                   onClick={() => navigate(`/institution/${institutionId}/etablissement/${etablissementId}`)}
               >
                   <FaChevronLeft /> Retour à l'établissement
               </div>
-              <h1 className="text-2xl font-bold text-gray-800">{mention.Mention_label}</h1>
+              <h1 className="text-2xl font-bold">{mention.Mention_label}</h1>
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-sm">
                   <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-mono font-bold">{mention.Mention_code}</span>
-                  {mention.Mention_abbreviation && <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded border">{mention.Mention_abbreviation}</span>}
+                  {mention.Domaine_label && (
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded border flex items-center gap-1">
+                          <FaLayerGroup className="text-[10px]"/> {mention.Domaine_label}
+                      </span>
+                  )}
               </div>
-              <p className="text-sm text-gray-500 max-w-2xl">{mention.Mention_description}</p>
           </div>
-
-          {/* Navigation Précédent / Suivant */}
+          
+          {/* BOUTONS DE NAVIGATION PREV/NEXT */}
           <div className="absolute top-4 right-4 flex gap-1">
-             <button onClick={() => handleNavigate('prev')} disabled={isFirst} className={`p-2 rounded-full border ${isFirst ? 'bg-gray-50 text-gray-300' : 'bg-white hover:bg-gray-100 text-gray-600'}`}><FaChevronLeft/></button>
-             <button onClick={() => handleNavigate('next')} disabled={isLast} className={`p-2 rounded-full border ${isLast ? 'bg-gray-50 text-gray-300' : 'bg-white hover:bg-gray-100 text-gray-600'}`}><FaChevronRight/></button>
+            <button 
+                onClick={() => handleNavigate('prev')} 
+                disabled={isFirst} 
+                className={`p-2 rounded-full border transition-colors ${isFirst ? 'bg-gray-50 text-gray-300 cursor-not-allowed' : 'bg-white hover:bg-gray-100 text-gray-600'}`}
+            >
+                <FaChevronLeft />
+            </button>
+            <button 
+                onClick={() => handleNavigate('next')} 
+                disabled={isLast} 
+                className={`p-2 rounded-full border transition-colors ${isLast ? 'bg-gray-50 text-gray-300 cursor-not-allowed' : 'bg-white hover:bg-gray-100 text-gray-600'}`}
+            >
+                <FaChevronRight />
+            </button>
           </div>
       </motion.div>
 
-      {/* CONTROLS PARCOURS */}
+      {/* SECTION LISTE PARCOURS */}
       <div className={AppStyles.header.container}>
-          <h2 className={AppStyles.header.title}>Parcours ({filteredParcours.length})</h2>
-          <div className={AppStyles.header.controls}>
-              <input type="text" placeholder="Rechercher parcours..." value={search} onChange={e => setSearch(e.target.value)} className={AppStyles.input.text} />
-              <button onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')} className="p-2 bg-white border rounded hover:text-blue-600"><SortIcon order={sortOrder}/></button>
-              <button onClick={() => setView(view === "grid" ? "list" : "grid")} className={AppStyles.button.icon}>{view === "grid" ? <ListIcon /> : <ThIcon />}</button>
-          </div>
+        <h2 className={AppStyles.header.title}>Parcours ({filteredParcours.length})</h2>
+        <div className={AppStyles.header.controls}>
+          <input type="text" placeholder="Rechercher..." value={search} onChange={(e) => setSearch(e.target.value)} className={AppStyles.input.text} />
+          <button onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")} className="hover:text-blue-600 p-1"><SortIcon order={sortOrder} /></button>
+          <button onClick={() => setView(view === "grid" ? "list" : "grid")} className={AppStyles.button.icon}>{view === "grid" ? <ListIcon /> : <ThIcon />}</button>
+        </div>
       </div>
 
-      {/* LISTE PARCOURS */}
       <div className={view === "grid" ? AppStyles.gridContainer : "flex flex-col gap-2"}>
-          {/* Add Card */}
           <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
-              <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12 text-2xl" : "w-8 h-8 text-lg"}`}><PlusIcon /></div>
-              <p className="text-sm font-semibold text-blue-700">Ajouter un Parcours</p>
+              <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12" : "w-8 h-8"}`}><PlusIcon /></div>
+              <p className="text-sm font-semibold text-blue-700">Ajouter Parcours</p>
           </div>
-
-          <AnimatePresence mode="popLayout">
-              {filteredParcours.map(p => (
-                  <CardItem
-                     key={p.Parcours_id}
-                     viewMode={view}
-                     title={p.Parcours_label || p.nom_parcours}
-                     subTitle={
-                        <span className="flex items-center gap-1">
-                            <span className="font-mono text-xs bg-gray-100 px-1 rounded">{p.Parcours_code}</span>
+          <AnimatePresence>
+             {filteredParcours.map(p => (
+                 <CardItem 
+                    key={p.Parcours_id} 
+                    viewMode={view} 
+                    title={p.Parcours_label || p.nom_parcours}
+                    subTitle={
+                        <span className="flex items-center gap-1 text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                            {getTypeFormationLabel(p.Parcours_type_formation_defaut_id_fk)}
                         </span>
-                     }
-                     imageSrc={p.Parcours_logo_path ? `${API_BASE_URL}${p.Parcours_logo_path}` : null}
-                     PlaceholderIcon={FaBookOpen}
-                     onEdit={() => openModal(p)}
-                     onDelete={() => handleDelete(p)}
-                     onClick={() => {/* Navigation détail parcours potentielle */}}
-                  >
-                      {/* Détail Type Formation */}
-                      <div className="mt-2 pt-2 border-t border-gray-50 w-full text-xs text-gray-500">
-                          {typesFormation.find(t => t.id === p.Parcours_type_formation_defaut_id_fk)?.label || p.Parcours_type_formation_defaut_id_fk}
-                      </div>
-                  </CardItem>
-              ))}
+                    }
+                    imageSrc={p.Parcours_logo_path ? `${API_BASE_URL}${p.Parcours_logo_path}` : null}
+                    PlaceholderIcon={FaBookOpen}
+                    onClick={() => { /* Navigation vers Détail Parcours (si implémenté) */ }}
+                    onEdit={() => openModal(p)} 
+                    onDelete={() => handleDelete(p)}
+                 />
+             ))}
           </AnimatePresence>
       </div>
 
-      {/* MODAL EDIT/CREATE */}
+      {/* MODAL AJOUT/EDITION PARCOURS AVEC TYPES FORMATION DYNAMIQUES */}
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editParcours ? "Modifier Parcours" : "Nouveau Parcours"}>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex gap-4">
-                  <div className="flex flex-col items-center gap-2">
-                      <div className="w-20 h-20 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center cursor-pointer overflow-hidden hover:border-blue-400" onClick={() => fileInputRef.current.click()}>
-                          {form.logo ? <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover"/> : 
-                           form.logoPath ? <img src={`${API_BASE_URL}${form.logoPath}`} className="w-full h-full object-cover"/> :
+                  <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                       <div className="w-20 h-20 bg-gray-50 border rounded flex items-center justify-center cursor-pointer hover:border-blue-400 overflow-hidden" onClick={() => fileInputRef.current.click()}>
+                          {form.logo ? <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover" alt="Aperçu"/> : 
+                           form.logoPath ? <img src={`${API_BASE_URL}${form.logoPath}`} className="w-full h-full object-cover" alt="Logo"/> : 
                            <PlusIcon className="text-gray-400"/>}
-                      </div>
-                      <input type="file" ref={fileInputRef} onChange={handleFormChange} className="hidden" name="logo" />
-                      <span className="text-[10px] font-bold text-gray-500">LOGO</span>
+                       </div>
+                       <input type="file" ref={fileInputRef} onChange={handleFormChange} className="hidden" name="logo" />
+                       <span className="text-[10px] uppercase font-bold text-gray-500">Logo</span>
                   </div>
                   <div className="flex-1 space-y-3">
-                      <div>
-                          <span className={AppStyles.input.label}>ID</span>
-                          <input type="text" value={form.id} disabled className={AppStyles.input.formControlDisabled}/>
-                      </div>
-                      <div>
-                          <span className={AppStyles.input.label}>Code <span className="text-red-500">*</span></span>
-                          <input type="text" name="code" value={form.code} onChange={handleFormChange} className={`${AppStyles.input.formControl} uppercase font-bold ${errors.code ? 'border-red-500':''}`}/>
-                      </div>
+                       <label><span className={AppStyles.input.label}>ID</span><input type="text" value={form.id} disabled className={AppStyles.input.formControlDisabled}/></label>
+                       <label><span className={AppStyles.input.label}>Code <span className="text-red-500">*</span></span><input name="code" value={form.code} onChange={handleFormChange} className={`${AppStyles.input.formControl} ${errors.code ? "border-red-500" : ""}`} placeholder="Ex: PARCOURS_INFO"/></label>
+                       {errors.code && <span className={AppStyles.input.errorText}>{errors.code}</span>}
                   </div>
               </div>
 
-              <div>
-                  <span className={AppStyles.input.label}>Intitulé Parcours <span className="text-red-500">*</span></span>
-                  <input type="text" name="label" value={form.label} onChange={handleFormChange} className={AppStyles.input.formControl} placeholder="Ex: Génie Logiciel"/>
-              </div>
-
+              <label><span className={AppStyles.input.label}>Libellé <span className="text-red-500">*</span></span><input name="label" value={form.label} onChange={handleFormChange} className={`${AppStyles.input.formControl} ${errors.label ? "border-red-500" : ""}`} placeholder="Ex: Parcours Ingénierie Informatique"/></label>
+              
               <div className="grid grid-cols-2 gap-4">
-                  <div>
+                  <label>
                       <span className={AppStyles.input.label}>Abréviation</span>
-                      <input type="text" name="abbreviation" value={form.abbreviation} onChange={handleFormChange} className={AppStyles.input.formControl} placeholder="Ex: GL"/>
-                  </div>
-                  <div>
-                      <span className={AppStyles.input.label}>Type Formation</span>
-                      <select name="type_formation" value={form.type_formation} onChange={handleFormChange} className={AppStyles.input.formControl}>
-                          {typesFormation.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                      <input name="abbreviation" value={form.abbreviation} onChange={handleFormChange} className={AppStyles.input.formControl} placeholder="Ex: PII"/>
+                  </label>
+                  
+                  {/* LISTE DYNAMIQUE DES TYPES DE FORMATION */}
+                  <label>
+                      <span className={AppStyles.input.label}>Type Formation Défaut <span className="text-red-500">*</span></span>
+                      <select 
+                          name="type_formation" 
+                          value={form.type_formation} 
+                          onChange={handleFormChange} 
+                          className={`${AppStyles.input.formControl} ${errors.type_formation ? "border-red-500" : ""}`}
+                      >
+                          <option value="">-- Choisir un type --</option>
+                          {typesFormation.map(t => (
+                              <option key={t.TypeFormation_id} value={t.TypeFormation_id}>
+                                  {t.TypeFormation_label}
+                              </option>
+                          ))}
                       </select>
-                  </div>
+                      {errors.type_formation && <span className={AppStyles.input.errorText}>{errors.type_formation}</span>}
+                  </label>
               </div>
 
-              <div>
-                  <span className={AppStyles.input.label}>Description</span>
-                  <textarea name="description" rows="2" value={form.description} onChange={handleFormChange} className={AppStyles.input.formControl}/>
-              </div>
-
+              <label><span className={AppStyles.input.label}>Description</span><textarea name="description" rows="2" value={form.description} onChange={handleFormChange} className={AppStyles.input.formControl}/></label>
+              
               <div className="flex justify-end gap-2 pt-4 border-t">
                   <button type="button" onClick={closeModal} className={AppStyles.button.secondary}>Annuler</button>
                   <button type="submit" disabled={isSubmitting} className={AppStyles.button.primary}>
@@ -463,17 +496,23 @@ const MentionDetail = () => {
           </form>
       </DraggableModal>
 
-      {/* MODAL DELETE */}
+      {/* MODAL SUPPRESSION PARCOURS */}
       <ConfirmModal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} title="Supprimer le Parcours ?">
           <p className="text-gray-600 mb-4">Cela supprimera définitivement le parcours <b>{parcoursToDelete?.Parcours_label}</b>.</p>
-          <p className="text-xs text-gray-500 mb-1">Confirmez en tapant le code : <b>{parcoursToDelete?.Parcours_code}</b></p>
-          <input type="text" value={deleteInput} onChange={e => setDeleteInput(e.target.value)} className={AppStyles.input.formControl} placeholder={parcoursToDelete?.Parcours_code}/>
+          <p className="text-xs text-gray-500 mb-1">Confirmez en tapant le code : <b className="font-mono">{parcoursToDelete?.Parcours_code}</b></p>
+          <input 
+              type="text" 
+              value={deleteInput} 
+              onChange={e => { setDeleteInput(e.target.value); setDeleteError(""); }} 
+              className={`${AppStyles.input.formControl} ${deleteError ? "border-red-500" : ""}`}
+              placeholder={parcoursToDelete?.Parcours_code}
+          />
+          {deleteError && <span className={AppStyles.input.errorText}>{deleteError}</span>}
           <div className="flex justify-end gap-2 mt-4">
                <button onClick={() => setDeleteModalOpen(false)} className={AppStyles.button.secondary}>Annuler</button>
                <button onClick={confirmDelete} className={AppStyles.button.danger}>Supprimer</button>
           </div>
       </ConfirmModal>
-
     </div>
   );
 };
