@@ -2,10 +2,21 @@
 
 export const AppStyles = {
   // Conteneurs et Layouts
-  pageContainer: "flex flex-col gap-4 p-4 relative min-h-screen bg-gray-50", // Ajout bg-gray-50 pour un fond propre
+  pageContainer: "flex flex-col gap-4 p-4 relative min-h-screen bg-gray-50", 
+
+  // NOUVEAU STYLE DE TITRE EMBELLI
+  // Utilisation de tracking-tight, text-gray-900, et underline pour un effet plus marqué
+  mainTitle: "text-4xl font-extrabold text-gray-900 tracking-tight", 
+  
+  // NOUVEAU SÉPARATEUR PLUS ÉPAIS ET MIEUX STYLISÉ
+  separator: "mt-1 mb-6 border-t-2 border-blue-600 w-1/4 max-w-sm", // Ligne bleue plus courte et plus épaisse
+
+  // Grille standardisée (Max 4 colonnes sur grands écrans)
+  gridContainer: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4",
+  
   header: {
     container: "flex flex-col md:flex-row md:items-center md:justify-between mb-2 gap-3",
-    title: "text-xl font-bold text-gray-800",
+    title: "text-xl font-bold text-gray-800", // Sous-titre (ex: "Institutions (4)")
     controls: "flex flex-col md:flex-row items-center gap-2 flex-wrap",
   },
   
@@ -31,14 +42,12 @@ export const AppStyles = {
     // GRID : Carte haute avec contenu centré
     grid: "p-5 bg-white rounded-xl border border-gray-100 flex flex-col items-center gap-3 shadow-sm hover:shadow-md hover:border-blue-200 duration-200 min-h-[220px] cursor-pointer relative group transition-all",
     
-    // LIST : Compacte, hauteur réduite (fixée ici par le padding)
+    // LIST : Compacte
     list: "flex items-center gap-4 p-3 bg-white rounded-lg border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-200 duration-200 cursor-pointer relative group transition-all",
     
-    // Images
     imgGrid: "w-24 h-24 object-contain mb-2 rounded-full bg-gray-50 p-2 border border-gray-100",
     imgList: "w-10 h-10 object-contain rounded-full bg-gray-50 p-1 border border-gray-100 flex-shrink-0",
     
-    // Textes
     titleGrid: "font-bold text-gray-800 text-center text-base line-clamp-2",
     titleList: "font-bold text-gray-800 text-sm truncate",
     
@@ -52,19 +61,17 @@ export const AppStyles = {
     iconContainer: "flex items-center justify-center rounded-full bg-blue-100 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors duration-300 shadow-sm",
   },
 
-  // --- NOUVEAU : Centralisation des styles d'animation ---
+  // Animation
   animation: {
-    // Props à passer au conteneur <AnimatePresence>
     presenceProps: {
       mode: "popLayout"
     },
-    // Props à passer à l'élément <motion.div> de la liste
     itemProps: {
       layout: true,
       initial: { opacity: 0, scale: 0.9 },
       animate: { opacity: 1, scale: 1 },
       exit: { opacity: 0, scale: 0.9 },
-      transition: { duration: 0.2 } // Durée uniforme pour toutes les pages
+      transition: { duration: 0.2 }
     }
   },
 };

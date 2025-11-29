@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaGraduationCap, FaChevronLeft, FaCircle, FaLayerGroup } from "react-icons/fa"; 
+import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaCircle, FaLayerGroup } from "react-icons/fa"; // 💡 AJOUT de FaChevronRight
 
 import { 
   ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
@@ -25,6 +25,8 @@ const EtablissementDetail = () => {
   const [etablissement, setEtablissement] = useState(location.state?.composante || null);
   const [mentions, setMentions] = useState([]);
   const [domaines, setDomaines] = useState([]); 
+  // 💡 NOUVEAU : Liste de tous les établissements de l'institution pour la navigation
+  const [etablissementsList, setEtablissementsList] = useState([]); 
   
   // UI States
   const [isLoading, setIsLoading] = useState(true);
@@ -67,13 +69,34 @@ const EtablissementDetail = () => {
 
   // --- 1. CHARGEMENT DES DONNÉES ---
   useEffect(() => {
+    const fetchEtablissementsList = async () => {
+        try {
+            // Récupérer la liste des composantes (établissements) de l'institution
+            const resComp = await fetch(`${API_BASE_URL}/api/composantes/institution?institution_id=${institutionId}`);
+            if (resComp.ok) {
+                const dataComp = await resComp.json();
+                // Tri pour une navigation cohérente (par code)
+                const sortedComposantes = Array.isArray(dataComp) 
+                    ? dataComp.sort((a, b) => (a.Composante_code || "").localeCompare(b.Composante_code || ""))
+                    : [];
+                setEtablissementsList(sortedComposantes);
+            }
+        } catch (err) {
+            console.error("Erreur chargement liste établissements pour navigation", err);
+        }
+    };
+    fetchEtablissementsList();
+  }, [institutionId]);
+
+
+  useEffect(() => {
+    setIsLoading(true);
     const fetchData = async () => {
-      setIsLoading(true);
       try {
         let currentEtab = etablissement;
         
-        // A. Charger l'Établissement si manquant
-        if (!currentEtab) {
+        // A. Charger l'Établissement si manquant ou ID changé
+        if (!currentEtab || currentEtab.Composante_code !== etablissementId) {
           const res = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
           if (!res.ok) throw new Error("Établissement introuvable.");
           currentEtab = await res.json();
@@ -85,7 +108,7 @@ const EtablissementDetail = () => {
           setBreadcrumb([
             { label: "Administration", path: "/administration" },
             { label: "Institution", path: `/institution/${institutionId}` },
-            { label: currentEtab.Composante_abbreviation || currentEtab.Composante_label, path: "#" },
+            { label: currentEtab.Composante_abbreviation || currentEtab.Composante_label, path: `#` },
           ]);
         }
         
@@ -113,6 +136,32 @@ const EtablissementDetail = () => {
     fetchData();
   }, [etablissementId, institutionId, setBreadcrumb]); 
 
+  // --- 2. NAVIGATION ENTRE ÉTABLISSEMENTS ---
+  const handleNavigate = (direction) => {
+    if (!etablissementsList.length || !etablissement) return;
+    
+    // Trouver l'index de l'établissement actuel en utilisant Composante_code
+    const currentIndex = etablissementsList.findIndex(i => i.Composante_code === etablissement.Composante_code);
+    if (currentIndex === -1) return;
+    
+    let newIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
+    
+    if (newIndex >= 0 && newIndex < etablissementsList.length) {
+      const newEtablissement = etablissementsList[newIndex];
+      // Naviguer vers le nouvel établissement
+      navigate(`/institution/${institutionId}/etablissement/${newEtablissement.Composante_code}`, { 
+          state: { composante: newEtablissement } 
+      });
+      // Réinitialiser les états locaux liés aux détails pour le nouveau chargement
+      setEtablissement(newEtablissement);
+      setMentions([]); 
+    }
+  };
+  
+  const isFirst = etablissementsList.length > 0 && etablissement && etablissementsList[0].Composante_code === etablissement.Composante_code;
+  const isLast = etablissementsList.length > 0 && etablissement && etablissementsList[etablissementsList.length - 1].Composante_code === etablissement.Composante_code;
+  
+
   // --- HELPER : Trouver le nom du domaine ---
   const getDomaineLabel = (id) => {
     if (!id || domaines.length === 0) return "Domaine inconnu";
@@ -120,12 +169,12 @@ const EtablissementDetail = () => {
     return dom ? dom.Domaine_label : id;
   };
 
-  // --- 2. GESTION DU FORMULAIRE ---
+  // --- 3. GESTION DU FORMULAIRE (CRUD) [INCHANGÉE] ---
+  // ... (Code openModal, closeModal, handleChange, handleSubmit inchangé) ...
   const openModal = async (ment = null) => {
     setErrors({});
     if (ment) {
       setEditMention(ment);
-      // Correction : Utilisation des clés API correctes (Mention_label, etc.)
       setForm({
         id: ment.id_mention || ment.Mention_id,
         nom: ment.Mention_label || ment.label || "", 
@@ -165,7 +214,7 @@ const EtablissementDetail = () => {
     setModalOpen(false);
     setEditMention(null);
   };
-
+  
   const handleChange = (e) => {
     const { name, value, files } = e.target;
     if (name === "logo" && files) setForm(prev => ({ ...prev, logo: files[0] }));
@@ -203,7 +252,6 @@ const EtablissementDetail = () => {
       let method = "POST";
 
       if (editMention) {
-        // Utiliser l'ID correct
         const idToUpdate = editMention.id_mention || editMention.Mention_id;
         url += `${idToUpdate}`; 
         method = "PUT";
@@ -234,7 +282,9 @@ const EtablissementDetail = () => {
     }
   };
 
-  // --- 3. SUPPRESSION ---
+
+  // --- 4. SUPPRESSION [INCHANGÉE] ---
+  // ... (Code handleDeleteClick, confirmDelete inchangé) ...
   const handleDeleteClick = (ment) => {
     setMentionToDelete(ment);
     setDeleteInput("");
@@ -266,9 +316,8 @@ const EtablissementDetail = () => {
     }
   };
 
-  // --- 4. RENDER ---
-  
-  // Fonction de tri et filtre
+
+  // --- 5. RENDER ---
   const filteredMentions = mentions
     .filter(m => {
         const label = m.Mention_label || m.label || "";
@@ -287,14 +336,28 @@ const EtablissementDetail = () => {
       return sortOrder === 'asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
     });
 
-  if (isLoading) return <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600" /></div>;
+  if (isLoading) return (
+     <div className={AppStyles.pageContainer}>
+        <div className={AppStyles.header.container}>
+            <h2 className={AppStyles.mainTitle}>Détails de l'Établissement</h2>
+        </div>
+        <hr className={AppStyles.separator} />
+        <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600" /></div>
+     </div>
+  );
   if (!etablissement) return <div className="p-10 text-center">Établissement introuvable.</div>;
 
   return (
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      {/* HEADER ÉTABLISSEMENT */}
+      {/* HEADER STANDARDISÉ (Titre + Ligne) */}
+      <div className={AppStyles.header.container}>
+        <h2 className={AppStyles.mainTitle}>Détails de l'Établissement</h2>
+      </div>
+      <hr className={AppStyles.separator} />
+
+      {/* HEADER ÉTABLISSEMENT INFO */}
       <motion.div 
         initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} 
         className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 relative"
@@ -320,6 +383,24 @@ const EtablissementDetail = () => {
             {etablissement.Composante_abbreviation && <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded border">{etablissement.Composante_abbreviation}</span>}
           </div>
         </div>
+        
+        {/* 💡 NOUVEAU : BOUTONS DE NAVIGATION */}
+        <div className="absolute top-4 right-4 flex gap-1">
+          <button 
+             onClick={() => handleNavigate('prev')} 
+             disabled={isFirst} 
+             className={`p-2 rounded-full border transition-colors ${isFirst ? 'bg-gray-50 text-gray-300 cursor-not-allowed' : 'bg-white hover:bg-gray-100 text-gray-600'}`}
+          >
+             <FaChevronLeft />
+          </button>
+          <button 
+             onClick={() => handleNavigate('next')} 
+             disabled={isLast} 
+             className={`p-2 rounded-full border transition-colors ${isLast ? 'bg-gray-50 text-gray-300 cursor-not-allowed' : 'bg-white hover:bg-gray-100 text-gray-600'}`}
+          >
+             <FaChevronRight />
+          </button>
+        </div>
       </motion.div>
 
       {/* BARRE D'OUTILS */}
@@ -343,8 +424,8 @@ const EtablissementDetail = () => {
         </div>
       </div>
 
-      {/* LISTE / GRILLE */}
-      <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" : "flex flex-col gap-2"}>
+      {/* LISTE / GRILLE STANDARDISÉE (AppStyles.gridContainer) */}
+      <div className={view === "grid" ? AppStyles.gridContainer : "flex flex-col gap-2"}>
         {/* Bouton Ajouter */}
         <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
           <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12 text-2xl" : "w-8 h-8 text-lg"}`}>
@@ -356,17 +437,11 @@ const EtablissementDetail = () => {
         {/* Cartes Mentions */}
         <AnimatePresence mode="popLayout">
           {filteredMentions.map((ment) => {
-             // 1. Récupération sécurisée du nom de la Mention
              const mentionName = ment.Mention_label || ment.label || "Nom inconnu";
-             const mentionCode = ment.Mention_code || ment.code;
              const logoPath = ment.Mention_logo_path || ment.logo_path;
              const mentionId = ment.id_mention || ment.Mention_id;
-
-             // 2. Récupération du Nom du Domaine
              const domaineId = ment.id_domaine || ment.Domaine_id_fk;
              const domaineLabel = getDomaineLabel(domaineId);
-
-             // 3. Gestion des Parcours
              const parcoursList = ment.parcours || [];
              const parcoursCount = parcoursList.length;
 
@@ -374,7 +449,6 @@ const EtablissementDetail = () => {
               <CardItem
                 key={mentionId}
                 viewMode={view}
-                // Modification ici : Afficher le NOM de la mention, et le DOMAINE en sous-titre
                 title={mentionName}
                 subTitle={<span className="flex items-center gap-1"><FaLayerGroup className="text-[10px]"/> {domaineLabel}</span>}
                 imageSrc={logoPath ? `${API_BASE_URL}${logoPath}` : null} 
@@ -383,10 +457,7 @@ const EtablissementDetail = () => {
                 onEdit={() => openModal(ment)}
                 onDelete={() => handleDeleteClick(ment)}
               >
-                  {/* LOGIQUE D'AFFICHAGE PARCOURS (GRILLE vs LISTE) */}
                   <div className="mt-3 pt-2 border-t border-gray-100 w-full">
-                      
-                      {/* CAS GRILLE : AFFICHER LE NOMBRE DE PARCOURS */}
                       {view === "grid" && (
                           <div className="flex items-center justify-between">
                              <span className="text-[10px] font-bold text-gray-400 uppercase">Parcours</span>
@@ -396,7 +467,6 @@ const EtablissementDetail = () => {
                           </div>
                       )}
 
-                      {/* CAS LISTE : AFFICHER LES NOMS DES PARCOURS */}
                       {view === "list" && (
                           <div className="flex flex-wrap items-center gap-2">
                               <span className="text-xs font-bold text-gray-400 uppercase mr-2">Parcours :</span>
@@ -419,10 +489,9 @@ const EtablissementDetail = () => {
         </AnimatePresence>
       </div>
 
-      {/* MODAL AJOUT/EDITION */}
+      {/* MODAL AJOUT/EDITION [INCHANGÉE] */}
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editMention ? "Modifier la Mention" : "Nouvelle Mention"}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {/* ... Le reste du formulaire reste identique, attention juste aux valeurs 'value={...}' qui doivent utiliser form.x ... */}
             <div className="flex gap-4">
                 <div className="flex flex-col items-center gap-2">
                    <div className="w-20 h-20 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center cursor-pointer hover:border-blue-400 overflow-hidden" onClick={() => fileInputRef.current.click()}>
@@ -489,7 +558,7 @@ const EtablissementDetail = () => {
         </form>
       </DraggableModal>
 
-      {/* MODAL SUPPRESSION */}
+      {/* MODAL SUPPRESSION [INCHANGÉE] */}
       <ConfirmModal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} title="Supprimer la mention ?">
           <p className="text-gray-600 mb-2">Cela supprimera la mention : <b>{mentionToDelete?.Mention_label || mentionToDelete?.label}</b> et tous ses parcours associés.</p>
           <p className="text-xs text-gray-500 mb-2">Tapez le nom complet pour confirmer :</p>

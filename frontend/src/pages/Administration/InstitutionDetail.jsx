@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { BiSolidInstitution } from "react-icons/bi";
-import { FaChevronLeft, FaChevronRight, FaCircle } from "react-icons/fa"; // 🔥 AJOUT FaCircle
+import { FaChevronLeft, FaChevronRight, FaCircle } from "react-icons/fa"; 
 
 import { 
   ThIcon, ListIcon, PlusIcon, EditIcon, SpinnerIcon, SortIcon, LibraryIcon
@@ -274,14 +274,29 @@ const InstitutionDetail = () => {
         : String(valB || "").localeCompare(String(valA || ""));
     });
 
-  if (isLoading) return <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl" /></div>;
+  if (isLoading) return (
+      <div className={AppStyles.pageContainer}>
+         <div className={AppStyles.header.container}>
+             <h2 className={AppStyles.mainTitle}>Détails de l'Institution</h2>
+         </div>
+         <hr className={AppStyles.separator} />
+         <div className="p-10 flex justify-center"><SpinnerIcon className="animate-spin text-4xl" /></div>
+      </div>
+  );
+
   if (!institution) return <div className="p-10 text-center">Institution introuvable</div>;
 
   return (
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      {/* HEADER INSTITUTION */}
+      {/* ✅ HEADER STANDARDISÉ (Titre + Ligne) */}
+      <div className={AppStyles.header.container}>
+        <h2 className={AppStyles.mainTitle}>Détails de l'Institution</h2>
+      </div>
+      <hr className={AppStyles.separator} />
+
+      {/* HEADER INSTITUTION INFO */}
       <motion.div 
         initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} 
         className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 relative"
@@ -326,8 +341,8 @@ const InstitutionDetail = () => {
         </div>
       </div>
 
-      {/* LISTE / GRID */}
-      <div className={view === "grid" ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4" : "flex flex-col gap-2"}>
+      {/* ✅ LISTE / GRID STANDARDISÉE (AppStyles.gridContainer) */}
+      <div className={view === "grid" ? AppStyles.gridContainer : "flex flex-col gap-2"}>
         {/* Ajouter */}
         <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
           <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12 text-2xl" : "w-8 h-8 text-lg"}`}>
@@ -336,10 +351,8 @@ const InstitutionDetail = () => {
           <p className="text-sm font-semibold text-blue-700">Ajouter</p>
         </div>
 
-        {/* ✅ AnimatePresence pour les cartes */}
         <AnimatePresence mode="popLayout">
           {filteredComposantes.map((comp) => {
-            // 🔥 LOGIQUE D'EXTRACTION DES MENTIONS
             const mentionsList = comp.mentions || [];
             const mentionsCount = mentionsList.length;
 
@@ -355,10 +368,9 @@ const InstitutionDetail = () => {
                 onEdit={() => openModal(comp)}
                 onDelete={() => handleDeleteClick(comp)}
               >
-                {/* 🔥 AFFICHAGE DES MENTIONS (INSPIRÉ DE ETABLISSEMENT DETAIL) */}
+                {/* AFFICHAGE DES MENTIONS */}
                 <div className="mt-3 pt-2 border-t border-gray-100 w-full">
                     
-                    {/* CAS GRILLE : AFFICHER LE NOMBRE DE MENTIONS */}
                     {view === "grid" && (
                         <div className="flex items-center justify-between">
                             <span className="text-[10px] font-bold text-gray-400 uppercase">Mentions</span>
@@ -368,7 +380,6 @@ const InstitutionDetail = () => {
                         </div>
                     )}
 
-                    {/* CAS LISTE : AFFICHER LES NOMS DES MENTIONS */}
                     {view === "list" && (
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs font-bold text-gray-400 uppercase mr-2">Mentions :</span>
