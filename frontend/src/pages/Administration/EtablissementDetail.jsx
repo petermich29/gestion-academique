@@ -453,7 +453,10 @@ const EtablissementDetail = () => {
                 subTitle={<span className="flex items-center gap-1"><FaLayerGroup className="text-[10px]"/> {domaineLabel}</span>}
                 imageSrc={logoPath ? `${API_BASE_URL}${logoPath}` : null} 
                 PlaceholderIcon={FaGraduationCap} 
-                onClick={() => { /* Navigation future */ }}
+                onClick={() => navigate(
+                  `/institution/${institutionId}/etablissement/${etablissementId}/mention/${ment.id_mention || ment.Mention_id}`,
+                  { state: { mention: ment, etablissement: etablissement } } // On passe l'objet pour charger plus vite
+                )}
                 onEdit={() => openModal(ment)}
                 onDelete={() => handleDeleteClick(ment)}
               >

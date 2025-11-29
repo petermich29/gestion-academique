@@ -114,6 +114,26 @@ class ParcoursSchema(ParcoursBase):
 
     model_config = base_config
 
+class ParcoursCreate(BaseModel):
+    id_parcours: str = Field(..., alias="Parcours_id")
+    code: str = Field(..., alias="Parcours_code")
+    label: str = Field(..., alias="Parcours_label")
+    description: Optional[str] = Field(None, alias="Parcours_description")
+    abbreviation: Optional[str] = Field(None, alias="Parcours_abbreviation")
+    date_creation: Optional[date] = Field(None, alias="Parcours_date_creation")
+    
+    # Clés étrangères
+    id_mention: str = Field(..., alias="Mention_id_fk")
+    id_type_formation_defaut: str = Field(..., alias="Parcours_type_formation_defaut_id_fk")
+
+class ParcoursUpdate(BaseModel):
+    code: Optional[str] = Field(None, alias="Parcours_code")
+    label: Optional[str] = Field(None, alias="Parcours_label")
+    description: Optional[str] = Field(None, alias="Parcours_description")
+    abbreviation: Optional[str] = Field(None, alias="Parcours_abbreviation")
+    id_type_formation_defaut: Optional[str] = Field(None, alias="Parcours_type_formation_defaut_id_fk")
+    logo_path: Optional[str] = Field(None, alias="Parcours_logo_path")
+
 # =====================
 # MENTIONS
 # =====================

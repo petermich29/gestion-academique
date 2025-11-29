@@ -9,28 +9,15 @@ import Dashboard from "../pages/dashboard/Dashboard";
 import Administration from "../pages/Administration/Administration";
 import InstitutionDetail from "../pages/Administration/InstitutionDetail";
 import EtablissementDetail from "../pages/Administration/EtablissementDetail";
-import Mention from "../pages/administration/Mention";
-import Parcours from "../pages/administration/Parcours";
-import UE from "../pages/administration/UE";
-import EC from "../pages/administration/EC";
-import Sessions from "../pages/administration/Sessions.jsx";
-import Affectation from "../pages/administration/Affectation";
-import Nomination from "../pages/administration/Nomination";
+import MentionDetail from "../pages/Administration/MentionDetail"; // <--- Import
 
 // Ressources humaines
-import Enseignants from "../pages/ressources/Enseignants";
-import Etudiants from "../pages/ressources/Etudiants";
 
 // Inscriptions
-import Inscriptions from "../pages/inscriptions/Inscriptions";
 
 // Notes
-import NotesAjout from "../pages/notes/NotesAjout";
-import NotesModification from "../pages/notes/NotesModification";
 
 // Services
-import Resultats from "../pages/services/Resultats";
-import Releves from "../pages/services/Releves";
 
 // Métadonnées
 import Metadonnees from "../pages/Metas/Metadonnees";
@@ -49,29 +36,19 @@ const AppRouter = () => (
         <Route path="/administration" element={<Administration />} />
         <Route path="/institution/:id" element={<InstitutionDetail />} />
         <Route path="/institution/:id/etablissement/:etablissementId" element={<EtablissementDetail />} />
+        <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId" element={<MentionDetail />} /> {/* <--- Route pour le détail de la mention */}
       
-        <Route path="/mention" element={<Mention />} />
-        <Route path="/parcours" element={<Parcours />} />
-        <Route path="/ue" element={<UE />} />
-        <Route path="/ec" element={<EC />} />
-        <Route path="/sessions" element={<Sessions />} />
-        <Route path="/affectation" element={<Affectation />} />
-        <Route path="/nomination" element={<Nomination />} />
-
         {/* Ressources humaines */}
-        <Route path="/enseignants" element={<Enseignants />} />
-        <Route path="/etudiants" element={<Etudiants />} />
+
 
         {/* Inscriptions */}
-        <Route path="/inscriptions" element={<Inscriptions />} />
+
 
         {/* Notes */}
-        <Route path="/notes-ajout" element={<NotesAjout />} />
-        <Route path="/notes-modification" element={<NotesModification />} />
+
 
         {/* Services */}
-        <Route path="/resultats" element={<Resultats />} />
-        <Route path="/releves" element={<Releves />} />
+
 
         {/* Métadonnées */}
         <Route path="/metadonnees" element={<Metadonnees />} />
