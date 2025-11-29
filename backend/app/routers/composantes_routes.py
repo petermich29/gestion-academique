@@ -1,14 +1,14 @@
 # gestion-academique\backend\app\routers\composantes_routes.py
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 import os
 import shutil
 import re 
 
-from app.models import Composante, Institution 
+from app.models import Composante, Institution, Mention 
 from app.schemas import ComposanteSchema 
 from app.database import get_db
 
@@ -89,21 +89,22 @@ def get_composantes_by_institution(
     db: Session = Depends(get_db)
 ):
     """
-    Récupère la liste de toutes les composantes (établissements) rattachées à une institution donnée.
-    URL finale : /api/composantes/institution?institution_id=INST_XXXX
+    Récupère la liste de toutes les composantes rattachées à une institution.
+    INCLUT LES MENTIONS associées grâce à joinedload.
     """
-    institution = db.query(Institution).filter(Institution.Institution_id == institution_id).first()
-    # Si l'institution n'existe pas, on renvoie une liste vide ou une 404 selon la logique métier.
-    # Ici, pour éviter de casser l'UI si l'ID est invalide, on peut renvoyer vide ou vérifier.
-    if not institution:
-        # Optionnel : raise HTTPException(404) ou return []
-        return [] 
+    # Vérification optionnelle de l'institution
+    # institution = db.query(Institution).filter(Institution.Institution_id == institution_id).first()
+    # if not institution: return [] 
 
-    composantes = db.query(Composante).filter(
-        Composante.Institution_id_fk == institution_id
-    ).all()
+    composantes = (
+        db.query(Composante)
+        .filter(Composante.Institution_id_fk == institution_id)
+        # 👇 C'est cette ligne qui est CRUCIALE pour charger les mentions
+        .options(joinedload(Composante.mentions)) 
+        .all()
+    )
     
-    return composantes 
+    return composantes
 
 # 🔹 3. Récupérer une Composante par son code (GET)
 @router.get("/{composante_code_path}", response_model=ComposanteSchema, summary="Obtenir une composante par son code")
@@ -229,3 +230,18 @@ def delete_composante(composante_code_path: str, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=400, detail="Impossible de supprimer : l'établissement est lié à d'autres données.")
     return
+
+@router.get("/institution", response_model=List[ComposanteSchema])
+def get_composantes_by_institution(institution_id: str, db: Session = Depends(get_db)):
+    """
+    Récupère les composantes d'une institution.
+    IMPORTANT : On doit charger les 'mentions' pour l'affichage dans InstitutionDetail.
+    """
+    composantes = (
+        db.query(Composante)
+        .filter(Composante.Institution_id_fk == institution_id)
+        # 👇 C'est cette ligne qui permet d'afficher les mentions dans les cartes du frontend
+        .options(joinedload(Composante.mentions)) 
+        .all()
+    )
+    return composantes

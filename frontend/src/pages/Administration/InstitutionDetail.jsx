@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { BiSolidInstitution } from "react-icons/bi";
-import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
+import { FaChevronLeft, FaChevronRight, FaCircle } from "react-icons/fa"; // 🔥 AJOUT FaCircle
 
 import { 
   ThIcon, ListIcon, PlusIcon, EditIcon, SpinnerIcon, SortIcon, LibraryIcon
@@ -12,7 +12,7 @@ import {
 import { AppStyles } from "../../components/ui/AppStyles";
 import { ToastContainer } from "../../components/ui/Toast";
 import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
-import { CardItem } from "../../components/ui/CardItem"; // ✅ Import du nouveau composant
+import { CardItem } from "../../components/ui/CardItem"; 
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -119,7 +119,6 @@ const InstitutionDetail = () => {
   const openModal = async (comp = null) => {
     setErrors({});
     if (comp) {
-      // MODE MODIFICATION
       setEditComposante(comp);
       setForm({
         id: comp.Composante_id,
@@ -132,7 +131,6 @@ const InstitutionDetail = () => {
       });
       setModalOpen(true);
     } else {
-      // MODE CRÉATION : Récupérer le prochain ID
       setForm({ 
         id: "Chargement...", 
         code: "", 
@@ -230,7 +228,6 @@ const InstitutionDetail = () => {
     }
   };
 
-  // 4. SUPPRESSION
   const handleDeleteClick = (comp) => {
     setComposanteToDelete(comp);
     setDeleteCodeInput("");
@@ -339,22 +336,58 @@ const InstitutionDetail = () => {
           <p className="text-sm font-semibold text-blue-700">Ajouter</p>
         </div>
 
-        {/* ✅ Utilisation du CardItem et AnimatePresence */}
+        {/* ✅ AnimatePresence pour les cartes */}
         <AnimatePresence mode="popLayout">
-          {filteredComposantes.map((comp) => (
-            <CardItem
-              key={comp.Composante_code}
-              viewMode={view}
-              // Logique spécifique : Affiche abréviation en titre si dispo, sinon Label.
-              title={comp.Composante_abbreviation || comp.Composante_label}
-              subTitle={comp.Composante_abbreviation ? comp.Composante_label : comp.Composante_code}
-              imageSrc={comp.Composante_logo_path ? `${API_BASE_URL}${comp.Composante_logo_path}` : null}
-              PlaceholderIcon={BiSolidInstitution} 
-              onClick={() => navigate(`/institution/${id}/etablissement/${comp.Composante_code}`, { state: { composante: comp } })}
-              onEdit={() => openModal(comp)}
-              onDelete={() => handleDeleteClick(comp)}
-            />
-          ))}
+          {filteredComposantes.map((comp) => {
+            // 🔥 LOGIQUE D'EXTRACTION DES MENTIONS
+            const mentionsList = comp.mentions || [];
+            const mentionsCount = mentionsList.length;
+
+            return (
+              <CardItem
+                key={comp.Composante_code}
+                viewMode={view}
+                title={comp.Composante_abbreviation || comp.Composante_label}
+                subTitle={comp.Composante_abbreviation ? comp.Composante_label : comp.Composante_code}
+                imageSrc={comp.Composante_logo_path ? `${API_BASE_URL}${comp.Composante_logo_path}` : null}
+                PlaceholderIcon={BiSolidInstitution} 
+                onClick={() => navigate(`/institution/${id}/etablissement/${comp.Composante_code}`, { state: { composante: comp } })}
+                onEdit={() => openModal(comp)}
+                onDelete={() => handleDeleteClick(comp)}
+              >
+                {/* 🔥 AFFICHAGE DES MENTIONS (INSPIRÉ DE ETABLISSEMENT DETAIL) */}
+                <div className="mt-3 pt-2 border-t border-gray-100 w-full">
+                    
+                    {/* CAS GRILLE : AFFICHER LE NOMBRE DE MENTIONS */}
+                    {view === "grid" && (
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-gray-400 uppercase">Mentions</span>
+                            <span className="text-xs font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100">
+                                {mentionsCount}
+                            </span>
+                        </div>
+                    )}
+
+                    {/* CAS LISTE : AFFICHER LES NOMS DES MENTIONS */}
+                    {view === "list" && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-bold text-gray-400 uppercase mr-2">Mentions :</span>
+                            {mentionsCount > 0 ? (
+                                mentionsList.map((ment, idx) => (
+                                    <span key={idx} className="flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2 py-0.5 rounded">
+                                        <FaCircle className="w-1.5 h-1.5 text-blue-500" />
+                                        {ment.Mention_label || ment.label}
+                                    </span>
+                                ))
+                            ) : (
+                                <span className="text-xs text-gray-400 italic">Aucune mention</span>
+                            )}
+                        </div>
+                    )}
+                </div>
+              </CardItem>
+            );
+          })}
         </AnimatePresence>
       </div>
 

@@ -61,6 +61,10 @@ class ComposanteUpdate(BaseModel):
 
 class ComposanteSchema(ComposanteBase):
     id_composante: str = Field(..., alias="Composante_id", max_length=12)
+
+    # 🔥 AJOUT : Pour inclure les mentions dans la réponse API
+    # On utilise une chaîne "MentionSchema" car la classe est définie plus bas
+    mentions: List["MentionSchema"] = []
     
     model_config = base_config
 
