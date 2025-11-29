@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaBookOpen, FaLayerGroup } from "react-icons/fa";
+import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaBookOpen } from "react-icons/fa";
 
 import { 
   ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
@@ -24,11 +24,12 @@ const MentionDetail = () => {
   // --- ÉTATS ---
   const [mention, setMention] = useState(location.state?.mention || null);
   const [etablissement, setEtablissement] = useState(location.state?.etablissement || null);
+  const [institution, setInstitution] = useState(null); // Ajout pour le breadcrumb
   const [parcours, setParcours] = useState([]);
   
   // Listes de référence pour les formulaires / Navigation
-  const [mentionsList, setMentionsList] = useState([]); // Pour la navigation prev/next
-  const [typesFormation, setTypesFormation] = useState([]); // Pour le select du form
+  const [mentionsList, setMentionsList] = useState([]); 
+  const [typesFormation, setTypesFormation] = useState([]); 
 
   // UI States
   const [isLoading, setIsLoading] = useState(true);
@@ -63,28 +64,9 @@ const MentionDetail = () => {
 
   // --- 1. CHARGEMENT DES DONNÉES ---
   
-  // A. Charger la liste des mentions pour la navigation (Next/Prev)
+  // A. Charger Types de Formation (Reference)
   useEffect(() => {
-     const fetchMentionsList = async () => {
-         try {
-             const res = await fetch(`${API_BASE_URL}/api/mentions/composante/${etablissementId}`);
-             if(res.ok) {
-                 const data = await res.json();
-                 setMentionsList(data.sort((a,b) => a.Mention_code.localeCompare(b.Mention_code)));
-             }
-         } catch(e) { console.error("Err navigation mentions", e); }
-     };
-     if(etablissementId) fetchMentionsList();
-  }, [etablissementId]);
-
-  // B. Charger Types de Formation (Reference)
-  useEffect(() => {
-      // Supposons une route pour récupérer les types (sinon on hardcode pour l'exemple)
-      // Simulé ici ou fetch réel si route existe
       const fetchTypes = async () => {
-          // const res = await fetch(`${API_BASE_URL}/api/types_formation/`);
-          // if(res.ok) setTypesFormation(await res.json());
-          // MOCK pour l'exemple si la route n'est pas dans le context fourni:
           setTypesFormation([
               { id: 'TYPE_01', label: 'Formation Initiale (FI)' },
               { id: 'TYPE_02', label: 'Formation Continue (FC)' },
@@ -94,12 +76,34 @@ const MentionDetail = () => {
       fetchTypes();
   }, []);
 
-  // C. Charger Mention & Parcours
+  // B. Charger Données Principales (Institution, Etab, Mention)
   useEffect(() => {
     setIsLoading(true);
     const fetchData = async () => {
       try {
-        // Récupérer Mention si pas en state ou si ID a changé
+        // 1. Charger Institution (pour le Breadcrumb nom correct)
+        let currentInst = institution;
+        if(!currentInst) {
+             const resInst = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
+             if(resInst.ok) {
+                 currentInst = await resInst.json();
+                 setInstitution(currentInst);
+             }
+        }
+
+        // 2. Charger Etablissement (si manquant)
+        let currentEtab = etablissement;
+        if (!currentEtab) {
+            // Attention: etablissementId est souvent un CODE (ex: FDS), pas un ID numérique
+            // L'API doit supporter le fetch par ID ou Code, ou on utilise la liste
+            const resEtab = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
+            if(resEtab.ok) {
+                currentEtab = await resEtab.json();
+                setEtablissement(currentEtab);
+            }
+        }
+
+        // 3. Charger Mention
         let currentMention = mention;
         if (!currentMention || currentMention.Mention_id !== mentionId) {
             const res = await fetch(`${API_BASE_URL}/api/mentions/${mentionId}`);
@@ -108,24 +112,18 @@ const MentionDetail = () => {
             setMention(currentMention);
         }
 
-        // Récupérer Etablissement pour le breadcrumb (si manquant)
-        if (!etablissement) {
-            const resEtab = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
-            if(resEtab.ok) setEtablissement(await resEtab.json());
-        }
-
-        // Les parcours sont inclus dans la réponse MentionSchema (voir schemas.py updated)
-        // Sinon, on pourrait fetcher /api/parcours/mention/{id}
+        // 4. Charger Parcours
         if (currentMention.parcours) {
             setParcours(currentMention.parcours);
         }
 
-        // Mise à jour Breadcrumb
+        // 5. Mise à jour Breadcrumb (CORRECTION #1)
         if (setBreadcrumb) {
             setBreadcrumb([
-                { label: "Institution", path: `/institution/${institutionId}` },
-                { label: etablissement?.Composante_abbreviation || "Etab.", path: `/institution/${institutionId}/etablissement/${etablissementId}` },
-                { label: currentMention.Mention_abbreviation || currentMention.Mention_label, path: "#" },
+                { label: "Administration", path: `/administration` },
+                { label: currentInst?.Institution_nom || institutionId, path: `/institution/${institutionId}` },
+                { label: currentEtab?.Composante_abbreviation || currentEtab?.Composante_label || etablissementId, path: `/institution/${institutionId}/etablissement/${etablissementId}` },
+                { label: currentMention.Mention_label, path: "#" }, // La mention est la page courante
             ]);
         }
 
@@ -138,6 +136,25 @@ const MentionDetail = () => {
     fetchData();
   }, [mentionId, etablissementId, institutionId, setBreadcrumb]);
 
+
+  // C. Charger la liste des mentions pour la navigation (Next/Prev) (CORRECTION #3)
+  useEffect(() => {
+     const fetchMentionsList = async () => {
+         // On a besoin de l'ID numérique de l'établissement, pas juste le code 'etablissementId'
+         if(!etablissement?.Composante_id) return; 
+
+         try {
+             const res = await fetch(`${API_BASE_URL}/api/mentions/composante/${etablissement.Composante_id}`);
+             if(res.ok) {
+                 const data = await res.json();
+                 setMentionsList(data.sort((a,b) => a.Mention_code.localeCompare(b.Mention_code)));
+             }
+         } catch(e) { console.error("Err navigation mentions", e); }
+     };
+     fetchMentionsList();
+  }, [etablissement]); // Dépend de l'objet etablissement chargé
+
+
   // --- 2. NAVIGATION ENTRE MENTIONS ---
   const handleNavigate = (direction) => {
       if (!mentionsList.length || !mention) return;
@@ -147,9 +164,13 @@ const MentionDetail = () => {
       const newIdx = direction === 'prev' ? idx - 1 : idx + 1;
       if (newIdx >= 0 && newIdx < mentionsList.length) {
           const nextM = mentionsList[newIdx];
+          // On garde l'état de l'établissement pour éviter le rechargement
           navigate(`/institution/${institutionId}/etablissement/${etablissementId}/mention/${nextM.Mention_id}`, {
-              state: { mention: nextM, etablissement }
+              state: { mention: nextM, etablissement, institution }
           });
+          // Forcer la mise à jour locale immédiate pour fluidité
+          setMention(nextM);
+          if(nextM.parcours) setParcours(nextM.parcours);
       }
   };
 
@@ -161,7 +182,6 @@ const MentionDetail = () => {
   const openModal = async (p = null) => {
     setErrors({});
     
-    // --- 1. Initialisation des données du formulaire ---
     if (p) {
         // Mode ÉDITION
         setEditParcours(p);
@@ -175,32 +195,32 @@ const MentionDetail = () => {
             logo: null,
             logoPath: p.Parcours_logo_path || ""
         });
+        setModalOpen(true);
     } else {
         // Mode CRÉATION
         setEditParcours(null);
-        // Initialiser avec des valeurs vides (ID temporaire "...")
         setForm({ 
-            id: "...", 
-            code: "", 
-            label: "", 
-            abbreviation: "", 
-            description: "", 
-            type_formation: "TYPE_01", 
-            logo: null, 
-            logoPath: "" 
+            id: "Chargement...", 
+            code: "", label: "", abbreviation: "", description: "", 
+            type_formation: "TYPE_01", logo: null, logoPath: "" 
         });
+        setModalOpen(true); // Ouvrir immédiatement pour feedback visuel
 
-        // Utilisation de la fonction utilitaire pour l'appel async
-        const nextId = await fetchNextParcoursId();
-        
-        // Mettre à jour l'ID du formulaire une fois l'appel terminé
-        // On utilise setForm avec un callback pour s'assurer qu'on utilise le state le plus récent
-        setForm(prev => ({ ...prev, id: nextId }));
+        // (CORRECTION #2) : Fetch direct au lieu d'une fonction externe indéfinie
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/parcours/next-id`);
+            if(res.ok) {
+                const nextId = await res.json();
+                setForm(prev => ({ ...prev, id: nextId }));
+            } else {
+                setForm(prev => ({ ...prev, id: "NOUVEAU" }));
+            }
+        } catch(e) {
+            console.error("Erreur ID Parcours", e);
+            setForm(prev => ({ ...prev, id: "..." }));
+        }
     }
-    
-    // --- 2. Ouverture de la modale ---
-    setModalOpen(true);
-};
+  };
 
   const closeModal = () => { setModalOpen(false); setEditParcours(null); };
 
@@ -241,6 +261,8 @@ const MentionDetail = () => {
               method = "PUT";
               formData.append("parcours_id", editParcours.Parcours_id);
           } else {
+              // Si création, on envoie aussi l'ID de la mention parent
+              // Si le backend génère l'ID, pas besoin d'envoyer form.id, sinon :
               formData.append("id_parcours", form.id);
               formData.append("id_mention", mention.Mention_id);
           }
@@ -373,7 +395,7 @@ const MentionDetail = () => {
                      PlaceholderIcon={FaBookOpen}
                      onEdit={() => openModal(p)}
                      onDelete={() => handleDelete(p)}
-                     onClick={() => {/* Potentielle navigation vers le détail du parcours (UE, EC...) */}}
+                     onClick={() => {/* Navigation détail parcours potentielle */}}
                   >
                       {/* Détail Type Formation */}
                       <div className="mt-2 pt-2 border-t border-gray-50 w-full text-xs text-gray-500">
