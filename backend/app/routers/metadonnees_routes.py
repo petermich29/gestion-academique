@@ -372,3 +372,12 @@ def delete_annee_univ(id: str, db: Session = Depends(get_db)):
     db.delete(db_item)
     db.commit()
     return {"message": "Année supprimée"}
+
+# =================================================================
+# 6. SEMESTRES (Lecture seule pour liste déroulante)
+# =================================================================
+
+@router.get("/semestres", response_model=List[schemas.SemestreSchema])
+def get_semestres_list(db: Session = Depends(get_db)):
+    # On renvoie la liste triée par ID ou par Numéro
+    return db.query(models.Semestre).order_by(models.Semestre.Semestre_numero).all()

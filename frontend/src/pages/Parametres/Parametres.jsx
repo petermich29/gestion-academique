@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import PageWrapper from "../../components/PageWrapper";
+import { AppStyles } from "../../components/ui/AppStyles";
 
 const Parametres = () => {
   const [headerAnimation, setHeaderAnimation] = useState("fade");
@@ -26,45 +26,54 @@ const Parametres = () => {
   };
 
   return (
-    <PageWrapper title="Paramètres">
-      <p className="text-gray-600 mb-4">
-        Personnalisez le comportement visuel de l'application.
-      </p>
+    <div className={AppStyles.pageContainer}>
+      
+      {/* HEADER AVEC STYLE HARMONISÉ ET STICKY */}
+      <div className={`${AppStyles.header.container} sticky top-0 z-30 bg-gray-50 pb-4 pt-2`}>
+        <h2 className={AppStyles.mainTitle}>Paramètres</h2>
+      </div>
+      <hr className={AppStyles.separator} />
 
-      {/* Paramètre animation header Institution */}
-      <div className="bg-white rounded shadow p-4 flex flex-col gap-2">
-        <h2 className="font-semibold text-lg">Transition des entêtes d’institution</h2>
-        <p className="text-sm text-gray-600">
-          Animation utilisée lors de l’affichage d’une institution (page InstitutionDetail).
+      <div className="space-y-6">
+        <p className="text-gray-600">
+            Personnalisez le comportement visuel de l'application.
         </p>
 
-        <select
-          value={headerAnimation}
-          onChange={handleHeaderChange}
-          className="mt-2 border rounded px-3 py-2 w-60 focus:outline-none focus:ring focus:border-blue-300"
-        >
-          <option value="fade">Fondu (fade)</option>
-          <option value="slide">Glissement (slide)</option>
-        </select>
-      </div>
+        {/* Paramètre animation header Institution */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col gap-3">
+            <h2 className="font-semibold text-lg text-gray-800">Transition des entêtes d’institution</h2>
+            <p className="text-sm text-gray-500">
+            Animation utilisée lors de l’affichage d’une institution (page InstitutionDetail).
+            </p>
 
-      {/* Paramètre animation Etablissement */}
-      <div className="bg-white rounded shadow p-4 flex flex-col gap-2">
-        <h2 className="font-semibold text-lg">Transition des établissements</h2>
-        <p className="text-sm text-gray-600">
-          Animation utilisée lors du changement d’établissement (boutons Précédent / Suivant).
-        </p>
+            <select
+            value={headerAnimation}
+            onChange={handleHeaderChange}
+            className={`${AppStyles.input.formControl} w-full md:w-64`}
+            >
+            <option value="fade">Fondu (fade)</option>
+            <option value="slide">Glissement (slide)</option>
+            </select>
+        </div>
 
-        <select
-          value={etabAnimation}
-          onChange={handleEtabChange}
-          className="mt-2 border rounded px-3 py-2 w-60 focus:outline-none focus:ring focus:border-blue-300"
-        >
-          <option value="fade">Fondu (fade)</option>
-          <option value="slide">Glissement (slide)</option>
-        </select>
+        {/* Paramètre animation Etablissement */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col gap-3">
+            <h2 className="font-semibold text-lg text-gray-800">Transition des établissements</h2>
+            <p className="text-sm text-gray-500">
+            Animation utilisée lors du changement d’établissement (boutons Précédent / Suivant).
+            </p>
+
+            <select
+            value={etabAnimation}
+            onChange={handleEtabChange}
+            className={`${AppStyles.input.formControl} w-full md:w-64`}
+            >
+            <option value="fade">Fondu (fade)</option>
+            <option value="slide">Glissement (slide)</option>
+            </select>
+        </div>
       </div>
-    </PageWrapper>
+    </div>
   );
 };
 

@@ -437,7 +437,10 @@ const MentionDetail = () => {
                     }
                     imageSrc={p.Parcours_logo_path ? `${API_BASE_URL}${p.Parcours_logo_path}` : null}
                     PlaceholderIcon={FaBookOpen}
-                    onClick={() => { /* Navigation vers Détail Parcours */ }}
+                    onClick={() => navigate(
+                        `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}/parcours/${p.Parcours_id}`, 
+                        { state: { parcours: p } }
+                    )}
                     onEdit={() => openModal(p)} 
                     onDelete={() => handleDelete(p)}
                  />

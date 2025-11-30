@@ -20,6 +20,19 @@ export const AppStyles = {
     title: "text-xl font-bold text-gray-800", // Sous-titre (ex: "Institutions (4)")
     controls: "flex flex-col md:flex-row items-center gap-2 flex-wrap",
   },
+
+  // ------------------------------------
+  // --- NOUVEAUX STYLES DE POSITIONNEMENT FIXE/ADHÉRENT ---
+  // ------------------------------------
+  positioning: {
+    // Rend l'élément adhérent (sticky) en haut (top-0).
+    // z-30 assure qu'il est au-dessus du contenu défilant.
+    // bg-white assure un fond **totalement opaque** pour masquer ce qui défile.
+    stickyHeader: "sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm", 
+    
+    // Exemple pour un élément qui resterait en bas
+    stickyBottom: "sticky bottom-0 z-30 bg-white shadow-lg p-4"
+  },
   
   // Inputs et Formulaires
   input: {

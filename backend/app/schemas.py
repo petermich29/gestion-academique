@@ -588,3 +588,35 @@ except AttributeError:
     ElementConstitutifSchema.update_forward_refs()
     EtudiantSchema.update_forward_refs()
     InscriptionSchema.update_forward_refs()
+
+
+# =======================================================================
+# 6. SCHÉMAS POUR LA STRUCTURE ACADÉMIQUE (VUE PARCOURS)
+# =======================================================================
+
+class StructureUE(BaseModel):
+    """Vue allégée d'une UE pour l'affichage en liste"""
+    id: str = Field(..., alias="UE_id")
+    code: str = Field(..., alias="UE_code")
+    intitule: str = Field(..., alias="UE_intitule")
+    credit: int = Field(..., alias="UE_credit")
+    ec_count: int = 0 # Champ calculé
+    
+    model_config = base_config
+
+class StructureSemestre(BaseModel):
+    """Vue d'un semestre contenant ses UEs"""
+    id: str = Field(..., alias="Semestre_id")
+    numero: str = Field(..., alias="Semestre_numero")
+    code: Optional[str] = Field(None, alias="Semestre_code")
+    ues: List[StructureUE] = []
+    
+    model_config = base_config
+
+class StructureNiveau(BaseModel):
+    """Vue d'un niveau contenant ses Semestres"""
+    niveau_id: str
+    niveau_label: str
+    semestres: List[StructureSemestre] = []
+    
+    model_config = base_config
