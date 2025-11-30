@@ -75,19 +75,20 @@ export default function Domaines() {
   const handleSave = async (e) => {
     e.preventDefault();
     try {
+       // Payload pour l'API
+      const payload = {
+        code: formData.code,
+        label: formData.label,
+        description: formData.description
+      };
+
       if (currentResult) {
         // UPDATE
         const id = currentResult[CONFIG.idField];
-        await axios.put(`${CONFIG.apiUrl}/${id}`, formData);
+        await axios.put(`${CONFIG.apiUrl}/${id}`, payload);
       } else {
         // CREATE
-        // Note: l'ID est généré par le backend, on n'a pas besoin de l'envoyer,
-        // mais le backend l'ignorera ou le régénérera proprement.
-        await axios.post(CONFIG.apiUrl, {
-            code: formData.code,
-            label: formData.label,
-            description: formData.description
-        });
+        await axios.post(CONFIG.apiUrl, payload);
       }
       setIsEditModalOpen(false);
       fetchData();
@@ -117,11 +118,10 @@ export default function Domaines() {
   };
 
   return (
-    <div className={AppStyles.pageContainer}>
+    // MODIFICATION EFFECTUÉE ICI pour correspondre à TypesFormation.jsx
+    <div className="animate-fade-in"> 
       <div className={AppStyles.header.container}>
         
-        {/* MODIFICATION ICI : On n'utilise pas AppStyles.mainTitle */}
-        {/* On utilise une classe plus simple : text-2xl et gris foncé */}
         <h2 className="text-2xl font-bold text-gray-800 tracking-tight">
           {CONFIG.title}
         </h2>
@@ -131,21 +131,21 @@ export default function Domaines() {
         </button>
       </div>
       
-      {/* On peut aussi remettre un séparateur plus discret si tu veux, 
-          ou garder le séparateur stylisé. Ici je remets un simple trait gris. */}
-      <hr className="mt-2 mb-6 border-gray-200" />
+      {/* <hr className="mt-2 mb-6 border-gray-200" /> */}
+      {/* Ce séparateur n'existe pas non plus dans TypesFormation.jsx, 
+      je le laisse commenté pour que vous puissiez choisir. */}
 
       {/* Tableau ... (Code existant inchangé) */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-4">
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 text-gray-600 font-semibold border-b">
-             <tr>
+              <tr>
                <th className="px-4 py-3">ID</th>
                <th className="px-4 py-3">Code</th>
                <th className="px-4 py-3">Libellé</th>
                <th className="px-4 py-3">Description</th>
                <th className="px-4 py-3 text-right">Actions</th>
-             </tr>
+              </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
