@@ -3,7 +3,10 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaBookOpen, FaLayerGroup, FaCircle } from "react-icons/fa";
+import { 
+  FaGraduationCap, FaChevronLeft, FaChevronRight, 
+  FaBookOpen, FaLayerGroup, FaUniversity // Ajout de FaUniversity
+} from "react-icons/fa";
 
 import { 
   ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
@@ -28,7 +31,7 @@ const MentionDetail = () => {
   const [parcours, setParcours] = useState([]);
   
   const [mentionsList, setMentionsList] = useState([]); // Pour la navigation Prev/Next
-  const [typesFormation, setTypesFormation] = useState([]); // **NOUVEAU : Types de Formation Dynamiques**
+  const [typesFormation, setTypesFormation] = useState([]); // Types de Formation Dynamiques
 
   // --- ÉTATS UI ---
   const [isLoading, setIsLoading] = useState(true);
@@ -68,7 +71,7 @@ const MentionDetail = () => {
     setIsLoading(true);
     const fetchData = async () => {
       try {
-        // --- 1. CHARGEMENT DES TYPES DE FORMATION (NOUVEAU) ---
+        // --- 1. CHARGEMENT DES TYPES DE FORMATION ---
         const resTypes = await fetch(`${API_BASE_URL}/api/metadonnees/types-formation`);
         if (resTypes.ok) {
             setTypesFormation(await resTypes.json());
@@ -130,7 +133,6 @@ const MentionDetail = () => {
   // Chargement Liste des Mentions pour la Navigation (Prev/Next)
   useEffect(() => {
      const fetchMentionsList = async () => {
-         // Nécessite l'ID de la Composante/Etablissement pour charger la liste
          if(!etablissement?.Composante_id) return; 
          try {
              const res = await fetch(`${API_BASE_URL}/api/mentions/composante/${etablissement.Composante_id}`);
@@ -160,14 +162,13 @@ const MentionDetail = () => {
               state: { mention: nextM, etablissement, institution }
           });
           setMention(nextM);
-          if(nextM.parcours) setParcours(nextM.parcours); // Mise à jour des parcours
+          if(nextM.parcours) setParcours(nextM.parcours);
       }
   };
   
   const isFirst = mentionsList.length > 0 && mention && mentionsList[0].Mention_id === mention.Mention_id;
   const isLast = mentionsList.length > 0 && mention && mentionsList[mentionsList.length - 1].Mention_id === mention.Mention_id;
 
-  // Helper pour trouver le label du type de formation
   const getTypeFormationLabel = (id) => {
       const type = typesFormation.find(t => t.TypeFormation_id === id);
       return type ? type.TypeFormation_label : id;
@@ -178,11 +179,8 @@ const MentionDetail = () => {
   // =========================================================
 
   const openModal = async (p = null) => {
-    // 1. Réinitialiser les erreurs
     setErrors({});
-
     if (p) {
-      // MODE MODIFICATION : Pré-remplir le formulaire avec les données du parcours (p)
       setEditParcours(p);
       setForm({
         id: p.Parcours_id,
@@ -190,39 +188,27 @@ const MentionDetail = () => {
         label: p.Parcours_label || p.nom_parcours,
         abbreviation: p.Parcours_abbreviation || "",
         description: p.Parcours_description || "",
-        // Clé importante pour la sélection du type de formation
         type_formation: p.Parcours_type_formation_defaut_id_fk || "", 
         logo: null, 
         logoPath: p.Parcours_logo_path || ""
       });
       setModalOpen(true);
     } else {
-      // MODE CRÉATION : Initialiser le formulaire
       setEditParcours(null);
       setForm({ 
         id: "Chargement...", 
-        code: "", 
-        label: "", 
-        abbreviation: "", 
-        description: "", 
-        type_formation: "", // Remise à zéro
-        logo: null, 
-        logoPath: "" 
+        code: "", label: "", abbreviation: "", description: "", 
+        type_formation: "", logo: null, logoPath: "" 
       });
       setModalOpen(true);
 
-      // Récupération de l'ID suivant de manière ASYNCHRONE
       try {
         const res = await fetch(`${API_BASE_URL}/api/parcours/next-id`); 
         if (res.ok) {
           const nextId = await res.json();
-          // Mettre à jour uniquement l'ID une fois qu'il est disponible
           setForm(prev => ({ ...prev, id: nextId }));
         }
-      } catch (e) {
-        console.error("Erreur lors de la récupération du prochain ID:", e);
-        // Laisse l'ID à "Chargement..." en cas d'échec
-      }
+      } catch (e) { console.error(e); }
     }
   };
 
@@ -257,13 +243,13 @@ const MentionDetail = () => {
       const formData = new FormData();
       formData.append("code", form.code);
       formData.append("label", form.label);
-      formData.append("id_type_formation", form.type_formation); // ID Type Formation
+      formData.append("id_type_formation", form.type_formation);
       if(form.abbreviation) formData.append("abbreviation", form.abbreviation);
       if(form.description) formData.append("description", form.description);
       if(form.logo) formData.append("logo_file", form.logo);
 
       try {
-          let url = `${API_BASE_URL}/api/parcours/`; // Route standard pour CRUD parcours
+          let url = `${API_BASE_URL}/api/parcours/`;
           let method = "POST";
           
           if(editParcours) {
@@ -271,7 +257,6 @@ const MentionDetail = () => {
               method = "PUT";
               formData.append("parcours_id", editParcours.Parcours_id);
           } else {
-              // En mode création, on lie le parcours à la mention
               formData.append("id_parcours", form.id);
               formData.append("id_mention", mention.Mention_id);
           }
@@ -283,7 +268,6 @@ const MentionDetail = () => {
           }
           
           const saved = await res.json();
-          // Mise à jour de la liste des parcours
           setParcours(prev => editParcours ? prev.map(p => p.Parcours_id === saved.Parcours_id ? saved : p) : [...prev, saved]);
           addToast(editParcours ? "Parcours modifié avec succès." : "Parcours créé avec succès.");
           closeModal();
@@ -307,9 +291,7 @@ const MentionDetail = () => {
   
   const confirmDelete = async () => {
       if(!parcoursToDelete) return;
-      const codeToCheck = parcoursToDelete.Parcours_code;
-
-      if(deleteInput !== codeToCheck) {
+      if(deleteInput !== parcoursToDelete.Parcours_code) {
           setDeleteError("Le code ne correspond pas.");
           return;
       }
@@ -362,8 +344,15 @@ const MentionDetail = () => {
 
       <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1, y:0}} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 relative">
           <div className="flex-shrink-0 mx-auto md:mx-0">
-             {mention.Mention_logo_path ? <img src={`${API_BASE_URL}${mention.Mention_logo_path}`} className="w-24 h-24 object-contain rounded-lg border bg-gray-50 p-2" alt="Logo Mention" /> : <div className="w-24 h-24 bg-gray-100 flex items-center justify-center text-gray-400 rounded-lg"><FaGraduationCap className="w-10 h-10"/></div>}
+             {mention.Mention_logo_path ? (
+                 <img src={`${API_BASE_URL}${mention.Mention_logo_path}`} className="w-24 h-24 object-contain rounded-lg border bg-gray-50 p-2" alt="Logo Mention" />
+             ) : (
+                 <div className="w-24 h-24 bg-gray-100 flex items-center justify-center text-gray-400 rounded-lg">
+                     <FaGraduationCap className="w-10 h-10"/>
+                 </div>
+             )}
           </div>
+          
           <div className="flex-1 space-y-2 text-center md:text-left">
               <div 
                   className="text-xs font-bold text-gray-400 uppercase cursor-pointer hover:text-blue-600 flex items-center gap-1 justify-center md:justify-start" 
@@ -371,12 +360,31 @@ const MentionDetail = () => {
               >
                   <FaChevronLeft /> Retour à l'établissement
               </div>
-              <h1 className="text-2xl font-bold">{mention.Mention_label}</h1>
+
+              {/* TITRE MODIFIÉ : Mention + Nom */}
+              <h1 className="text-2xl font-bold text-gray-800">
+                  Mention {mention.Mention_label}
+              </h1>
+
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-sm">
-                  <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-mono font-bold">{mention.Mention_code}</span>
-                  {mention.Domaine_label && (
-                      <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded border flex items-center gap-1">
-                          <FaLayerGroup className="text-[10px]"/> {mention.Domaine_label}
+                  {/* Code */}
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-mono font-bold border border-blue-200">
+                      {mention.Mention_code}
+                  </span>
+
+                  {/* AJOUT : Établissement parent (Abréviation) */}
+                  {etablissement && (etablissement.Composante_abbreviation || etablissement.Composante_label) && (
+                      <span className="px-2 py-0.5 bg-purple-50 text-purple-700 rounded border border-purple-200 flex items-center gap-1 font-medium" title={etablissement.Composante_label}>
+                          <FaUniversity className="text-[10px]"/> 
+                          {etablissement.Composante_abbreviation || etablissement.Composante_label}
+                      </span>
+                  )}
+
+                  {/* Domaine */}
+                  {(mention.Domaine_label || mention.domaine?.Domaine_label) && (
+                      <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded border border-gray-200 flex items-center gap-1">
+                          <FaLayerGroup className="text-[10px]"/> 
+                          {mention.Domaine_label || mention.domaine?.Domaine_label}
                       </span>
                   )}
               </div>
@@ -429,7 +437,7 @@ const MentionDetail = () => {
                     }
                     imageSrc={p.Parcours_logo_path ? `${API_BASE_URL}${p.Parcours_logo_path}` : null}
                     PlaceholderIcon={FaBookOpen}
-                    onClick={() => { /* Navigation vers Détail Parcours (si implémenté) */ }}
+                    onClick={() => { /* Navigation vers Détail Parcours */ }}
                     onEdit={() => openModal(p)} 
                     onDelete={() => handleDelete(p)}
                  />
@@ -437,7 +445,7 @@ const MentionDetail = () => {
           </AnimatePresence>
       </div>
 
-      {/* MODAL AJOUT/EDITION PARCOURS AVEC TYPES FORMATION DYNAMIQUES */}
+      {/* MODAL AJOUT/EDITION PARCOURS */}
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editParcours ? "Modifier Parcours" : "Nouveau Parcours"}>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex gap-4">
@@ -465,7 +473,6 @@ const MentionDetail = () => {
                       <input name="abbreviation" value={form.abbreviation} onChange={handleFormChange} className={AppStyles.input.formControl} placeholder="Ex: PII"/>
                   </label>
                   
-                  {/* LISTE DYNAMIQUE DES TYPES DE FORMATION */}
                   <label>
                       <span className={AppStyles.input.label}>Type Formation Défaut <span className="text-red-500">*</span></span>
                       <select 
