@@ -1,7 +1,7 @@
 # backend/app/routers/metadonnees_routes.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 from typing import List
 from sqlalchemy.exc import IntegrityError
@@ -80,7 +80,15 @@ def create_domaine(item: schemas.DomaineCreate, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erreur lors de la création du domaine: {str(e)}")
-
+    
+# 2. Remplace la route 'get_domaines' par celle-ci :
+@router.get("/domaines", response_model=List[schemas.DomaineSchema])
+def get_domaines(db: Session = Depends(get_db)):
+    # On utilise .options(joinedload(...)) pour inclure les mentions ET leurs composantes
+    domaines = db.query(models.Domaine).options(
+        joinedload(models.Domaine.mentions).joinedload(models.Mention.composante)
+    ).order_by(models.Domaine.Domaine_id).all()
+    return domaines
 
 # --- 1b. Routes Dynamiques ({id}) ---
 
