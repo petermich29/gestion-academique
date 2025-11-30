@@ -119,9 +119,14 @@ const EtablissementDetail = () => {
 
         // 3. Charger les Domaines (pour le formulaire d'ajout de mention)
         // Utilise la route définie dans domaines_routes.py
-        const resDomaines = await fetch(`${API_BASE_URL}/api/domaines/`); 
+        // Si cela échoue encore, vérifie dans main.py le prefix de l'include_router
+        const resDomaines = await fetch(`${API_BASE_URL}/api/metadonnees/domaines/`); 
         if (resDomaines.ok) {
             setDomaines(await resDomaines.json());
+        } else {
+            // Fallback si la route précédente échoue (au cas où ce soit juste /api/domaines)
+            const resFallback = await fetch(`${API_BASE_URL}/api/domaines/`);
+            if (resFallback.ok) setDomaines(await resFallback.json());
         }
 
         // 4. Charger les Mentions de l'établissement

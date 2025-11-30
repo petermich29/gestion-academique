@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
+from sqlalchemy.exc import IntegrityError
 
 # Import de la configuration DB et des modèles/schémas
 from app.database import get_db
@@ -15,35 +16,26 @@ router = APIRouter(
     tags=["Métadonnées (Domaines, Types, Années)"]
 )
 
-# =================================================================
-# UTILITAIRE : GÉNÉRATEUR D'ID (Minimal Disponible)
-# =================================================================
 def get_next_id(db: Session, model, id_column, prefix: str, width: int):
     """
     Génère le prochain ID disponible en comblant les trous.
     Ex: Si DOMA_01 et DOMA_03 existent, retourne DOMA_02.
     """
-    # 1. Récupérer tous les IDs correspondant au préfixe
     existing_ids = db.query(id_column).filter(id_column.like(f"{prefix}%")).all()
     
-    # 2. Extraire les numéros existants
     existing_nums = set()
     for (r_id,) in existing_ids:
-        # On suppose que l'ID finit par des chiffres (ex: DOMA_05)
-        # On enlève le préfixe pour garder le nombre
         if r_id.startswith(prefix):
             try:
                 num_part = r_id[len(prefix):]
                 existing_nums.add(int(num_part))
             except ValueError:
-                continue # Ignore les IDs mal formés
+                continue 
 
-    # 3. Trouver le premier entier positif (partir de 1) qui n'est pas dans l'ensemble
     next_num = 1
     while next_num in existing_nums:
         next_num += 1
     
-    # 4. Formater avec le padding (ex: 2 -> "02" pour width=2)
     return f"{prefix}{str(next_num).zfill(width)}"
 
 
@@ -51,12 +43,23 @@ def get_next_id(db: Session, model, id_column, prefix: str, width: int):
 # 1. DOMAINES (ID: DOMA_XX)
 # =================================================================
 
+# --- 1a. Routes Générales et Statiques ---
+
 @router.get("/domaines", response_model=List[schemas.DomaineSchema])
 def get_domaines(db: Session = Depends(get_db)):
     return db.query(models.Domaine).order_by(models.Domaine.Domaine_id).all()
 
+# CORRECTION CRUCIALE : Ajout de la route /next-id
+@router.get("/domaines/next-id", response_model=str)
+def get_domaine_next_id(db: Session = Depends(get_db)):
+    """Récupère le prochain ID de domaine disponible (DOMA_XX)."""
+    return get_next_id(db, models.Domaine, models.Domaine.Domaine_id, "DOMA_", 2)
+
 @router.post("/domaines", response_model=schemas.DomaineSchema)
 def create_domaine(item: schemas.DomaineCreate, db: Session = Depends(get_db)):
+    # IMPORTANT : Assurez-vous que schemas.DomaineCreate est configuré
+    # pour accepter le JSON du frontend (populate_by_name=True).
+    
     # Vérifier unicité du code
     if db.query(models.Domaine).filter(models.Domaine.Domaine_code == item.code).first():
         raise HTTPException(status_code=400, detail="Ce code domaine existe déjà.")
@@ -65,13 +68,28 @@ def create_domaine(item: schemas.DomaineCreate, db: Session = Depends(get_db)):
     
     db_item = models.Domaine(
         Domaine_id=new_id,
-        Domaine_code=item.code,
-        Domaine_label=item.label,
+        Domaine_code=item.code.strip().upper(),
+        Domaine_label=item.label.strip(),
         Domaine_description=item.description
     )
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
+    try:
+        db.add(db_item)
+        db.commit()
+        db.refresh(db_item)
+        return db_item
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la création du domaine: {str(e)}")
+
+
+# --- 1b. Routes Dynamiques ({id}) ---
+
+@router.get("/domaines/{id}", response_model=schemas.DomaineSchema)
+def get_domaine_by_id(id: str, db: Session = Depends(get_db)):
+    """Récupère un domaine par son ID (DOMA_XX)."""
+    db_item = db.query(models.Domaine).filter(models.Domaine.Domaine_id == id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Domaine introuvable")
     return db_item
 
 @router.put("/domaines/{id}", response_model=schemas.DomaineSchema)
@@ -80,13 +98,13 @@ def update_domaine(id: str, item: schemas.DomaineCreate, db: Session = Depends(g
     if not db_item:
         raise HTTPException(status_code=404, detail="Domaine introuvable")
     
-    # Vérification code unique (sauf si c'est le même)
-    existing = db.query(models.Domaine).filter(models.Domaine.Domaine_code == item.code).first()
+    # Vérification code unique (sauf si c'est le même ID)
+    existing = db.query(models.Domaine).filter(models.Domaine.Domaine_code == item.code.strip().upper()).first()
     if existing and existing.Domaine_id != id:
         raise HTTPException(status_code=400, detail="Ce code est déjà utilisé par un autre domaine.")
 
-    db_item.Domaine_code = item.code
-    db_item.Domaine_label = item.label
+    db_item.Domaine_code = item.code.strip().upper()
+    db_item.Domaine_label = item.label.strip()
     db_item.Domaine_description = item.description
     
     db.commit()
@@ -99,9 +117,13 @@ def delete_domaine(id: str, db: Session = Depends(get_db)):
     if not db_item:
         raise HTTPException(status_code=404, detail="Domaine introuvable")
     
-    db.delete(db_item)
-    db.commit()
-    return {"message": "Domaine supprimé"}
+    try:
+        db.delete(db_item)
+        db.commit()
+        return {"message": "Domaine supprimé"}
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Impossible de supprimer (domaine lié).")
 
 
 # =================================================================

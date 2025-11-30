@@ -1,14 +1,14 @@
+// src/pages/Administration/Domaines.jsx
+
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { AppStyles } from "../../components/ui/AppStyles";
 import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
 
-// --- CONFIGURATION SPÉCIFIQUE ---
 const CONFIG = {
   title: "Listes des Domaines",
-  // 1. Assurez-vous que le préfixe /api est présent si votre main.py l'utilise
+  // Assure-toi que c'est la bonne URL de base (ex: /api/metadonnees/domaines)
   apiUrl: "http://localhost:8000/api/metadonnees/domaines",
-  // 2. Utilisez le nom exact de la clé primaire renvoyée par le backend (modèle SQLAlchemy)
   idField: "Domaine_id", 
   fields: {
     code: { label: "Code", placeholder: "ex: SCI" },
@@ -16,26 +16,22 @@ const CONFIG = {
     description: { label: "Description", placeholder: "Description facultative" }
   }
 };
-// ---------------------------------------------------------------------
 
 export default function Domaines() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   
-  // États Modales
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [currentResult, setCurrentResult] = useState(null);
 
-  // État Formulaire
-  const [formData, setFormData] = useState({ code: "", label: "", description: "" });
+  // Ajout du champ 'id' dans le state du formulaire
+  const [formData, setFormData] = useState({ id: "", code: "", label: "", description: "" });
 
-  // 1. Fetch Data
   const fetchData = async () => {
     setLoading(true);
     try {
       const response = await axios.get(CONFIG.apiUrl);
-      // console.log("Données reçues:", response.data); // Décommentez pour voir la structure exacte
       setData(response.data);
     } catch (error) {
       console.error("Erreur chargement:", error);
@@ -48,18 +44,27 @@ export default function Domaines() {
     fetchData();
   }, []);
 
-  // 2. Handlers Formulaire
-  const openAddModal = () => {
+  // --- MODIFICATION ICI : Récupérer le prochain ID ---
+  const openAddModal = async () => {
     setCurrentResult(null);
-    setFormData({ code: "", label: "", description: "" });
+    // On met un placeholder en attendant la réponse de l'API
+    setFormData({ id: "Chargement...", code: "", label: "", description: "" });
     setIsEditModalOpen(true);
+
+    try {
+      // Appel à la route /next-id (assure-toi qu'elle existe dans ton router)
+      const res = await axios.get(`${CONFIG.apiUrl}/next-id`);
+      setFormData(prev => ({ ...prev, id: res.data }));
+    } catch (error) {
+      console.error("Impossible de récupérer l'ID suivant", error);
+      setFormData(prev => ({ ...prev, id: "Erreur" }));
+    }
   };
 
   const openEditModal = (item) => {
     setCurrentResult(item);
-    // 4. CORRECTION ICI : On mappe les noms de champs du Backend (ex: Domaine_code)
-    // vers les noms de champs du formulaire (ex: code)
     setFormData({
+      id: item.Domaine_id, // On remplit l'ID existant
       code: item.Domaine_code || "",
       label: item.Domaine_label || "",
       description: item.Domaine_description || ""
@@ -73,22 +78,26 @@ export default function Domaines() {
       if (currentResult) {
         // UPDATE
         const id = currentResult[CONFIG.idField];
-        // Note: Le backend attend probablement les champs 'code', 'label', 'description' via Pydantic,
-        // donc formData est correct ici.
         await axios.put(`${CONFIG.apiUrl}/${id}`, formData);
       } else {
         // CREATE
-        await axios.post(CONFIG.apiUrl, formData);
+        // Note: l'ID est généré par le backend, on n'a pas besoin de l'envoyer,
+        // mais le backend l'ignorera ou le régénérera proprement.
+        await axios.post(CONFIG.apiUrl, {
+            code: formData.code,
+            label: formData.label,
+            description: formData.description
+        });
       }
       setIsEditModalOpen(false);
       fetchData();
     } catch (error) {
       console.error("Erreur sauvegarde:", error);
-      alert("Erreur lors de l'enregistrement. Vérifiez les doublons.");
+      alert("Erreur lors de l'enregistrement. Vérifiez les doublons ou la connexion.");
     }
   };
 
-  // 3. Handlers Suppression
+  // ... (Reste du code: openDeleteModal, handleDelete inchangés) ...
   const openDeleteModal = (item) => {
     setCurrentResult(item);
     setIsDeleteModalOpen(true);
@@ -103,31 +112,40 @@ export default function Domaines() {
       fetchData();
     } catch (error) {
       console.error("Erreur suppression:", error);
-      alert("Erreur lors de la suppression. Vérifiez si ce domaine est utilisé ailleurs.");
+      alert("Erreur lors de la suppression.");
     }
   };
 
   return (
-    <div className="animate-fade-in">
-      {/* En-tête */}
+    <div className={AppStyles.pageContainer}>
       <div className={AppStyles.header.container}>
-        <h2 className={AppStyles.header.title}>{CONFIG.title}</h2>
+        
+        {/* MODIFICATION ICI : On n'utilise pas AppStyles.mainTitle */}
+        {/* On utilise une classe plus simple : text-2xl et gris foncé */}
+        <h2 className="text-2xl font-bold text-gray-800 tracking-tight">
+          {CONFIG.title}
+        </h2>
+
         <button onClick={openAddModal} className={AppStyles.button.primary}>
           + Ajouter
         </button>
       </div>
+      
+      {/* On peut aussi remettre un séparateur plus discret si tu veux, 
+          ou garder le séparateur stylisé. Ici je remets un simple trait gris. */}
+      <hr className="mt-2 mb-6 border-gray-200" />
 
-      {/* Tableau */}
+      {/* Tableau ... (Code existant inchangé) */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-4">
         <table className="w-full text-sm text-left">
           <thead className="bg-gray-50 text-gray-600 font-semibold border-b">
-            <tr>
-              <th className="px-4 py-3">ID</th>
-              <th className="px-4 py-3">{CONFIG.fields.code.label}</th>
-              <th className="px-4 py-3">{CONFIG.fields.label.label}</th>
-              <th className="px-4 py-3">{CONFIG.fields.description.label}</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
+             <tr>
+               <th className="px-4 py-3">ID</th>
+               <th className="px-4 py-3">Code</th>
+               <th className="px-4 py-3">Libellé</th>
+               <th className="px-4 py-3">Description</th>
+               <th className="px-4 py-3 text-right">Actions</th>
+             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
@@ -136,26 +154,14 @@ export default function Domaines() {
               <tr><td colSpan="5" className="p-4 text-center text-gray-500">Aucune donnée</td></tr>
             ) : (
               data.map((item) => (
-                <tr key={item[CONFIG.idField]} className="hover:bg-blue-50/30 transition-colors">
-                  {/* 3. CORRECTION ICI : Utilisation des noms de propriétés exacts du backend */}
+                <tr key={item.Domaine_id} className="hover:bg-blue-50/30 transition-colors">
                   <td className="px-4 py-3 text-gray-400 font-mono text-xs">{item.Domaine_id}</td>
                   <td className="px-4 py-3 font-medium text-gray-800">{item.Domaine_code}</td>
                   <td className="px-4 py-3 text-gray-700">{item.Domaine_label}</td>
                   <td className="px-4 py-3 text-gray-500 italic truncate max-w-xs">{item.Domaine_description}</td>
-                  
                   <td className="px-4 py-3 text-right space-x-2">
-                    <button 
-                      onClick={() => openEditModal(item)}
-                      className="text-blue-600 hover:text-blue-800 font-medium hover:underline"
-                    >
-                      Éditer
-                    </button>
-                    <button 
-                      onClick={() => openDeleteModal(item)}
-                      className="text-red-500 hover:text-red-700 font-medium hover:underline"
-                    >
-                      Supprimer
-                    </button>
+                    <button onClick={() => openEditModal(item)} className="text-blue-600 hover:text-blue-800 font-medium hover:underline">Éditer</button>
+                    <button onClick={() => openDeleteModal(item)} className="text-red-500 hover:text-red-700 font-medium hover:underline">Supprimer</button>
                   </td>
                 </tr>
               ))
@@ -171,28 +177,41 @@ export default function Domaines() {
         title={currentResult ? `Modifier ${CONFIG.title}` : `Ajouter ${CONFIG.title}`}
       >
         <form onSubmit={handleSave} className="space-y-4">
+          
+          {/* NOUVEAU CHAMP : ID (Lecture seule) */}
           <div>
-            <label className={AppStyles.input.label}>{CONFIG.fields.code.label}</label>
+            <label className={AppStyles.input.label}>Identifiant (Généré)</label>
             <input
               type="text"
-              required
-              className={AppStyles.input.formControl}
-              placeholder={CONFIG.fields.code.placeholder}
-              value={formData.code}
-              onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+              disabled
+              className={AppStyles.input.formControlDisabled} // Utilise le style grisé
+              value={formData.id}
             />
           </div>
 
-          <div>
-            <label className={AppStyles.input.label}>{CONFIG.fields.label.label}</label>
-            <input
-              type="text"
-              required
-              className={AppStyles.input.formControl}
-              placeholder={CONFIG.fields.label.placeholder}
-              value={formData.label}
-              onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-            />
+          <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={AppStyles.input.label}>{CONFIG.fields.code.label}</label>
+                <input
+                  type="text"
+                  required
+                  className={AppStyles.input.formControl}
+                  placeholder={CONFIG.fields.code.placeholder}
+                  value={formData.code}
+                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className={AppStyles.input.label}>{CONFIG.fields.label.label}</label>
+                <input
+                  type="text"
+                  required
+                  className={AppStyles.input.formControl}
+                  placeholder={CONFIG.fields.label.placeholder}
+                  value={formData.label}
+                  onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                />
+              </div>
           </div>
 
           <div>
@@ -224,28 +243,18 @@ export default function Domaines() {
         </form>
       </DraggableModal>
 
-      {/* MODALE DE CONFIRMATION */}
+      {/* MODALE DE CONFIRMATION ... (Reste inchangé) */}
       <ConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
         title="Confirmer la suppression"
       >
         <p className="text-gray-600 mb-6">
-          Voulez-vous vraiment supprimer cet élément ? Cette action est irréversible.
+          Voulez-vous vraiment supprimer cet élément ?
         </p>
         <div className="flex justify-end gap-3">
-          <button
-            onClick={() => setIsDeleteModalOpen(false)}
-            className={AppStyles.button.secondary}
-          >
-            Annuler
-          </button>
-          <button
-            onClick={handleDelete}
-            className={AppStyles.button.danger}
-          >
-            Supprimer
-          </button>
+          <button onClick={() => setIsDeleteModalOpen(false)} className={AppStyles.button.secondary}>Annuler</button>
+          <button onClick={handleDelete} className={AppStyles.button.danger}>Supprimer</button>
         </div>
       </ConfirmModal>
     </div>

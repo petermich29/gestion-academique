@@ -2,14 +2,15 @@
 
 export const AppStyles = {
   // Conteneurs et Layouts
-  pageContainer: "flex flex-col gap-4 p-4 relative min-h-screen bg-gray-50", 
+  pageContainer: "flex flex-col gap-6 p-6 relative min-h-screen bg-gray-50/50", 
 
-  // NOUVEAU STYLE DE TITRE EMBELLI
-  // Utilisation de tracking-tight, text-gray-900, et underline pour un effet plus marqué
-  mainTitle: "text-4xl font-extrabold text-gray-900 tracking-tight", 
+  // --- NOUVEAU STYLE DE TITRE ---
+  // Texte sombre avec un léger dégradé bleu sur la fin, et une police serrée
+  mainTitle: "text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-blue-800 tracking-tight", 
   
-  // NOUVEAU SÉPARATEUR PLUS ÉPAIS ET MIEUX STYLISÉ
-  separator: "mt-1 mb-6 border-t-2 border-blue-600 w-1/4 max-w-sm", // Ligne bleue plus courte et plus épaisse
+  // SÉPARATEUR STYLISÉ
+  // Une ligne fine avec un dégradé qui s'estompe vers la droite
+  separator: "mt-2 mb-8 h-1 w-32 bg-gradient-to-r from-blue-600 to-transparent rounded-full",
 
   // Grille standardisée (Max 4 colonnes sur grands écrans)
   gridContainer: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4",

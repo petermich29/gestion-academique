@@ -80,6 +80,9 @@ class DomaineBase(BaseModel):
     model_config = base_config
 
 class DomaineCreate(BaseModel):
+    # C'est l'ajout crucial qui permet à FastAPI de lire le JSON {"code": "..."}
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
     code: str = Field(..., alias="Domaine_code")
     label: str = Field(..., alias="Domaine_label")
     description: Optional[str] = Field(None, alias="Domaine_description")

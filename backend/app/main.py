@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 
 # Imports des routeurs
-from app.routers import composantes_routes, institutions_routes, mentions_routes, domaines_routes, metadonnees_routes # <--- AJOUT
+from app.routers import composantes_routes, institutions_routes, mentions_routes, metadonnees_routes # <--- AJOUT
 from app.database import engine
 from app.models import Base
 
@@ -26,7 +26,6 @@ app.add_middleware(
 app.include_router(institutions_routes.router, prefix="/api") 
 app.include_router(composantes_routes.router, prefix="/api")
 app.include_router(mentions_routes.router, prefix="/api")
-app.include_router(domaines_routes.router, prefix="/api")
 app.include_router(metadonnees_routes.router, prefix="/api") # <--- AJOUT
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
