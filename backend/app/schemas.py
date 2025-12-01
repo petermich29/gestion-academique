@@ -240,11 +240,13 @@ class TypeFormationSchema(TypeFormationBase):
 
 
 ## UNITÉS D'ENSEIGNEMENT (UE)
+## UNITÉS D'ENSEIGNEMENT (UE)
 class UniteEnseignementBase(BaseModel):
     code: str = Field(..., alias="UE_code")
     intitule: str = Field(..., alias="UE_intitule")
     credit: int = Field(..., alias="UE_credit")
     id_semestre: str = Field(..., alias="Semestre_id_fk")
+    # ❌ ON RETIRE id_parcours ICI car il n'est pas dans le modèle DB
     
     model_config = base_config
 
@@ -596,21 +598,21 @@ except AttributeError:
 
 class StructureUE(BaseModel):
     """Vue allégée d'une UE pour l'affichage en liste"""
-    # 💥 CORRECTION : Utiliser le nom du champ de la DB pour l'alias
-    # Le frontend veut le champ 'id', qui correspond à la colonne 'UE_id'
-    id: str = Field(..., alias="UE_id") 
-    code: str = Field(..., alias="UE_code")
-    intitule: str = Field(..., alias="UE_intitule")
-    credit: int = Field(..., alias="UE_credit")
-    ec_count: int = 0 # Champ calculé
+    # 🚨 CORRECTION : On RETIRE l'alias car le mapping est déjà fait dans parcours_routes.py
+    id: str 
+    code: str
+    intitule: str
+    credit: int
+    ec_count: int = 0
     
     model_config = base_config
 
 class StructureSemestre(BaseModel):
     """Vue d'un semestre contenant ses UEs"""
-    id: str = Field(..., alias="Semestre_id")
-    numero: str = Field(..., alias="Semestre_numero")
-    code: Optional[str] = Field(None, alias="Semestre_code")
+    # 🚨 CORRECTION : On RETIRE l'alias
+    id: str 
+    numero: str 
+    code: Optional[str] = None
     ues: List[StructureUE] = []
     
     model_config = base_config

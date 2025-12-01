@@ -1,15 +1,14 @@
 # backend/app/routers/ue_routes.py
 
-from fastapi import APIRouter, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 from typing import Optional
 
 from app import models, schemas
 from app.database import get_db
 
 router = APIRouter(
-    prefix="/ues",  # L'URL sera: http://.../api/ues
+    prefix="/ues", 
     tags=["Unités d'Enseignement (UE)"]
 )
 
@@ -21,12 +20,10 @@ def generate_next_ue_id(db: Session) -> str:
         return "UE_0000000001"
     
     try:
-        # Format attendu: UE_ + 10 chiffres
         part_num = last_ue.UE_id.split('_')[1]
         next_num = int(part_num) + 1
         return f"UE_{str(next_num).zfill(10)}"
     except:
-        # Fallback de sécurité
         count = db.query(models.UniteEnseignement).count() + 1
         return f"UE_{str(count).zfill(10)}"
 
@@ -34,7 +31,6 @@ def generate_next_ue_id(db: Session) -> str:
 
 @router.get("/next-id", response_model=str)
 def get_next_ue_id_endpoint(db: Session = Depends(get_db)):
-    """Retourne le prochain ID disponible pour affichage dans le formulaire"""
     return generate_next_ue_id(db)
 
 @router.post("/", response_model=schemas.UniteEnseignementSchema)
@@ -43,28 +39,32 @@ def create_ue(
     intitule: str = Form(...),
     credit: int = Form(...),
     semestre_id: str = Form(...),
-    parcours_id: str = Form(...), # Crucial pour lier au Niveau
+    # On récupère le parcours_id pour la logique métier, 
+    # même s'il n'est pas stocké dans l'UE
+    parcours_id: str = Form(...), 
     db: Session = Depends(get_db)
 ):
-    # 1. Récupération du Semestre et de son Niveau parent
+    # 1. Vérifications préalables
     semestre = db.query(models.Semestre).filter(models.Semestre.Semestre_id == semestre_id).first()
     if not semestre:
         raise HTTPException(status_code=400, detail="Semestre invalide")
     
     niveau_id = semestre.Niveau_id_fk
-    
-    # 2. LOGIQUE AUTOMATIQUE : Liaison Parcours <-> Niveau
-    # On vérifie si le parcours est déjà lié à ce niveau dans ParcoursNiveau
+
+    if db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_code == code.strip()).first():
+        raise HTTPException(status_code=400, detail=f"Le code UE '{code}' existe déjà.")
+
+    # 2. LOGIQUE INTELLIGENTE : Mise à jour de ParcoursNiveau
+    # Vérifier si le lien entre le Parcours et ce Niveau existe déjà
     lien_pn = db.query(models.ParcoursNiveau).filter(
         models.ParcoursNiveau.Parcours_id_fk == parcours_id,
         models.ParcoursNiveau.Niveau_id_fk == niveau_id
     ).first()
 
+    # S'il n'existe pas, on le crée (cela active le niveau dans l'affichage du parcours)
     if not lien_pn:
-        # Création du lien automatique
-        pn_id = f"PN_{parcours_id}_{niveau_id}" # ID Composite simple
-        
-        # Calcul de l'ordre (facultatif, on met à la suite)
+        pn_id = f"PN_{parcours_id}_{niveau_id}"
+        # Calcul de l'ordre pour placer le niveau correctement
         count_ord = db.query(models.ParcoursNiveau).filter(models.ParcoursNiveau.Parcours_id_fk == parcours_id).count()
         
         new_pn = models.ParcoursNiveau(
@@ -74,14 +74,8 @@ def create_ue(
             ParcoursNiveau_ordre=count_ord + 1
         )
         db.add(new_pn)
-        db.flush() # Important pour valider la foreign key potentielle
 
-    # 3. Vérification unicité Code UE
-    if db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_code == code.strip()).first():
-         db.rollback()
-         raise HTTPException(status_code=400, detail=f"Le code UE '{code}' existe déjà.")
-
-    # 4. Création de l'UE
+    # 3. Création de l'UE (Sans toucher au modèle, champs standards uniquement)
     new_id = generate_next_ue_id(db)
     
     new_ue = models.UniteEnseignement(
@@ -90,6 +84,7 @@ def create_ue(
         UE_intitule=intitule.strip(),
         UE_credit=credit,
         Semestre_id_fk=semestre_id
+        # PAS de Parcours_id_fk ici
     )
     
     try:
@@ -100,6 +95,7 @@ def create_ue(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.put("/{ue_id}", response_model=schemas.UniteEnseignementSchema)
 def update_ue(
@@ -114,6 +110,7 @@ def update_ue(
     if not ue:
         raise HTTPException(status_code=404, detail="UE introuvable")
 
+    # Vérification unicité code seulement si changé
     if code.strip() != ue.UE_code:
         if db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_code == code.strip()).first():
             raise HTTPException(status_code=400, detail="Code UE déjà utilisé.")
@@ -122,7 +119,7 @@ def update_ue(
     ue.UE_intitule = intitule.strip()
     ue.UE_credit = credit
     
-    if semestre_id:
+    if semestre_id is not None:
         ue.Semestre_id_fk = semestre_id
     
     try:
@@ -133,15 +130,61 @@ def update_ue(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.delete("/{ue_id}", status_code=204)
-def delete_ue(ue_id: str, db: Session = Depends(get_db)):
+def delete_ue(
+    ue_id: str, 
+    # On demande le parcours_id pour savoir quel lien nettoyer potentiellement
+    parcours_id: str = Query(..., description="ID du parcours courant"),
+    db: Session = Depends(get_db)
+):
     ue = db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_id == ue_id).first()
+    
     if not ue:
         raise HTTPException(status_code=404, detail="UE introuvable")
+
+    # On garde les infos avant suppression
+    semestre_id = ue.Semestre_id_fk
     
     try:
+        # 1. Suppression de l'UE
         db.delete(ue)
-        db.commit()
-    except IntegrityError:
+        db.commit() # Important de commiter ici pour que le compte suivant soit juste
+    except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Impossible de supprimer : Cette UE contient des données liées (EC, Notes...).")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 2. LOGIQUE DE NETTOYAGE (Sans colonne Parcours_id_fk)
+    # On regarde si le niveau contient encore des UEs.
+    # Si le niveau est vide (tous semestres confondus), on supprime le lien ParcoursNiveau.
+    
+    semestre = db.query(models.Semestre).filter(models.Semestre.Semestre_id == semestre_id).first()
+    
+    if semestre:
+        niveau_id = semestre.Niveau_id_fk
+        
+        # Trouver tous les semestres de ce niveau (ex: S1, S2)
+        semestres_du_niveau = db.query(models.Semestre).filter(models.Semestre.Niveau_id_fk == niveau_id).all()
+        ids_semestres = [s.Semestre_id for s in semestres_du_niveau]
+
+        # Compter les UEs restantes dans TOUT le niveau
+        # Note: Puisqu'on n'a pas Parcours_id_fk dans UE, on vérifie si le niveau est globalement vide.
+        # C'est le comportement le plus logique sans modifier le modèle.
+        count_remaining = (
+            db.query(models.UniteEnseignement)
+            .filter(models.UniteEnseignement.Semestre_id_fk.in_(ids_semestres))
+            .count()
+        )
+        
+        # Si plus aucune UE dans ce niveau, on retire le niveau du parcours
+        if count_remaining == 0:
+            lien_a_supprimer = db.query(models.ParcoursNiveau).filter(
+                models.ParcoursNiveau.Parcours_id_fk == parcours_id,
+                models.ParcoursNiveau.Niveau_id_fk == niveau_id
+            ).first()
+            
+            if lien_a_supprimer:
+                db.delete(lien_a_supprimer)
+                db.commit()
+
+    return

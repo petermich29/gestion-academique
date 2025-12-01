@@ -52,6 +52,18 @@ def save_upload_file(upload_file: UploadFile, filename: str) -> str:
 
 # --- ROUTES ---
 
+@router.get("/{mention_id}", response_model=MentionSchema)
+def get_mention(mention_id: str, db: Session = Depends(get_db)):
+    """
+    Récupère les détails d'une mention spécifique par son ID.
+    Ceci est la route manquante qui cause le 405.
+    """
+    mention = db.query(Mention).filter(Mention.Mention_id == mention_id).first()
+    if not mention:
+        raise HTTPException(status_code=404, detail="Mention introuvable")
+    # L'objet mention est retourné et mappé automatiquement vers MentionSchema
+    return mention
+
 @router.get("/next-id", response_model=str)
 def get_next_id(db: Session = Depends(get_db)):
     return get_next_mention_id(db)
@@ -76,6 +88,7 @@ def get_mentions_by_composante(composante_id: str, db: Session = Depends(get_db)
         .all()
     )
     return mentions
+
 
 # Créer une Mention
 @router.post("/", response_model=MentionSchema)
