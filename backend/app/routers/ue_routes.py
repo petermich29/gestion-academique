@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import and_
 from typing import Optional
 
 from app import models, schemas
@@ -76,6 +77,7 @@ def create_ue(
         db.add(new_pn)
 
     # 3. Création de l'UE (Sans toucher au modèle, champs standards uniquement)
+    # 3. Création de l'UE 
     new_id = generate_next_ue_id(db)
     
     new_ue = models.UniteEnseignement(
@@ -83,8 +85,9 @@ def create_ue(
         UE_code=code.strip(),
         UE_intitule=intitule.strip(),
         UE_credit=credit,
-        Semestre_id_fk=semestre_id
-        # PAS de Parcours_id_fk ici
+        Semestre_id_fk=semestre_id,
+        # 🟢 AJOUT : On enregistre enfin le Parcours ID !
+        Parcours_id_fk=parcours_id
     )
     
     try:
@@ -145,6 +148,11 @@ def delete_ue(
 
     # On garde les infos avant suppression
     semestre_id = ue.Semestre_id_fk
+
+    # 🟢 CORRECTION : On vérifie que l'UE qu'on supprime appartient bien au parcours courant
+    # (Sécurité supplémentaire)
+    if ue.Parcours_id_fk != parcours_id:
+         raise HTTPException(status_code=400, detail="Cette UE n'appartient pas au parcours spécifié.")
     
     try:
         # 1. Suppression de l'UE
@@ -170,9 +178,15 @@ def delete_ue(
         # Compter les UEs restantes dans TOUT le niveau
         # Note: Puisqu'on n'a pas Parcours_id_fk dans UE, on vérifie si le niveau est globalement vide.
         # C'est le comportement le plus logique sans modifier le modèle.
+        # 🟢 CORRECTION MAJEURE : Compter les UEs restantes UNIQUEMENT POUR CE PARCOURS
         count_remaining = (
             db.query(models.UniteEnseignement)
-            .filter(models.UniteEnseignement.Semestre_id_fk.in_(ids_semestres))
+            .filter(
+                and_(
+                    models.UniteEnseignement.Semestre_id_fk.in_(ids_semestres),
+                    models.UniteEnseignement.Parcours_id_fk == parcours_id # <-- LE FILTRE CLÉ
+                )
+            )
             .count()
         )
         

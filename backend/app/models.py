@@ -262,15 +262,27 @@ class UniteEnseignement(Base):
     UE_intitule = Column(String(255), nullable=False)
     UE_credit = Column(Integer, nullable=False)
     
-    # Clé étrangère
+    # Clé étrangère Semestre (EXISTANT)
     Semestre_id_fk = Column(
-        String(10), # Taille mise à jour
+        String(10), 
         ForeignKey('semestres.Semestre_id'), 
         nullable=False
+    )
+
+    # --- 🟢 AJOUT : Clé étrangère Parcours ---
+    # Cela rend l'UE spécifique à un parcours
+    Parcours_id_fk = Column(
+        String(15),
+        ForeignKey('parcours.Parcours_id'),
+        nullable=False, # Une UE doit maintenant appartenir à un parcours
+        default='PARC_XXXXX' # Valeur temporaire pour la migration si nécessaire
     )
     
     # Relations
     semestre = relationship("Semestre", back_populates="unites_enseignement") 
+    # --- 🟢 AJOUT : Relation inverse vers Parcours ---
+    parcours = relationship("Parcours")
+    
     elements_constitutifs = relationship("ElementConstitutif", back_populates="unite_enseignement")
     resultats = relationship("ResultatUE", back_populates="unite_enseignement")
 

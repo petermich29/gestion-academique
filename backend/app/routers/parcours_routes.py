@@ -53,8 +53,6 @@ def get_parcours_structure(parcours_id: str, db: Session = Depends(get_db)):
             # Utilisation de joinedload pour optimiser les requêtes (N+1)
             joinedload(models.ParcoursNiveau.niveau_lie)
             .joinedload(models.Niveau.semestres)
-            .joinedload(models.Semestre.unites_enseignement)
-            .joinedload(models.UniteEnseignement.elements_constitutifs)
         )
         .order_by(models.ParcoursNiveau.ParcoursNiveau_ordre)
         .all()
@@ -72,9 +70,20 @@ def get_parcours_structure(parcours_id: str, db: Session = Depends(get_db)):
         
         for sem in sorted_semestres:
             ues_data = []
+
+            # 🟢 AJOUT : Requête spécifique pour récupérer les UE du semestre ET du parcours
+            ues_du_semestre_et_parcours = (
+                db.query(models.UniteEnseignement)
+                .filter(
+                    models.UniteEnseignement.Semestre_id_fk == sem.Semestre_id,
+                    models.UniteEnseignement.Parcours_id_fk == parcours_id # <-- LE FILTRE QUI ISOLE
+                )
+                .options(joinedload(models.UniteEnseignement.elements_constitutifs))
+                .all()
+            )
             
             # Trier les UEs par code pour un affichage stable
-            sorted_ues = sorted(sem.unites_enseignement, key=lambda x: x.UE_code)
+            sorted_ues = sorted(ues_du_semestre_et_parcours, key=lambda x: x.UE_code)
             
             for ue in sorted_ues:
                 # On mappe vers le schéma StructureUE (vérification du mapping)

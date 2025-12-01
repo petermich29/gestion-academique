@@ -241,12 +241,14 @@ class TypeFormationSchema(TypeFormationBase):
 
 ## UNITÉS D'ENSEIGNEMENT (UE)
 ## UNITÉS D'ENSEIGNEMENT (UE)
+## UNITÉS D'ENSEIGNEMENT (UE)
 class UniteEnseignementBase(BaseModel):
     code: str = Field(..., alias="UE_code")
     intitule: str = Field(..., alias="UE_intitule")
     credit: int = Field(..., alias="UE_credit")
     id_semestre: str = Field(..., alias="Semestre_id_fk")
-    # ❌ ON RETIRE id_parcours ICI car il n'est pas dans le modèle DB
+    # 🟢 AJOUT : On ajoute le champ id_parcours ici
+    id_parcours: str = Field(..., alias="Parcours_id_fk")
     
     model_config = base_config
 
