@@ -596,7 +596,9 @@ except AttributeError:
 
 class StructureUE(BaseModel):
     """Vue allégée d'une UE pour l'affichage en liste"""
-    id: str = Field(..., alias="UE_id")
+    # 💥 CORRECTION : Utiliser le nom du champ de la DB pour l'alias
+    # Le frontend veut le champ 'id', qui correspond à la colonne 'UE_id'
+    id: str = Field(..., alias="UE_id") 
     code: str = Field(..., alias="UE_code")
     intitule: str = Field(..., alias="UE_intitule")
     credit: int = Field(..., alias="UE_credit")
