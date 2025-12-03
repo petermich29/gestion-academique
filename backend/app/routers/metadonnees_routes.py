@@ -314,54 +314,75 @@ def get_annees_univ(db: Session = Depends(get_db)):
     return db.query(models.AnneeUniversitaire).order_by(models.AnneeUniversitaire.AnneeUniversitaire_ordre.desc()).all()
 
 @router.post("/annees-universitaires", response_model=schemas.AnneeUniversitaireSchema)
-def create_annee_univ(item: schemas.AnneeUniversitaireBase, db: Session = Depends(get_db)):
-    # Vérifications unicité
-    if not item.annee:
-        raise HTTPException(status_code=400, detail="Le libellé de l'année (ex: 2024-2025) est requis.")
-        
+def create_annee_univ(item: schemas.AnneeUniversitaireCreate, db: Session = Depends(get_db)):
+    # 1. Vérifications unicité
     if db.query(models.AnneeUniversitaire).filter(models.AnneeUniversitaire.AnneeUniversitaire_annee == item.annee).first():
         raise HTTPException(status_code=400, detail="Cette année existe déjà.")
         
     if db.query(models.AnneeUniversitaire).filter(models.AnneeUniversitaire.AnneeUniversitaire_ordre == item.ordre).first():
         raise HTTPException(status_code=400, detail="Cet ordre est déjà utilisé.")
 
-    # Génération ID : ANNE_XXXX
+    # 2. Gestion de l'année active (Exclusion mutuelle)
+    if item.is_active:
+        # Si la nouvelle année est active, on désactive toutes les autres
+        db.query(models.AnneeUniversitaire).update({models.AnneeUniversitaire.AnneeUniversitaire_is_active: False})
+
+    # 3. Génération ID : ANNE_XXXX
     new_id = get_next_id(db, models.AnneeUniversitaire, models.AnneeUniversitaire.AnneeUniversitaire_id, "ANNE_", 4)
 
     db_item = models.AnneeUniversitaire(
         AnneeUniversitaire_id=new_id,
-        AnneeUniversitaire_annee=item.annee,        # ex: "2023-2024"
+        AnneeUniversitaire_annee=item.annee,
         AnneeUniversitaire_description=item.description,
-        AnneeUniversitaire_ordre=item.ordre         # ex: 1, 2, 3...
+        AnneeUniversitaire_ordre=item.ordre,
+        AnneeUniversitaire_is_active=item.is_active
     )
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
-    return db_item
+    
+    try:
+        db.add(db_item)
+        db.commit()
+        db.refresh(db_item)
+        return db_item
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/annees-universitaires/{id}", response_model=schemas.AnneeUniversitaireSchema)
-def update_annee_univ(id: str, item: schemas.AnneeUniversitaireBase, db: Session = Depends(get_db)):
+def update_annee_univ(id: str, item: schemas.AnneeUniversitaireUpdate, db: Session = Depends(get_db)):
     db_item = db.query(models.AnneeUniversitaire).filter(models.AnneeUniversitaire.AnneeUniversitaire_id == id).first()
     if not db_item:
         raise HTTPException(status_code=404, detail="Année introuvable")
 
-    # Vérification unicité année (si modifiée)
+    # Vérification unicité année
     if item.annee and item.annee != db_item.AnneeUniversitaire_annee:
         if db.query(models.AnneeUniversitaire).filter(models.AnneeUniversitaire.AnneeUniversitaire_annee == item.annee).first():
             raise HTTPException(status_code=400, detail="Cette année existe déjà.")
 
-    # Vérification unicité ordre (si modifié)
+    # Vérification unicité ordre
     if item.ordre is not None and item.ordre != db_item.AnneeUniversitaire_ordre:
         if db.query(models.AnneeUniversitaire).filter(models.AnneeUniversitaire.AnneeUniversitaire_ordre == item.ordre).first():
             raise HTTPException(status_code=400, detail="Cet ordre est déjà utilisé.")
 
-    db_item.AnneeUniversitaire_annee = item.annee
-    db_item.AnneeUniversitaire_description = item.description
-    db_item.AnneeUniversitaire_ordre = item.ordre
+    # Gestion de l'année active lors de l'update
+    if item.is_active is True:
+        # On désactive tout le monde (sauf celle qu'on va activer juste après, mais le update global est plus simple)
+        db.query(models.AnneeUniversitaire).update({models.AnneeUniversitaire.AnneeUniversitaire_is_active: False})
+        db_item.AnneeUniversitaire_is_active = True
+    elif item.is_active is False:
+        db_item.AnneeUniversitaire_is_active = False
+
+    # Mise à jour des autres champs si présents
+    if item.annee: db_item.AnneeUniversitaire_annee = item.annee
+    if item.description: db_item.AnneeUniversitaire_description = item.description
+    if item.ordre: db_item.AnneeUniversitaire_ordre = item.ordre
     
-    db.commit()
-    db.refresh(db_item)
-    return db_item
+    try:
+        db.commit()
+        db.refresh(db_item)
+        return db_item
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/annees-universitaires/{id}")
 def delete_annee_univ(id: str, db: Session = Depends(get_db)):

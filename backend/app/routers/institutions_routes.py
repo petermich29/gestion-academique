@@ -2,14 +2,14 @@
 import os
 import shutil
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Form, File, UploadFile, HTTPException
+from fastapi import APIRouter, Depends, Form, File, UploadFile, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError # 🚨 IMPORTANT : Importez IntegrityError
-import inspect # 🧪 Ajout pour le débogage de la fonction active
+from sqlalchemy.exc import IntegrityError 
+import inspect 
 
-# Importations des modèles et schémas (issus de votre contexte)
-from app.models import Institution, Composante, Domaine, Mention, Parcours
-from app.schemas import InstitutionSchema, ComposanteSchema, DomaineSchema, MentionSchema, ParcoursSchema
+# Importations des modèles et schémas
+from app.models import Institution, InstitutionHistorique, AnneeUniversitaire
+from app.schemas import InstitutionSchema
 from app.database import get_db
 
 router = APIRouter(
@@ -29,45 +29,27 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 @router.post("/", response_model=InstitutionSchema, summary="Ajouter une nouvelle institution")
 def create_institution(
     id_institution: str = Form(..., description="Identifiant unique de l'institution (ex: INST_0001)"),
-    # CHANGEMENT MAJEUR : Retrait de Optional[str] pour forcer l'obligation dans la validation FastAPI/Form
     code: str = Form(..., description="Code court unique de l'institution (ex: UFIV)"), 
     nom: str = Form(..., description="Nom complet de l'institution (ex: Université de Fianarantsoa)"),
     type_institution: str = Form(..., description="Type de l'institution (ex: PRIVE, PUBLIC)"),
     abbreviation: Optional[str] = Form(None, description="Abréviation (ex: UF)"),
     description: Optional[str] = Form(None, description="Description ou mission"),
     logo_file: UploadFile = File(None, description="Fichier du logo de l'institution"),
+    annees_universitaires: Optional[List[str]] = Form(None, description="IDs des années universitaires à lier."),
     db: Session = Depends(get_db),
 ):
     """
-    Crée une nouvelle institution académique dans la base de données.
+    Crée une nouvelle institution académique et l'associe optionnellement à des années historiques.
     """
-    # 🧪 VÉRIFICATION DE LA VERSION : Affiche le nom du fichier en cours d'exécution
-    print(f"--- [DEBUG] FICHIER ACTIF : {inspect.getfile(create_institution)} ---")
-
-    # --- ÉTAPE 1: DÉBOGAGE ET VÉRIFICATION OBLIGATOIRE DU CODE ---
-    print(f"--- [DEBUG 1] Valeur brute reçue pour 'code': {code} (Type: {type(code)}) ---")
-
-    # Le code est maintenant garanti d'être une chaîne (FastAPI échouerait avant si None), 
-    # mais nous vérifions toujours qu'il n'est pas vide après nettoyage.
     if not code.strip():
-        print("--- [DEBUG ÉCHEC] Condition Code obligatoire (400) atteinte. Code manquant ou vide. ---")
         raise HTTPException(
             status_code=400,
-            detail="Le code de l'institution est obligatoire et ne peut pas être vide.",
-            headers={"X-Error-Code": "CodeRequired"}
+            detail="Le code de l'institution est obligatoire et ne peut pas être vide."
         )
     
-    # Le code est maintenant garanti d'être une chaîne non vide
     clean_code = code.strip()
-    
-    # 🚨 POINT DE CONTRÔLE 2: Valeur finale pour la DB
-    print(f"--- [DEBUG 2] 'clean_code' (pour DB et Vérif): {clean_code} (Type: {type(clean_code)}) ---")
-    
-    # Conversion des chaînes vides en None pour la base de données (champs optionnels)
     abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
     description_db = description.strip() if description and description.strip() else None
-    
-    # --- ÉTAPE 2: VÉRIFICATION D'UNICITÉ ---
     
     if db.query(Institution).filter(Institution.Institution_id == id_institution).first():
         raise HTTPException(status_code=400, detail=f"L'ID institution '{id_institution}' existe déjà.")
@@ -78,8 +60,6 @@ def create_institution(
     if db.query(Institution).filter(Institution.Institution_code == clean_code).first():
         raise HTTPException(status_code=400, detail=f"Le code '{clean_code}' existe déjà.")
     
-    # --- ÉTAPE 3: GESTION DU LOGO ---
-
     logo_path = None
     if logo_file and logo_file.filename:
         file_ext = os.path.splitext(logo_file.filename)[1]
@@ -93,11 +73,9 @@ def create_institution(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erreur lors de l'enregistrement du logo: {e}")
 
-    # --- ÉTAPE 4: CRÉATION ET INSERTION EN DB ---
-
     institution = Institution(
         Institution_id=id_institution,
-        Institution_code=clean_code, # Code est garanti non-None/non-vide
+        Institution_code=clean_code,
         Institution_nom=nom,
         Institution_type=type_institution,
         Institution_abbreviation=abbreviation_db,
@@ -105,45 +83,54 @@ def create_institution(
         Institution_logo_path=logo_path
     )
     
-    # 🚨 POINT DE CONTRÔLE 3: Valeur envoyée à la base de données
-    print(f"--- [DEBUG 3] Tentative d'insertion avec Code: {institution.Institution_code} ---")
-    
     db.add(institution)
+
+    # Création de l'historique des années pour cette institution
+    if annees_universitaires:
+        for annee_id in annees_universitaires:
+            hist = InstitutionHistorique(
+                Institution_id_fk=id_institution,
+                AnneeUniversitaire_id_fk=annee_id,
+                Institution_nom_historique=nom,
+                Institution_code_historique=clean_code,
+                Institution_description_historique=description_db
+            )
+            db.add(hist)
     
     try:
         db.commit()
-        print("--- [DEBUG 4] COMMIT réussi. Insertion terminée. ---")
     except IntegrityError as e:
         db.rollback()
-        # 🟢 CORRECTION : Capture spécifique de l'erreur de contrainte DB (NotNullViolation, UniqueViolation)
-        print(f"--- [DEBUG ERREUR DB] IntegrityError: {e} ---")
-        # Renvoie un 400 Bad Request au lieu du 500
         raise HTTPException(
             status_code=400, 
-            detail="Violation de contrainte de base de données (Code ou ID non unique/vide). Assurez-vous que le code est rempli et unique."
+            detail="Violation de contrainte de base de données (Code ou ID non unique/vide)."
         )
     except Exception as e:
         db.rollback()
-        print(f"--- [DEBUG ERREUR INCONNUE] Exception: {e} ---")
-        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue lors de l'enregistrement: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue: {e}")
         
     db.refresh(institution)
     return institution
 
-# ------------------------------------
 # 🔹 Liste de toutes les institutions (GET)
-@router.get("/", response_model=list[InstitutionSchema], summary="Liste de toutes les institutions")
-def get_institutions(db: Session = Depends(get_db)):
-    """Retourne la liste complète de toutes les institutions."""
-    return db.query(Institution).all()
+@router.get("/", response_model=list[InstitutionSchema], summary="Liste de toutes les institutions (filtrables par années)")
+def get_institutions(
+    annees: Optional[List[str]] = Query(None, description="Liste des ID d'années universitaires pour filtrer l'historique"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Institution)
+
+    # Filtrage par historique des années
+    if annees and len(annees) > 0:
+        query = query.join(InstitutionHistorique).filter(
+            InstitutionHistorique.AnneeUniversitaire_id_fk.in_(annees)
+        ).distinct()
+
+    return query.all()
 
 # 🔹 Détails d'une institution (GET by ID)
 @router.get("/{id_institution}", response_model=InstitutionSchema, summary="Détails d'une institution par ID")
 def get_institution(id_institution: str, db: Session = Depends(get_db)):
-    """
-    Récupère les détails d'une institution spécifique.
-    Retourne 404 si non trouvée.
-    """
     institution = (
         db.query(Institution)
         .filter(Institution.Institution_id == id_institution) 
@@ -153,40 +140,47 @@ def get_institution(id_institution: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Institution non trouvée")
     return institution
 
-# ------------------------------------
+# 🆕 Récupérer les IDs d'années universitaires liées à une institution
+@router.get("/{id_institution}/annees-historique", response_model=List[str], summary="Récupérer les IDs d'années liées à une institution")
+def get_institution_years_history(id_institution: str, db: Session = Depends(get_db)):
+    """
+    Récupère la liste des IDs d'années universitaires pour lesquelles l'institution est enregistrée dans l'historique.
+    """
+    history_records = db.query(InstitutionHistorique).filter(
+        InstitutionHistorique.Institution_id_fk == id_institution
+    ).all()
+    
+    # Retourne uniquement les IDs d'années
+    return [rec.AnneeUniversitaire_id_fk for rec in history_records]
+
+
 # 🔹 Modifier une institution (PUT)
 @router.put("/", response_model=InstitutionSchema, summary="Modifier une institution existante")
 def update_institution(
-    id_institution: str = Form(..., description="Identifiant de l'institution à modifier"),
-    code: str = Form(..., description="Nouveau code court unique"),
-    nom: str = Form(..., description="Nouveau nom complet"),
-    type_institution: str = Form(..., description="Nouveau type"),
-    abbreviation: Optional[str] = Form(None, description="Nouvelle abréviation"),
-    description: Optional[str] = Form(None, description="Nouvelle description"),
-    logo_file: UploadFile = File(None, description="Nouveau fichier de logo (optionnel)"),
+    id_institution: str = Form(...),
+    code: str = Form(...),
+    nom: str = Form(...),
+    type_institution: str = Form(...),
+    abbreviation: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    logo_file: UploadFile = File(None),
+    annees_universitaires: Optional[List[str]] = Form(None, description="IDs des années universitaires à synchroniser dans l'historique."),
     db: Session = Depends(get_db),
 ):
-    """Met à jour les informations d'une institution existante identifiée par id_institution."""
-    
-    # 1. Pré-traitement des données
     clean_code = code.strip()
     clean_nom = nom.strip()
-    # Convertir les chaînes vides en None pour les champs optionnels
     abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
     description_db = description.strip() if description and description.strip() else None
 
-    # 2. Vérification de l'existence de l'institution
     institution = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
     
     if not institution:
         raise HTTPException(status_code=404, detail="Institution non trouvée")
 
-    # 3. Vérification de l'unicité
-    
-    # Vérification de l'unicité du CODE (excluant l'institution actuelle)
-    if not clean_code: # Le code ne doit pas être vide
+    if not clean_code:
         raise HTTPException(status_code=400, detail="Le code de l'institution ne peut pas être vide.")
 
+    # Vérification unicité code/nom
     existing_code = db.query(Institution).filter(
         Institution.Institution_code == clean_code, 
         Institution.Institution_id != id_institution
@@ -194,7 +188,6 @@ def update_institution(
     if existing_code:
         raise HTTPException(status_code=400, detail=f"Le code '{clean_code}' existe déjà pour une autre institution.")
 
-    # Vérification de l'unicité du NOM (excluant l'institution actuelle)
     existing_nom = db.query(Institution).filter(
         Institution.Institution_nom == clean_nom, 
         Institution.Institution_id != id_institution
@@ -202,19 +195,18 @@ def update_institution(
     if existing_nom:
         raise HTTPException(status_code=400, detail=f"Le nom '{clean_nom}' existe déjà pour une autre institution.")
 
-    # 4. Mise à jour des champs
+    # Mise à jour des champs de l'institution
     institution.Institution_code = clean_code
     institution.Institution_nom = clean_nom
     institution.Institution_type = type_institution
-    institution.Institution_abbreviation = abbreviation_db # Utilisation de la version nettoyée/None
-    institution.Institution_description = description_db # Utilisation de la version nettoyée/None
+    institution.Institution_abbreviation = abbreviation_db
+    institution.Institution_description = description_db
 
-    # 5. Gestion du logo (si un nouveau fichier est fourni)
+    # Gestion du logo
     if logo_file and logo_file.filename:
         file_ext = os.path.splitext(logo_file.filename)[1]
         logo_path = f"/static/logos/{id_institution}{file_ext}"
         file_location = f"app{logo_path}"
-        
         try:
             with open(file_location, "wb") as buffer:
                 shutil.copyfileobj(logo_file.file, buffer)
@@ -222,34 +214,46 @@ def update_institution(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Erreur lors de l'enregistrement du nouveau logo: {e}")
 
-    # 6. Tentative de commit avec gestion d'erreur DB
+    # LOGIQUE DE SYNCHRONISATION D'HISTORIQUE DES ANNÉES (Correction Appliquée)
+    # 1. Supprimer tous les enregistrements d'historique existants pour cette institution
+    db.query(InstitutionHistorique).filter(
+        InstitutionHistorique.Institution_id_fk == id_institution
+    ).delete(synchronize_session=False)
+
+    # 2. Recréer les enregistrements à partir de la liste reçue dans le formulaire
+    if annees_universitaires:
+        for annee_id in annees_universitaires:
+            hist = InstitutionHistorique(
+                Institution_id_fk=id_institution,
+                AnneeUniversitaire_id_fk=annee_id,
+                Institution_nom_historique=clean_nom,
+                Institution_code_historique=clean_code,
+                Institution_description_historique=description_db
+            )
+            db.add(hist)
+
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        # Envoie une erreur 400 si un problème de contrainte survient au commit
         raise HTTPException(
             status_code=400, 
-            detail="Violation de contrainte de base de données lors de la mise à jour (Code non unique ou champ obligatoire manquant)."
+            detail="Violation de contrainte de base de données lors de la mise à jour."
         )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue lors de la mise à jour: {e}")
+        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue: {e}")
         
     db.refresh(institution)
     return institution
 
-# ------------------------------------
-
 # 🔹 Supprimer une institution (DELETE)
 @router.delete("/{id_institution}", status_code=204, summary="Supprimer une institution")
 def delete_institution(id_institution: str, db: Session = Depends(get_db)):
-    """Supprime une institution par son identifiant unique."""
     institution = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
     if not institution:
         raise HTTPException(status_code=404, detail="Institution non trouvée")
         
-    # Supprimer le logo s'il existe (Institution_logo_path)
     if institution.Institution_logo_path:
         file_location = f"app{institution.Institution_logo_path}"
         if os.path.exists(file_location):
@@ -258,7 +262,11 @@ def delete_institution(id_institution: str, db: Session = Depends(get_db)):
             except Exception as e:
                 print(f"Avertissement: Impossible de supprimer le fichier logo {file_location}. Erreur: {e}")
 
+    # La suppression des Composantes/Historique devrait idéalement être gérée par la cascade de la DB
+    # S'assurer que le modèle SQLAlchemy a `cascade="all, delete"` sur la relation `InstitutionHistorique`.
+    # Si non, la suppression de l'historique doit être manuelle ici :
+    # db.query(InstitutionHistorique).filter(InstitutionHistorique.Institution_id_fk == id_institution).delete()
+    
     db.delete(institution)
     db.commit()
-    # Retourne une réponse vide (204 No Content)
     return

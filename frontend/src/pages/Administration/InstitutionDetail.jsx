@@ -1,10 +1,8 @@
-// frontend/src/pages/Administration/InstitutionDetail.jsx
-
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { BiSolidInstitution } from "react-icons/bi";
-import { FaChevronLeft, FaChevronRight, FaCircle } from "react-icons/fa"; 
+import { FaChevronLeft, FaChevronRight, FaCircle, FaChevronDown, FaChevronUp } from "react-icons/fa";
 
 import { 
   ThIcon, ListIcon, PlusIcon, EditIcon, SpinnerIcon, SortIcon, LibraryIcon
@@ -13,6 +11,7 @@ import { AppStyles } from "../../components/ui/AppStyles";
 import { ToastContainer } from "../../components/ui/Toast";
 import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
 import { CardItem } from "../../components/ui/CardItem"; 
+import YearMultiSelect from "../../components/ui/YearMultiSelect";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -26,13 +25,18 @@ const InstitutionDetail = () => {
   const [composantes, setComposantes] = useState([]);
   const [institutionsList, setInstitutionsList] = useState([]); 
   
+  const [years, setYears] = useState([]); 
+  const [selectedYearsIds, setSelectedYearsIds] = useState([]);
+
   // --- États UI ---
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [view, setView] = useState("grid");
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState("label");
   const [sortOrder, setSortOrder] = useState("asc");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // --- Toasts ---
   const [toasts, setToasts] = useState([]);
@@ -56,14 +60,15 @@ const InstitutionDetail = () => {
     abbreviation: "",
     description: "",
     logo: null,     
-    logoPath: ""    
+    logoPath: "",
+    yearsHistory: [] 
   });
   const [errors, setErrors] = useState({});
   const fileInputRef = useRef(null); 
   const [deleteCodeInput, setDeleteCodeInput] = useState("");
   const [deleteError, setDeleteError] = useState("");
 
-  // 1. CHARGEMENT
+  // 1. CHARGEMENT LISTE GLOBALE (pour nav prev/next)
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/institutions`)
       .then(res => res.ok ? res.json() : [])
@@ -71,11 +76,15 @@ const InstitutionDetail = () => {
       .catch(err => console.error(err));
   }, []);
 
+  // 2. CHARGEMENT DÉTAIL + ANNÉES + COMPOSANTES FILTRÉES
   useEffect(() => {
-    setIsLoading(true);
+    if (!institution) setIsLoading(true);
+    else setIsRefreshing(true);
+
     setSearch(""); 
     const fetchData = async () => {
       try {
+        // A. Charger Institution
         const resInst = await fetch(`${API_BASE_URL}/api/institutions/${id}`);
         if (!resInst.ok) throw new Error("Institution introuvable");
         const dataInst = await resInst.json();
@@ -88,21 +97,47 @@ const InstitutionDetail = () => {
           ]);
         }
 
-        const resComp = await fetch(`${API_BASE_URL}/api/composantes/institution?institution_id=${id}`);
+        // B. Charger Années (et définir la sélection par défaut)
+        const resYear = await fetch(`${API_BASE_URL}/api/metadonnees/annees-universitaires`);
+        let currentSelectionIds = selectedYearsIds;
+
+        if (resYear.ok) {
+            const dataYears = await resYear.json();
+            setYears(dataYears);
+            
+            // Si aucune sélection, on prend l'année active
+            if (selectedYearsIds.length === 0 && dataYears.length > 0) {
+                const active = dataYears.find(y => y.AnneeUniversitaire_is_active);
+                if (active) {
+                    currentSelectionIds = [active.AnneeUniversitaire_id];
+                    setSelectedYearsIds(currentSelectionIds);
+                }
+            }
+        }
+
+        // C. Charger Composantes filtrées par année(s)
+        const queryParams = new URLSearchParams();
+        queryParams.append("institution_id", id);
+        // Important : On passe les années sélectionnées au backend pour filtrer
+        currentSelectionIds.forEach(yearId => queryParams.append("annees", yearId));
+        
+        const fetchUrl = `${API_BASE_URL}/api/composantes/institution?${queryParams.toString()}`;
+        const resComp = await fetch(fetchUrl);
         const dataComp = resComp.ok ? await resComp.json() : [];
         setComposantes(Array.isArray(dataComp) ? dataComp : []);
 
       } catch (err) {
         addToast(err.message || "Erreur de chargement", "error");
-        setInstitution(null);
+        if(!institution) setInstitution(null);
       } finally {
         setIsLoading(false);
+        setIsRefreshing(false);
       }
     };
     fetchData();
-  }, [id, setBreadcrumb]);
+  }, [id, setBreadcrumb, selectedYearsIds]); // Se déclenche quand selectedYearsIds change
 
-  // 2. NAVIGATION
+  // 3. NAVIGATION PREV/NEXT
   const handleNavigate = (direction) => {
     if (!institutionsList.length || !institution) return;
     const currentIndex = institutionsList.findIndex(i => i.Institution_id === institution.Institution_id);
@@ -115,11 +150,26 @@ const InstitutionDetail = () => {
   const isFirst = institutionsList.length > 0 && institution && institutionsList[0].Institution_id === institution.Institution_id;
   const isLast = institutionsList.length > 0 && institution && institutionsList[institutionsList.length - 1].Institution_id === institution.Institution_id;
 
-  // 3. GESTION FORMULAIRE (CRUD)
+  // 4. GESTION FORMULAIRE (CRUD)
   const openModal = async (comp = null) => {
     setErrors({});
+    setShowAdvanced(false);
+
     if (comp) {
+      // MODE MODIFICATION
       setEditComposante(comp);
+      
+      // Récupération de l'historique des années pour pré-cocher
+      let historyIds = [];
+      try {
+          const resHist = await fetch(`${API_BASE_URL}/api/composantes/${comp.Composante_id}/annees-historique`);
+          if (resHist.ok) {
+              historyIds = await resHist.json();
+          }
+      } catch (e) {
+          console.error("Erreur chargement historique composante", e);
+      }
+
       setForm({
         id: comp.Composante_id,
         code: comp.Composante_code,
@@ -127,10 +177,15 @@ const InstitutionDetail = () => {
         abbreviation: comp.Composante_abbreviation || "",
         description: comp.Composante_description || "",
         logo: null,
-        logoPath: comp.Composante_logo_path || "" 
+        logoPath: comp.Composante_logo_path || "",
+        yearsHistory: historyIds // On met à jour avec les années récupérées
       });
       setModalOpen(true);
     } else {
+      // MODE CRÉATION
+      // Par défaut, on coche l'année active
+      const defaultYears = years.filter(y => y.AnneeUniversitaire_is_active).map(y => y.AnneeUniversitaire_id);
+      
       setForm({ 
         id: "Chargement...", 
         code: "", 
@@ -138,7 +193,8 @@ const InstitutionDetail = () => {
         abbreviation: "", 
         description: "",
         logo: null,
-        logoPath: ""
+        logoPath: "",
+        yearsHistory: defaultYears
       });
       setEditComposante(null);
       setModalOpen(true);
@@ -160,6 +216,7 @@ const InstitutionDetail = () => {
   const closeModal = () => {
     setModalOpen(false);
     setEditComposante(null);
+    setShowAdvanced(false);
   };
 
   const handleChange = (e) => {
@@ -170,6 +227,17 @@ const InstitutionDetail = () => {
       setForm(prev => ({ ...prev, [name]: value }));
     }
     setErrors(prev => ({ ...prev, [name]: undefined }));
+  };
+
+  const handleYearHistoryChange = (yearId, checked) => {
+    setForm(prev => {
+        const current = prev.yearsHistory || [];
+        if (checked) {
+            return { ...prev, yearsHistory: [...current, yearId] };
+        } else {
+            return { ...prev, yearsHistory: current.filter(id => id !== yearId) };
+        }
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -194,6 +262,13 @@ const InstitutionDetail = () => {
     if (form.description) formData.append("composante_description", form.description);
     if (form.logo) formData.append("logo_file", form.logo);
     
+    // Envoi des années cochées
+    if (form.yearsHistory && form.yearsHistory.length > 0) {
+        form.yearsHistory.forEach(yId => {
+            formData.append("annees_universitaires", yId);
+        });
+    }
+    
     try {
       let url = `${API_BASE_URL}/api/composantes/`;
       let method = "POST";
@@ -212,11 +287,18 @@ const InstitutionDetail = () => {
       }
 
       const savedComp = await res.json();
+      
+      // Mise à jour locale de la liste
       setComposantes(prev => {
         if (editComposante) {
           return prev.map(c => c.Composante_code === editComposante.Composante_code ? savedComp : c);
         } else {
-          return [...prev, savedComp];
+          // On ajoute seulement si l'année affichée correspond à une des années cochées
+          const isVisibleInCurrentView = form.yearsHistory.some(y => selectedYearsIds.includes(y));
+          if (isVisibleInCurrentView || selectedYearsIds.length === 0) {
+              return [...prev, savedComp];
+          }
+          return prev;
         }
       });
       addToast(editComposante ? "Établissement modifié." : "Établissement créé.");
@@ -290,7 +372,7 @@ const InstitutionDetail = () => {
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      {/* ✅ HEADER STANDARDISÉ (Titre + Ligne) */}
+      {/* HEADER PRINCIPAL */}
       <div className={AppStyles.header.container}>
         <h2 className={AppStyles.mainTitle}>Détails de l'Institution</h2>
       </div>
@@ -326,6 +408,20 @@ const InstitutionDetail = () => {
       <div className={AppStyles.header.container}>
         <h2 className={AppStyles.header.title}>Établissements ({filteredComposantes.length})</h2>
         <div className={AppStyles.header.controls}>
+          
+          <div className="flex items-center gap-2 relative">
+             <YearMultiSelect 
+               years={years}
+               selectedYearIds={selectedYearsIds}
+               onChange={setSelectedYearsIds}
+             />
+             {isRefreshing && (
+               <div className="absolute left-full ml-2 w-max text-xs text-gray-500 whitespace-nowrap">
+                  Mise à jour...
+               </div>
+             )}
+          </div>
+
           <input type="text" placeholder="Rechercher..." value={search} onChange={(e) => setSearch(e.target.value)} className={AppStyles.input.text} />
           <div className="flex items-center gap-1 border border-gray-300 rounded px-2 py-1 bg-white text-sm">
             <span className="font-semibold text-gray-600 text-xs uppercase">Tri:</span>
@@ -341,9 +437,8 @@ const InstitutionDetail = () => {
         </div>
       </div>
 
-      {/* ✅ LISTE / GRID STANDARDISÉE (AppStyles.gridContainer) */}
+      {/* LISTE / GRID */}
       <div className={view === "grid" ? AppStyles.gridContainer : "flex flex-col gap-2"}>
-        {/* Ajouter */}
         <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
           <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12 text-2xl" : "w-8 h-8 text-lg"}`}>
             <PlusIcon />
@@ -368,9 +463,7 @@ const InstitutionDetail = () => {
                 onEdit={() => openModal(comp)}
                 onDelete={() => handleDeleteClick(comp)}
               >
-                {/* AFFICHAGE DES MENTIONS */}
                 <div className="mt-3 pt-2 border-t border-gray-100 w-full">
-                    
                     {view === "grid" && (
                         <div className="flex items-center justify-between">
                             <span className="text-[10px] font-bold text-gray-400 uppercase">Mentions</span>
@@ -379,7 +472,6 @@ const InstitutionDetail = () => {
                             </span>
                         </div>
                     )}
-
                     {view === "list" && (
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs font-bold text-gray-400 uppercase mr-2">Mentions :</span>
@@ -452,6 +544,44 @@ const InstitutionDetail = () => {
             <span className={AppStyles.input.label}>Description</span>
             <textarea name="description" rows="3" value={form.description} onChange={handleChange} className={AppStyles.input.formControl} placeholder="Description optionnelle..." />
           </label>
+
+          {/* 🆕 SECTION OPTIONS AVANCÉES (HISTORIQUE) */}
+          <div className="border rounded bg-gray-50/50 mt-2">
+                <button 
+                    type="button" 
+                    onClick={() => setShowAdvanced(!showAdvanced)} 
+                    className="w-full flex items-center justify-between p-2 text-xs font-semibold text-gray-600 hover:bg-gray-100"
+                >
+                    <span>Options Avancées (Historique)</span>
+                    {showAdvanced ? <FaChevronUp /> : <FaChevronDown />}
+                </button>
+                
+                {showAdvanced && (
+                    <div className="p-3 border-t bg-white">
+                        <p className="text-xs text-gray-500 mb-2 italic">
+                            {editComposante 
+                                ? "Ajouter l'établissement à l'historique d'autres années :" 
+                                : "Cochez les années pour lesquelles cet établissement doit être actif :"
+                            }
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto pr-1">
+                            {years.map(y => (
+                                <label key={y.AnneeUniversitaire_id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                    <input 
+                                        type="checkbox" 
+                                        className="rounded text-blue-600 focus:ring-blue-500 h-4 w-4 border-gray-300"
+                                        checked={form.yearsHistory?.includes(y.AnneeUniversitaire_id)}
+                                        onChange={(e) => handleYearHistoryChange(y.AnneeUniversitaire_id, e.target.checked)}
+                                    />
+                                    <span className={`text-xs ${y.AnneeUniversitaire_is_active ? "font-bold text-blue-700" : "text-gray-700"}`}>
+                                        {y.AnneeUniversitaire_annee} {y.AnneeUniversitaire_is_active && "(Active)"}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                )}
+          </div>
 
           <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-gray-100">
             <button type="button" onClick={closeModal} className={AppStyles.button.secondary}>Annuler</button>

@@ -7,13 +7,12 @@ from typing import List, Optional
 import os
 import shutil
 import re 
+from pydantic import ValidationError 
 
-from app.models import Composante, Institution, Mention 
-from app.schemas import ComposanteSchema 
+from app.models import Composante, Institution, Mention, ComposanteHistorique
+from app.schemas import ComposanteSchema, ComposanteCreate 
 from app.database import get_db
 
-# CORRECTION ICI : On change "/api/composantes" en "/composantes"
-# car main.py ajoute déjà "/api" lors de l'include_router.
 router = APIRouter(
     prefix="/composantes", 
     tags=["Composantes (Établissements)"]
@@ -24,224 +23,326 @@ UPLOAD_DIR = "app/static/logos"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ------------------------------------
-# FONCTIONS UTILITAIRES (Inchangées)
+# FONCTIONS UTILITAIRES
 # ------------------------------------
 
 COMPOSANTE_ID_PREFIX = "COMP_"
 ID_PAD_LENGTH = 4 
 ID_REGEX = re.compile(r"COMP_(\d+)")
 
-# 🆕 AJOUT : Route pour récupérer le prochain ID disponible
+# 🆕 Route pour récupérer le prochain ID disponible
 @router.get("/next-id", response_model=str, summary="Obtenir le prochain ID disponible")
 def get_next_available_id(db: Session = Depends(get_db)):
-    """Retourne le prochain ID calculé (ex: COMP_00000001)."""
-    return get_next_minimal_composante_id(db)
-
-def get_next_minimal_composante_id(db: Session) -> str:
-    existing_ids = db.query(Composante.Composante_id).all()
+    """Trouve le prochain ID Composante séquentiel disponible (ex: COMP_0001)."""
+    existing_ids = [c.Composante_id for c in db.query(Composante.Composante_id).all()]
     used_numbers = []
-    
-    for (id_str,) in existing_ids:
+    for id_str in existing_ids:
         match = ID_REGEX.match(id_str)
         if match:
-            used_numbers.append(int(match[1]))
-
-    if not used_numbers:
-        next_num = 1
-    else:
-        used_numbers.sort()
-        next_num = 1
-        for num in used_numbers:
-            if num == next_num:
-                next_num += 1
-            elif num > next_num:
-                break
-        
+            used_numbers.append(int(match.group(1)))
+            
+    next_num = 1
+    used_numbers.sort()
+    for n in used_numbers:
+        if n == next_num:
+            next_num += 1
+        elif n > next_num:
+            break
+            
     return f"{COMPOSANTE_ID_PREFIX}{str(next_num).zfill(ID_PAD_LENGTH)}"
 
-def clean_optional_field(field: Optional[str]) -> Optional[str]:
-    return field.strip() if field else None
 
-def save_upload_file(upload_file: UploadFile, directory: str, filename: str) -> str:
-    file_location = os.path.join(directory, filename)
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(upload_file.file, buffer)
-    return f"/static/logos/{filename}"
+# Fonction utilitaire pour gérer l'upload de logo
+def save_logo_file(file: Optional[UploadFile], code: str, current_path: Optional[str] = None) -> Optional[str]:
+    """Sauvegarde le logo et retourne le chemin d'accès relatif."""
+    if not file or not file.filename:
+        return current_path if current_path else None
 
+    # Si un ancien fichier existe, le supprimer
+    if current_path:
+        old_file_location = f"app{current_path}"
+        if os.path.exists(old_file_location):
+            try:
+                os.remove(old_file_location)
+            except Exception as e:
+                print(f"Avertissement: Impossible de supprimer l'ancien logo {old_file_location}. Erreur: {e}")
 
-# ------------------------------------
-# COMPOSANTE MANAGEMENT ENDPOINTS
-# ------------------------------------
+    # Créer le nouveau nom de fichier et le chemin
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    if file_extension not in ['.jpg', '.jpeg', '.png', '.svg']:
+        raise HTTPException(status_code=400, detail="Type de fichier de logo non supporté. Utilisez .jpg, .jpeg, .png ou .svg.")
 
-# 🔹 1. Lister toutes les Composantes (GET)
-@router.get("/", response_model=List[ComposanteSchema], summary="Lister toutes les composantes")
-def get_all_composantes(db: Session = Depends(get_db)):
-    return db.query(Composante).all()
-
-# 🚨 2. Récupérer toutes les Composantes d'une Institution (GET) 
-@router.get(
-    "/institution", 
-    response_model=List[ComposanteSchema], 
-    summary="Lister toutes les composantes d'une institution spécifique"
-)
-def get_composantes_by_institution(
-    institution_id: str = Query(..., description="ID de l'institution parente (ex: INST_0001)"),
-    db: Session = Depends(get_db)
-):
-    """
-    Récupère la liste de toutes les composantes rattachées à une institution.
-    INCLUT LES MENTIONS associées grâce à joinedload.
-    """
-    # Vérification optionnelle de l'institution
-    # institution = db.query(Institution).filter(Institution.Institution_id == institution_id).first()
-    # if not institution: return [] 
-
-    composantes = (
-        db.query(Composante)
-        .filter(Composante.Institution_id_fk == institution_id)
-        # 👇 C'est cette ligne qui est CRUCIALE pour charger les mentions
-        .options(joinedload(Composante.mentions)) 
-        .all()
-    )
+    # Formatage : COMP_CODE_TIMESTAMP.ext
+    file_name = f"COMP_{code}_{int(os.time())}{file_extension}"
+    file_location = os.path.join(UPLOAD_DIR, file_name)
     
-    return composantes
-
-# 🔹 3. Récupérer une Composante par son code (GET)
-@router.get("/{composante_code_path}", response_model=ComposanteSchema, summary="Obtenir une composante par son code")
-def get_composante_by_code(composante_code_path: str, db: Session = Depends(get_db)):
-    composante = db.query(Composante).filter(Composante.Composante_code == composante_code_path.upper()).first()
-    if not composante:
-        raise HTTPException(status_code=404, detail="Composante non trouvée.")
-    return composante
+    # Écrire le fichier
+    try:
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de l'enregistrement du logo : {e}")
 
 
-# 🔹 4. Ajouter une Composante (POST)
-@router.post("/", response_model=ComposanteSchema, status_code=201)
+    # Retourner le chemin relatif pour la DB (ex: /static/logos/COMP_...)
+    return file_location.replace("app", "")
+
+
+# ------------------------------------
+#   COMPOSANTE MANAGEMENT ENDPOINTS
+# ------------------------------------
+
+# 🔹 Ajouter une Composante (POST) - CORRIGÉ : Ajout gestion historique
+@router.post("/", response_model=ComposanteSchema, summary="Ajouter une nouvelle composante")
 def create_composante(
-    composante_code: str = Form(...),
-    composante_label: str = Form(...),
-    institution_id: str = Form(...),
-    composante_abbreviation: Optional[str] = Form(None),
-    composante_description: Optional[str] = Form(None),
-    logo_file: Optional[UploadFile] = File(None),
+    id_composante: str = Form(..., description="ID unique (ex: COMP_0001)"),
+    code: str = Form(..., description="Code court unique (ex: FS)"),
+    label: str = Form(..., alias="Composante_label"),
+    institution_id_fk: str = Form(..., description="ID de l'institution parente"),
+    type_composante: str = Form(..., alias="Composante_type"),
+    description: Optional[str] = Form(None, alias="Composante_description"),
+    abbreviation: Optional[str] = Form(None, alias="Composante_abbreviation"),
+    logo: Optional[UploadFile] = File(None, description="Logo de la composante"),
+    annees_universitaires: Optional[List[str]] = Form(None, description="IDs des années universitaires à lier."),
     db: Session = Depends(get_db)
 ):
-    institution = db.query(Institution).filter(Institution.Institution_id == institution_id).first()
+    # 1. Validation de l'Institution parente
+    institution = db.query(Institution).filter(Institution.Institution_id == institution_id_fk).first()
+    if not institution:
+        raise HTTPException(status_code=404, detail="Institution parente non trouvée.")
+    
+    clean_code = code.upper().strip()
+    clean_label = label.strip()
+    description_db = description.strip() if description and description.strip() else None
+    abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
+
+
+    # 2. Validation du Pydantic Schema (pour les champs non-fichier)
+    try:
+        ComposanteCreate(
+            Composante_id=id_composante, 
+            Composante_code=clean_code,
+            Composante_label=clean_label,
+            Institution_id_fk=institution_id_fk,
+            Composante_type=type_composante,
+            Composante_description=description_db,
+            Composante_abbreviation=abbreviation_db
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Données de formulaire invalides: {e.errors()}")
+
+    # 3. Préparation des données Composante
+    composante_data = {
+        "Composante_id": id_composante,
+        "Composante_code": clean_code,
+        "Composante_label": clean_label,
+        "Institution_id_fk": institution_id_fk,
+        "Composante_type": type_composante,
+        "Composante_description": description_db,
+        "Composante_abbreviation": abbreviation_db
+    }
+    
+    # 4. Gestion de l'Upload de Logo
+    composante_data["Composante_logo_path"] = save_logo_file(logo, clean_code)
+    
+    db_composante = Composante(**composante_data)
+    db.add(db_composante)
+
+    # 5. AJOUT : Gestion Historique
+    if annees_universitaires:
+        for annee_id in annees_universitaires:
+            hist = ComposanteHistorique(
+                Composante_id_fk=id_composante,
+                AnneeUniversitaire_id_fk=annee_id,
+                Composante_label_historique=clean_label,
+                Composante_code_historique=clean_code,
+                Composante_description_historique=description_db
+            )
+            db.add(hist)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=400, 
+            detail="Violation de contrainte de base de données (Code ou ID déjà utilisé)."
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue lors de la création: {e}")
+        
+    db.refresh(db_composante)
+    # Recharger avec l'institution et les mentions pour le modèle de réponse
+    db_composante = db.query(Composante).filter(Composante.Composante_id == id_composante).options(
+        joinedload(Composante.institution),
+        joinedload(Composante.mentions)
+    ).first()
+    
+    return db_composante
+
+# 🔹 Récupérer les IDs d'années universitaires liées à une composante (NOUVEAU)
+@router.get("/{composante_id}/annees-historique", response_model=List[str], summary="Récupérer les IDs d'années liées à une composante")
+def get_composante_years_history(composante_id: str, db: Session = Depends(get_db)):
+    """
+    Récupère la liste des IDs d'années universitaires pour lesquelles la composante est enregistrée dans l'historique.
+    """
+    history_records = db.query(ComposanteHistorique).filter(
+        ComposanteHistorique.Composante_id_fk == composante_id
+    ).all()
+    
+    return [rec.AnneeUniversitaire_id_fk for rec in history_records]
+
+# 🔹 Mettre à jour une Composante (PUT) - CORRIGÉ : Ajout gestion historique
+@router.put("/{composante_id_path}", response_model=ComposanteSchema, summary="Mettre à jour une composante existante")
+def update_composante(
+    composante_id_path: str,
+    code: str = Form(..., description="Code court unique (ex: FS)"),
+    label: str = Form(..., alias="Composante_label"),
+    institution_id_fk: str = Form(..., description="ID de l'institution parente"),
+    type_composante: str = Form(..., alias="Composante_type"),
+    description: Optional[str] = Form(None, alias="Composante_description"),
+    abbreviation: Optional[str] = Form(None, alias="Composante_abbreviation"),
+    logo: Optional[UploadFile] = File(None, description="Nouveau logo de la composante"),
+    remove_logo: bool = Form(False, description="Indique s'il faut supprimer le logo existant"), 
+    annees_universitaires: Optional[List[str]] = Form(None, description="IDs des années universitaires à synchroniser."),
+    db: Session = Depends(get_db)
+):
+    # 1. Trouver l'objet Composante
+    composante = db.query(Composante).filter(Composante.Composante_id == composante_id_path).first()
+    if not composante:
+        raise HTTPException(status_code=404, detail="Composante non trouvée")
+
+    # 2. Validation de l'Institution parente
+    institution = db.query(Institution).filter(Institution.Institution_id == institution_id_fk).first()
     if not institution:
         raise HTTPException(status_code=404, detail="Institution parente non trouvée.")
 
-    existing_comp = db.query(Composante).filter(Composante.Composante_code == composante_code.upper()).first()
-    if existing_comp:
-        raise HTTPException(status_code=400, detail="Un établissement avec ce code existe déjà.")
+    clean_code = code.upper().strip()
+    clean_label = label.strip()
+    description_db = description.strip() if description and description.strip() else None
+    abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
 
-    new_id = get_next_minimal_composante_id(db)
+    # 3. Mise à jour des données (sauf logo)
+    update_data = {
+        "Composante_code": clean_code,
+        "Composante_label": clean_label,
+        "Institution_id_fk": institution_id_fk,
+        "Composante_type": type_composante,
+        "Composante_description": description_db,
+        "Composante_abbreviation": abbreviation_db
+    }
+    
+    # 4. Gestion du Logo
+    current_logo_path = composante.Composante_logo_path
+    
+    if remove_logo:
+        if current_logo_path:
+            old_file_location = f"app{current_logo_path}"
+            if os.path.exists(old_file_location):
+                try: os.remove(old_file_location)
+                except Exception as e: print(f"Avertissement: Impossible de supprimer l'ancien logo {old_file_location}. Erreur: {e}")
+        update_data["Composante_logo_path"] = None 
+    elif logo:
+        update_data["Composante_logo_path"] = save_logo_file(logo, clean_code, current_logo_path)
+    
+    # 5. AJOUT : Synchronisation Historique (Suppression puis recréation)
+    db.query(ComposanteHistorique).filter(
+        ComposanteHistorique.Composante_id_fk == composante.Composante_id
+    ).delete(synchronize_session=False)
 
-    composante_logo_path = None
-    if logo_file:
-        file_extension = os.path.splitext(logo_file.filename)[1]
-        filename = f"{composante_code.upper()}{file_extension}"
-        composante_logo_path = save_upload_file(logo_file, UPLOAD_DIR, filename)
+    if annees_universitaires:
+        for annee_id in annees_universitaires:
+            hist = ComposanteHistorique(
+                Composante_id_fk=composante.Composante_id,
+                AnneeUniversitaire_id_fk=annee_id,
+                Composante_label_historique=clean_label,
+                Composante_code_historique=clean_code,
+                Composante_description_historique=description_db
+            )
+            db.add(hist)
 
-    new_composante = Composante(
-        Composante_id=new_id,
-        Composante_code=composante_code.upper(),
-        Composante_label=composante_label.strip(),
-        Composante_abbreviation=clean_optional_field(composante_abbreviation),
-        Composante_description=clean_optional_field(composante_description),
-        Composante_logo_path=composante_logo_path,
-        Institution_id_fk=institution_id 
-    )
+
+    # 6. Application des changements et commit
+    for key, value in update_data.items():
+        setattr(composante, key, value)
 
     try:
-        db.add(new_composante)
         db.commit()
-        db.refresh(new_composante)
-        return new_composante
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Erreur d'intégrité (Code existant ou données invalides).")
+        raise HTTPException(
+            status_code=400, 
+            detail="Violation de contrainte de base de données lors de la mise à jour (Code non unique ou champ obligatoire manquant)."
+        )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-
-# 🔹 5. Modifier une Composante (PUT)
-@router.put("/{composante_code_path}", response_model=ComposanteSchema)
-def update_composante(
-    composante_code_path: str,
-    composante_label: str = Form(...),
-    institution_id: str = Form(...),
-    composante_abbreviation: Optional[str] = Form(None),
-    composante_description: Optional[str] = Form(None),
-    logo_file: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db)
-):
-    composante = db.query(Composante).filter(Composante.Composante_code == composante_code_path.upper()).first()
-    if not composante:
-        raise HTTPException(status_code=404, detail="Composante non trouvée.")
-
-    # Mise à jour des champs texte
-    composante.Composante_label = composante_label.strip()
-    composante.Composante_abbreviation = clean_optional_field(composante_abbreviation)
-    composante.Composante_description = clean_optional_field(composante_description)
-    composante.Institution_id_fk = institution_id
-
-    # Mise à jour du logo si fourni
-    if logo_file:
-        # Suppression ancien logo si existant
-        if composante.Composante_logo_path:
-            old_path = f"app{composante.Composante_logo_path}"
-            if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except:
-                    pass
+        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue lors de la mise à jour: {e}")
         
-        file_extension = os.path.splitext(logo_file.filename)[1]
-        filename = f"{composante.Composante_code.upper()}{file_extension}"
-        composante.Composante_logo_path = save_upload_file(logo_file, UPLOAD_DIR, filename)
+    db.refresh(composante)
+    # Recharger avec l'institution et les mentions pour le modèle de réponse
+    composante = db.query(Composante).filter(Composante.Composante_id == composante_id_path).options(
+        joinedload(Composante.institution),
+        joinedload(Composante.mentions)
+    ).first()
+    
+    return composante
 
-    try:
-        db.commit()
-        db.refresh(composante)
-        return composante
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
 
-# 🔹 6. Supprimer une Composante (DELETE)
-@router.delete("/{composante_code_path}", status_code=204)
-def delete_composante(composante_code_path: str, db: Session = Depends(get_db)):
-    composante = db.query(Composante).filter(Composante.Composante_code == composante_code_path.upper()).first()
+# 🔹 Supprimer une Composante (DELETE)
+@router.delete("/{composante_id_path}", status_code=204, summary="Supprimer une composante")
+def delete_composante(composante_id_path: str, db: Session = Depends(get_db)):
+    """Supprime une composante par son identifiant unique (Composante_id)."""
+    composante = db.query(Composante).filter(Composante.Composante_id == composante_id_path).first()
     if not composante:
         raise HTTPException(status_code=404, detail="Composante non trouvée.")
     
+    # Supprimer le logo s'il existe (Composante_logo_path)
     if composante.Composante_logo_path:
         path = f"app{composante.Composante_logo_path}"
         if os.path.exists(path):
             try:
                 os.remove(path)
-            except:
-                pass
+            except Exception as e:
+                print(f"Avertissement: Impossible de supprimer le fichier logo {path}. Erreur: {e}")
+
+    # Nettoyage Historique
+    db.query(ComposanteHistorique).filter(ComposanteHistorique.Composante_id_fk == composante.Composante_id).delete()
 
     try:
         db.delete(composante)
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Impossible de supprimer : l'établissement est lié à d'autres données.")
+        raise HTTPException(status_code=400, detail="Impossible de supprimer : la composante est liée à d'autres données.")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue lors de la suppression: {e}")
+        
     return
 
-@router.get("/institution", response_model=List[ComposanteSchema])
-def get_composantes_by_institution(institution_id: str, db: Session = Depends(get_db)):
-    """
-    Récupère les composantes d'une institution.
-    IMPORTANT : On doit charger les 'mentions' pour l'affichage dans InstitutionDetail.
-    """
+# 🔹 Liste des composantes par institution (CORRIGÉ : Ajout du filtre par années)
+@router.get("/institution", response_model=List[ComposanteSchema], summary="Liste des composantes par institution (filtrable par années)")
+def get_composantes_by_institution(
+    institution_id: str, 
+    annees: Optional[List[str]] = Query(None, description="Liste des ID d'années universitaires pour filtrer l'historique"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Composante).filter(Composante.Institution_id_fk == institution_id)
+
+    # AJOUT : Filtrage par historique des années
+    if annees and len(annees) > 0:
+        query = query.join(ComposanteHistorique).filter(
+            ComposanteHistorique.AnneeUniversitaire_id_fk.in_(annees)
+        ).distinct()
+    
+    # Le joinedload est maintenu pour l'affichage
     composantes = (
-        db.query(Composante)
-        .filter(Composante.Institution_id_fk == institution_id)
-        # 👇 C'est cette ligne qui permet d'afficher les mentions dans les cartes du frontend
-        .options(joinedload(Composante.mentions)) 
+        query
+        .options(
+            joinedload(Composante.institution), 
+            joinedload(Composante.mentions) 
+        )
         .all()
     )
     return composantes

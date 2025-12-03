@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     DB_PASS: str = "5864"
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
-    DB_NAME: str = "db_sco"
+    DB_NAME: str = "db_academique"
     FRONTEND_URL: str = "http://localhost:5173"
 
     # 🔹 Liste des origines autorisées pour CORS

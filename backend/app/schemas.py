@@ -22,6 +22,11 @@ class InstitutionCreate(BaseModel):
     type_institution: str = Field(..., alias="Institution_type")
     description: Optional[str] = Field(None, alias="Institution_description")
     abbreviation: Optional[str] = Field(None, alias="Institution_abbreviation")
+    # 🆕 AJOUT : Liste optionnelle d'IDs d'années universitaires
+    annees_universitaires: Optional[List[str]] = Field(
+        None, 
+        description="Liste des IDs d'années universitaires pour l'historique de création/activation."
+    )
     
     model_config = ConfigDict(extra="allow")
 
@@ -319,9 +324,22 @@ class ModeInscriptionSchema(ModeInscriptionBase):
 
 ## ANNÉE UNIVERSITAIRE
 class AnneeUniversitaireBase(BaseModel):
-    annee: Optional[str] = Field(None, alias="AnneeUniversitaire_annee")
+    annee: str = Field(..., alias="AnneeUniversitaire_annee")
     description: Optional[str] = Field(None, alias="AnneeUniversitaire_description")
     ordre: int = Field(..., alias="AnneeUniversitaire_ordre")
+    is_active: bool = Field(False, alias="AnneeUniversitaire_is_active") # Champ ajouté
+    
+    model_config = base_config
+
+class AnneeUniversitaireCreate(AnneeUniversitaireBase):
+    # Pas d'ID requis à la création
+    pass
+
+class AnneeUniversitaireUpdate(BaseModel):
+    annee: Optional[str] = Field(None, alias="AnneeUniversitaire_annee")
+    description: Optional[str] = Field(None, alias="AnneeUniversitaire_description")
+    ordre: Optional[int] = Field(None, alias="AnneeUniversitaire_ordre")
+    is_active: Optional[bool] = Field(None, alias="AnneeUniversitaire_is_active")
     
     model_config = base_config
 
