@@ -1,6 +1,6 @@
 # gestion-academique\backend\app\routers\composantes_routes.py
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile, Body
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from app.models import Composante, Institution, Mention, ComposanteHistorique
 from app.schemas import ComposanteSchema, ComposanteCreate 
+from app.schemas import HistoriqueDetailSchema, HistoriqueUpdateSchema 
 from app.database import get_db
 
 router = APIRouter(
@@ -92,7 +93,7 @@ def save_logo_file(file: Optional[UploadFile], code: str, current_path: Optional
 #   COMPOSANTE MANAGEMENT ENDPOINTS
 # ------------------------------------
 
-# 🔹 Ajouter une Composante (POST) - CORRIGÉ : Ajout gestion historique
+# 🔹 Ajouter une Composante (POST)
 @router.post("/", response_model=ComposanteSchema, summary="Ajouter une nouvelle composante")
 def create_composante(
     id_composante: str = Form(..., description="ID unique (ex: COMP_0001)"),
@@ -181,19 +182,16 @@ def create_composante(
     
     return db_composante
 
-# 🔹 Récupérer les IDs d'années universitaires liées à une composante (NOUVEAU)
+# 🔹 Récupérer les IDs d'années universitaires liées à une composante
 @router.get("/{composante_id}/annees-historique", response_model=List[str], summary="Récupérer les IDs d'années liées à une composante")
 def get_composante_years_history(composante_id: str, db: Session = Depends(get_db)):
-    """
-    Récupère la liste des IDs d'années universitaires pour lesquelles la composante est enregistrée dans l'historique.
-    """
     history_records = db.query(ComposanteHistorique).filter(
         ComposanteHistorique.Composante_id_fk == composante_id
     ).all()
     
     return [rec.AnneeUniversitaire_id_fk for rec in history_records]
 
-# 🔹 Mettre à jour une Composante (PUT) - CORRIGÉ : Ajout gestion historique
+# 🔹 Mettre à jour une Composante (PUT)
 @router.put("/{composante_id_path}", response_model=ComposanteSchema, summary="Mettre à jour une composante existante")
 def update_composante(
     composante_id_path: str,
@@ -246,26 +244,32 @@ def update_composante(
     elif logo:
         update_data["Composante_logo_path"] = save_logo_file(logo, clean_code, current_logo_path)
     
-    # 5. AJOUT : Synchronisation Historique (Suppression puis recréation)
-    db.query(ComposanteHistorique).filter(
-        ComposanteHistorique.Composante_id_fk == composante.Composante_id
-    ).delete(synchronize_session=False)
+    # ==============================================================================
+    # LOGIQUE DE SYNCHRONISATION
+    # IMPORTANT: On ne touche à l'historique que si `annees_universitaires` est fourni (non None).
+    # ==============================================================================
+    if annees_universitaires is not None:
+        historique_existant = db.query(ComposanteHistorique).filter(
+            ComposanteHistorique.Composante_id_fk == composante.Composante_id
+        ).all()
+        
+        map_historique = {h.AnneeUniversitaire_id_fk: h for h in historique_existant}
+        annees_cible = set(annees_universitaires)
 
-    if annees_universitaires:
-        for annee_id in annees_universitaires:
-            hist = ComposanteHistorique(
-                Composante_id_fk=composante.Composante_id,
-                AnneeUniversitaire_id_fk=annee_id,
-                Composante_label_historique=clean_label,
-                Composante_code_historique=clean_code,
-                Composante_description_historique=description_db
-            )
-            db.add(hist)
+        for annee_id, hist_obj in map_historique.items():
+            if annee_id not in annees_cible:
+                db.delete(hist_obj)
 
-
-    # 6. Application des changements et commit
-    for key, value in update_data.items():
-        setattr(composante, key, value)
+        for annee_id in annees_cible:
+            if annee_id not in map_historique:
+                hist = ComposanteHistorique(
+                    Composante_id_fk=composante.Composante_id,
+                    AnneeUniversitaire_id_fk=annee_id,
+                    Composante_label_historique=clean_label,
+                    Composante_code_historique=clean_code,
+                    Composante_description_historique=description_db
+                )
+                db.add(hist)
 
     try:
         db.commit()
@@ -280,7 +284,6 @@ def update_composante(
         raise HTTPException(status_code=500, detail=f"Erreur serveur inattendue lors de la mise à jour: {e}")
         
     db.refresh(composante)
-    # Recharger avec l'institution et les mentions pour le modèle de réponse
     composante = db.query(Composante).filter(Composante.Composante_id == composante_id_path).options(
         joinedload(Composante.institution),
         joinedload(Composante.mentions)
@@ -292,12 +295,10 @@ def update_composante(
 # 🔹 Supprimer une Composante (DELETE)
 @router.delete("/{composante_id_path}", status_code=204, summary="Supprimer une composante")
 def delete_composante(composante_id_path: str, db: Session = Depends(get_db)):
-    """Supprime une composante par son identifiant unique (Composante_id)."""
     composante = db.query(Composante).filter(Composante.Composante_id == composante_id_path).first()
     if not composante:
         raise HTTPException(status_code=404, detail="Composante non trouvée.")
     
-    # Supprimer le logo s'il existe (Composante_logo_path)
     if composante.Composante_logo_path:
         path = f"app{composante.Composante_logo_path}"
         if os.path.exists(path):
@@ -321,7 +322,7 @@ def delete_composante(composante_id_path: str, db: Session = Depends(get_db)):
         
     return
 
-# 🔹 Liste des composantes par institution (CORRIGÉ : Ajout du filtre par années)
+# 🔹 Liste des composantes par institution
 @router.get("/institution", response_model=List[ComposanteSchema], summary="Liste des composantes par institution (filtrable par années)")
 def get_composantes_by_institution(
     institution_id: str, 
@@ -330,13 +331,11 @@ def get_composantes_by_institution(
 ):
     query = db.query(Composante).filter(Composante.Institution_id_fk == institution_id)
 
-    # AJOUT : Filtrage par historique des années
     if annees and len(annees) > 0:
         query = query.join(ComposanteHistorique).filter(
             ComposanteHistorique.AnneeUniversitaire_id_fk.in_(annees)
         ).distinct()
     
-    # Le joinedload est maintenu pour l'affichage
     composantes = (
         query
         .options(
@@ -346,3 +345,95 @@ def get_composantes_by_institution(
         .all()
     )
     return composantes
+
+# 🆕 Route pour récupérer les détails complets de l'historique d'une composante
+@router.get("/{composante_id}/historique-details", response_model=List[HistoriqueDetailSchema], summary="Détails historiques complets")
+def get_composante_history_details(composante_id: str, db: Session = Depends(get_db)):
+    historiques = db.query(ComposanteHistorique).filter(
+        ComposanteHistorique.Composante_id_fk == composante_id
+    ).all()
+    
+    result = []
+    for h in historiques:
+        result.append({
+            "annee_id": h.AnneeUniversitaire_id_fk,
+            "annee_label": h.annee_univ.AnneeUniversitaire_annee if h.annee_univ else h.AnneeUniversitaire_id_fk,
+            "nom_historique": h.Composante_label_historique,
+            "code_historique": h.Composante_code_historique,
+            "description_historique": h.Composante_description_historique
+        })
+    return sorted(result, key=lambda x: x['annee_label'], reverse=True)
+
+# 🆕 AJOUT : Route pour AJOUTER une année spécifique à l'historique (Switch ON)
+@router.post("/{composante_id}/historique", summary="Ajouter une année à l'historique")
+def add_composante_history_line(
+    composante_id: str,
+    annee_id: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    comp = db.query(Composante).filter(Composante.Composante_id == composante_id).first()
+    if not comp:
+        raise HTTPException(status_code=404, detail="Composante non trouvée")
+
+    exists = db.query(ComposanteHistorique).filter(
+        ComposanteHistorique.Composante_id_fk == composante_id,
+        ComposanteHistorique.AnneeUniversitaire_id_fk == annee_id
+    ).first()
+    
+    if exists:
+        return {"message": "Année déjà présente"}
+
+    # Création avec les valeurs par défaut actuelles
+    hist = ComposanteHistorique(
+        Composante_id_fk=composante_id,
+        AnneeUniversitaire_id_fk=annee_id,
+        Composante_label_historique=comp.Composante_label,
+        Composante_code_historique=comp.Composante_code,
+        Composante_description_historique=comp.Composante_description
+    )
+    db.add(hist)
+    db.commit()
+    return {"message": "Année ajoutée à l'historique"}
+
+# 🆕 AJOUT : Route pour SUPPRIMER une année spécifique (Switch OFF)
+@router.delete("/{composante_id}/historique/{annee_id}", summary="Retirer une année de l'historique")
+def remove_composante_history_line(
+    composante_id: str,
+    annee_id: str,
+    db: Session = Depends(get_db)
+):
+    hist = db.query(ComposanteHistorique).filter(
+        ComposanteHistorique.Composante_id_fk == composante_id,
+        ComposanteHistorique.AnneeUniversitaire_id_fk == annee_id
+    ).first()
+    
+    if hist:
+        db.delete(hist)
+        db.commit()
+    
+    return {"message": "Année retirée de l'historique"}
+
+
+# 🆕 Route pour modifier UNE ligne d'historique spécifique
+@router.put("/{composante_id}/historique/{annee_id}", summary="Mise à jour d'une ligne historique")
+def update_composante_history_line(
+    composante_id: str, 
+    annee_id: str, 
+    payload: HistoriqueUpdateSchema, 
+    db: Session = Depends(get_db)
+):
+    history_item = db.query(ComposanteHistorique).filter(
+        ComposanteHistorique.Composante_id_fk == composante_id,
+        ComposanteHistorique.AnneeUniversitaire_id_fk == annee_id
+    ).first()
+    
+    if not history_item:
+        raise HTTPException(status_code=404, detail="Entrée historique non trouvée")
+    
+    # Mise à jour des champs spécifiques
+    history_item.Composante_label_historique = payload.nom
+    history_item.Composante_code_historique = payload.code
+    history_item.Composante_description_historique = payload.description
+    
+    db.commit()
+    return {"message": "Historique mis à jour"}

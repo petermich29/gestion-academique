@@ -644,3 +644,15 @@ class StructureNiveau(BaseModel):
     semestres: List[StructureSemestre] = []
     
     model_config = base_config
+
+class HistoriqueDetailSchema(BaseModel):
+    annee_id: str
+    annee_label: str
+    nom_historique: Optional[str] = None
+    code_historique: Optional[str] = None
+    description_historique: Optional[str] = None
+
+class HistoriqueUpdateSchema(BaseModel):
+    nom: str
+    code: str
+    description: Optional[str] = None
