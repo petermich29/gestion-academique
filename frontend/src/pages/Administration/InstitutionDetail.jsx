@@ -277,8 +277,8 @@ const InstitutionDetail = () => {
                 <CardItem 
                    key={comp.Composante_id} viewMode={view}
                    // MODIF: Afficher l'abréviation OU vide (ne pas afficher le code)
-                   title={comp.Composante_label} 
-                   subTitle={comp.Composante_abbreviation || ""} 
+                   title={comp.Composante_abbreviation || comp.Composante_label} 
+                   subTitle={comp.Composante_label}
                    imageSrc={comp.Composante_logo_path ? `${API_BASE_URL}${comp.Composante_logo_path}` : null}
                    PlaceholderIcon={LibraryIcon}
                    onClick={() => navigate(`/institution/${institutionId}/etablissement/${comp.Composante_code}`, { state: { composante: comp, institution } })}
