@@ -11,41 +11,65 @@ from datetime import date
 base_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 # =======================================================================
-# 1. SCHÉMAS ADMINISTRATIFS DE BASE (Institution, Composante, Domaine)
+# 1. SCHÉMAS ADMINISTRATIFS DE BASE
 # =======================================================================
 
-## INSTITUTIONS
+# --- TYPES COMPOSANTE (AJOUTS CORRECTIFS) ---
+class ComposanteAbbrSchema(BaseModel):
+    # On utilise l'alias pour mapper sur la colonne DB si nécessaire
+    abbreviation: Optional[str] = Field(None, alias="Composante_abbreviation")
+    model_config = base_config
+
+class TypeComposanteBase(BaseModel):
+    label: str = Field(..., alias="TypeComposante_label")
+    description: Optional[str] = Field(None, alias="TypeComposante_description")
+    model_config = base_config
+
+class TypeComposanteCreate(TypeComposanteBase):
+    # L'ID est requis à la création (géré manuellement par le front)
+    id_type_composante: str = Field(..., alias="TypeComposante_id")
+    model_config = base_config
+
+class TypeComposanteUpdate(BaseModel):
+    label: Optional[str] = Field(None, alias="TypeComposante_label")
+    description: Optional[str] = Field(None, alias="TypeComposante_description")
+    model_config = base_config
+
+class TypeComposanteSchema(TypeComposanteBase):
+    id_type_composante: str = Field(..., alias="TypeComposante_id")
+    composantes: List[ComposanteAbbrSchema] = []
+    model_config = base_config
+
+# --- INSTITUTIONS ---
 class InstitutionCreate(BaseModel):
-    id_institution: str = Field(..., alias="Institution_id", description="ID unique (ex: INST_0001)")
+    id_institution: str = Field(..., alias="Institution_id")
     code: str = Field(..., alias="Institution_code")
     nom: str = Field(..., alias="Institution_nom")
     type_institution: str = Field(..., alias="Institution_type")
     description: Optional[str] = Field(None, alias="Institution_description")
     abbreviation: Optional[str] = Field(None, alias="Institution_abbreviation")
-    # 🆕 AJOUT : Liste optionnelle d'IDs d'années universitaires
-    annees_universitaires: Optional[List[str]] = Field(
-        None, 
-        description="Liste des IDs d'années universitaires pour l'historique de création/activation."
-    )
-    
-    model_config = ConfigDict(extra="allow")
+    annees_universitaires: Optional[List[str]] = Field(None)
+    model_config = base_config # Important pour accepter les champs extra si besoin
 
 class InstitutionUpdate(InstitutionCreate):
     logo_path: Optional[str] = Field(None, alias="Institution_logo_path")
 
 class InstitutionSchema(InstitutionCreate):
     logo_path: Optional[str] = Field(None, alias="Institution_logo_path")
-    
     model_config = base_config
 
-## COMPOSANTES
+# --- COMPOSANTES ---
 class ComposanteBase(BaseModel):
     code: str = Field(..., alias="Composante_code", max_length=50)
     label: str = Field(..., alias="Composante_label", max_length=100)
     description: Optional[str] = Field(None, alias="Composante_description")
     abbreviation: Optional[str] = Field(None, alias="Composante_abbreviation", max_length=20)
     logo_path: Optional[str] = Field(None, alias="Composante_logo_path", max_length=255)
+    
     id_institution: str = Field(..., alias="Institution_id_fk", max_length=10)
+    
+    # CORRECTION : Ajout explicite de la FK pour le Type
+    id_type_composante: Optional[str] = Field(None, alias="Composante_type")
 
     model_config = base_config
 
@@ -59,21 +83,18 @@ class ComposanteUpdate(BaseModel):
     abbreviation: Optional[str] = Field(None, alias="Composante_abbreviation")
     logo_path: Optional[str] = Field(None, alias="Composante_logo_path")
     id_institution: Optional[str] = Field(None, alias="Institution_id_fk")
+    id_type_composante: Optional[str] = Field(None, alias="Composante_type")
     
     model_config = base_config
 
-# 💥 FIX CRITIQUE : Schéma allégé SANS la relation 'mentions'.
-# Ce schéma sera utilisé dans MentionSchema pour briser la boucle Composante <-> Mention.
 class ComposanteNestedSchema(ComposanteBase):
     id_composante: str = Field(..., alias="Composante_id", max_length=12)
-    
     model_config = base_config
 
-# Schéma COMPLET (pour la route /composantes)
 class ComposanteSchema(ComposanteBase):
     id_composante: str = Field(..., alias="Composante_id", max_length=12)
-    # Ce schéma garde la liste des mentions pour les vues détaillées de Composante.
     mentions: List["MentionSchema"] = [] 
+    type_composante: Optional[TypeComposanteSchema] = None
     
     model_config = base_config
 
@@ -86,7 +107,6 @@ class DomaineBase(BaseModel):
     model_config = base_config
 
 class DomaineCreate(BaseModel):
-    # Correction: Aligner DomaineCreate sur les autres Create/Update
     code: str = Field(..., alias="Domaine_code")
     label: str = Field(..., alias="Domaine_label")
     description: Optional[str] = Field(None, alias="Domaine_description")
@@ -94,9 +114,7 @@ class DomaineCreate(BaseModel):
     model_config = base_config
 
 class DomaineSchema(DomaineBase):
-    # Correction: Ajout de l'alias pour Domaine_id
     Domaine_id: str = Field(..., alias="Domaine_id") 
-    # Contient les Mentions. La boucle est évitée car Mention.composante est un ComposanteNestedSchema.
     mentions: List["MentionSchema"] = [] 
 
     model_config = base_config

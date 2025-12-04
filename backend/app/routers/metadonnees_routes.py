@@ -1,5 +1,7 @@
 # backend/app/routers/metadonnees_routes.py
 
+# backend/app/routers/metadonnees_routes.py
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
@@ -45,11 +47,6 @@ def get_next_id(db: Session, model, id_column, prefix: str, width: int):
 
 # --- 1a. Routes Générales et Statiques ---
 
-@router.get("/domaines", response_model=List[schemas.DomaineSchema])
-def get_domaines(db: Session = Depends(get_db)):
-    return db.query(models.Domaine).order_by(models.Domaine.Domaine_id).all()
-
-# CORRECTION CRUCIALE : Ajout de la route /next-id
 @router.get("/domaines/next-id", response_model=str)
 def get_domaine_next_id(db: Session = Depends(get_db)):
     """Récupère le prochain ID de domaine disponible (DOMA_XX)."""
@@ -57,9 +54,6 @@ def get_domaine_next_id(db: Session = Depends(get_db)):
 
 @router.post("/domaines", response_model=schemas.DomaineSchema)
 def create_domaine(item: schemas.DomaineCreate, db: Session = Depends(get_db)):
-    # IMPORTANT : Assurez-vous que schemas.DomaineCreate est configuré
-    # pour accepter le JSON du frontend (populate_by_name=True).
-    
     # Vérifier unicité du code
     if db.query(models.Domaine).filter(models.Domaine.Domaine_code == item.code).first():
         raise HTTPException(status_code=400, detail="Ce code domaine existe déjà.")
@@ -81,7 +75,6 @@ def create_domaine(item: schemas.DomaineCreate, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erreur lors de la création du domaine: {str(e)}")
     
-# 2. Remplace la route 'get_domaines' par celle-ci :
 @router.get("/domaines", response_model=List[schemas.DomaineSchema])
 def get_domaines(db: Session = Depends(get_db)):
     # On utilise .options(joinedload(...)) pour inclure les mentions ET leurs composantes
@@ -135,7 +128,70 @@ def delete_domaine(id: str, db: Session = Depends(get_db)):
 
 
 # =================================================================
-# 2. TYPES DE FORMATION (ID: TYPE_XX)
+# 2. TYPES DE COMPOSANTE (ID: TYCO_XX) - [MODIFIÉ]
+# =================================================================
+
+@router.get("/types-composante", response_model=List[schemas.TypeComposanteSchema])
+def get_types_composante(db: Session = Depends(get_db)):
+    # ✅ CORRECTION MAJEURE ICI :
+    # On ajoute .options(joinedload(models.TypeComposante.composantes))
+    # Cela dit à SQLAlchemy de faire une jointure pour récupérer les composantes liées
+    # en une seule requête, ce qui permet à Pydantic de remplir le champ 'composantes'.
+    return db.query(models.TypeComposante)\
+             .options(joinedload(models.TypeComposante.composantes))\
+             .order_by(models.TypeComposante.TypeComposante_id).all()
+
+
+@router.post("/types-composante", response_model=schemas.TypeComposanteSchema, status_code=status.HTTP_201_CREATED)
+def create_type_composante(item: schemas.TypeComposanteCreate, db: Session = Depends(get_db)):
+    # Validation ID
+    if db.query(models.TypeComposante).filter(models.TypeComposante.TypeComposante_id == item.id_type_composante).first():
+        raise HTTPException(status_code=400, detail="Cet ID existe déjà.")
+    
+    # Validation Libellé
+    if db.query(models.TypeComposante).filter(models.TypeComposante.TypeComposante_label == item.label).first():
+        raise HTTPException(status_code=400, detail="Ce libellé existe déjà.")
+
+    db_item = models.TypeComposante(
+        TypeComposante_id=item.id_type_composante,
+        TypeComposante_label=item.label,
+        TypeComposante_description=item.description
+    )
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+@router.put("/types-composante/{id}", response_model=schemas.TypeComposanteSchema)
+def update_type_composante(id: str, item: schemas.TypeComposanteUpdate, db: Session = Depends(get_db)):
+    db_item = db.query(models.TypeComposante).filter(models.TypeComposante.TypeComposante_id == id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Type introuvable")
+
+    if item.label:
+        db_item.TypeComposante_label = item.label
+    if item.description is not None:
+        db_item.TypeComposante_description = item.description
+
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+@router.delete("/types-composante/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_type_composante(id: str, db: Session = Depends(get_db)):
+    db_item = db.query(models.TypeComposante).filter(models.TypeComposante.TypeComposante_id == id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Type introuvable")
+    
+    try:
+        db.delete(db_item)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Impossible de supprimer ce type (lié à des composantes).")
+
+# =================================================================
+# 3. TYPES DE FORMATION (ID: TYPE_XX)
 # =================================================================
 
 @router.get("/types-formation", response_model=List[schemas.TypeFormationSchema])
@@ -190,7 +246,7 @@ def delete_type_formation(id: str, db: Session = Depends(get_db)):
 
 
 # =================================================================
-# 3. MODES D'INSCRIPTION (ID: MODE_XXX)
+# 4. MODES D'INSCRIPTION (ID: MODE_XXX)
 # =================================================================
 
 @router.get("/modes-inscription", response_model=List[schemas.ModeInscriptionSchema])
@@ -249,7 +305,7 @@ def delete_mode_inscription(id: str, db: Session = Depends(get_db)):
 
 
 # =================================================================
-# 4. TYPES D'ENSEIGNEMENT (ID: TYEN_XX)
+# 5. TYPES D'ENSEIGNEMENT (ID: TYEN_XX)
 # =================================================================
 
 @router.get("/types-enseignement", response_model=List[schemas.TypeEnseignementSchema])
@@ -305,7 +361,7 @@ def delete_type_enseignement(id: str, db: Session = Depends(get_db)):
 
 
 # =================================================================
-# 5. ANNÉES UNIVERSITAIRES (ID: ANNE_XXXX)
+# 6. ANNÉES UNIVERSITAIRES (ID: ANNE_XXXX)
 # =================================================================
 
 @router.get("/annees-universitaires", response_model=List[schemas.AnneeUniversitaireSchema])
@@ -395,7 +451,7 @@ def delete_annee_univ(id: str, db: Session = Depends(get_db)):
     return {"message": "Année supprimée"}
 
 # =================================================================
-# 6. SEMESTRES (Lecture seule pour liste déroulante)
+# 7. SEMESTRES (Lecture seule pour liste déroulante)
 # =================================================================
 
 @router.get("/semestres", response_model=List[schemas.SemestreSchema])

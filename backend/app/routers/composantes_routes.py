@@ -10,6 +10,8 @@ import re
 import time
 from pydantic import ValidationError 
 
+# Assurez-vous que le modèle Composante a bien la relation 'type_composante' 
+# qui utilise la colonne 'Composante_type'
 from app.models import Composante, Institution, Mention, ComposanteHistorique
 from app.schemas import ComposanteSchema, ComposanteCreate 
 from app.schemas import HistoriqueDetailSchema, HistoriqueUpdateSchema 
@@ -60,7 +62,7 @@ def save_logo_file(file: Optional[UploadFile], code: str, current_path: Optional
     if current_path:
         old_file_location = f"app{current_path}"
         if os.path.exists(old_file_location):
-            # 🐛 CORRECTION SYNTAXIQUE (1/3)
+            # Suppression de l'ancien logo si existant
             try: 
                 os.remove(old_file_location)
             except Exception as e: 
@@ -92,7 +94,7 @@ def create_composante(
     code: str = Form(..., description="Code court unique"),
     label: str = Form(..., alias="Composante_label"),
     institution_id_fk: str = Form(..., description="ID Institution"),
-    type_composante: str = Form(..., alias="Composante_type"),
+    type_composante: str = Form(..., alias="Composante_type"), # Reçoit la valeur du front
     description: Optional[str] = Form(None, alias="Composante_description"),
     abbreviation: Optional[str] = Form(None, alias="Composante_abbreviation"),
     logo: Optional[UploadFile] = File(None),
@@ -107,14 +109,18 @@ def create_composante(
     clean_label = label.strip()
     description_db = description.strip() if description and description.strip() else None
     abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
+    
+    # ✅ CORRECTION: Gérer la valeur vide ("") pour un champ nullable
+    clean_type = type_composante if type_composante and type_composante.strip() != "" else None
 
+    # Validation Pydantic
     try:
         ComposanteCreate(
             Composante_id=id_composante, 
             Composante_code=clean_code,
             Composante_label=clean_label,
             Institution_id_fk=institution_id_fk,
-            Composante_type=type_composante,
+            Composante_type=clean_type, # Utilise la valeur nettoyée
             Composante_description=description_db,
             Composante_abbreviation=abbreviation_db
         )
@@ -126,7 +132,7 @@ def create_composante(
         "Composante_code": clean_code,
         "Composante_label": clean_label,
         "Institution_id_fk": institution_id_fk,
-        "Composante_type": type_composante,
+        "Composante_type": clean_type, # Utilise la valeur nettoyée
         "Composante_description": description_db,
         "Composante_abbreviation": abbreviation_db
     }
@@ -158,9 +164,11 @@ def create_composante(
         raise HTTPException(status_code=500, detail=f"Erreur serveur: {e}")
         
     db.refresh(db_composante)
+    # ✅ CORRECTION: Ajout du joinedload pour le type
     db_composante = db.query(Composante).filter(Composante.Composante_id == id_composante).options(
         joinedload(Composante.institution),
-        joinedload(Composante.mentions)
+        joinedload(Composante.mentions),
+        joinedload(Composante.type_composante) 
     ).first()
     
     return db_composante
@@ -178,7 +186,7 @@ def update_composante(
     code: str = Form(...),
     label: str = Form(..., alias="Composante_label"),
     institution_id_fk: str = Form(...),
-    type_composante: str = Form(..., alias="Composante_type"),
+    type_composante: str = Form(..., alias="Composante_type"), # Reçoit la valeur du front
     description: Optional[str] = Form(None, alias="Composante_description"),
     abbreviation: Optional[str] = Form(None, alias="Composante_abbreviation"),
     logo: Optional[UploadFile] = File(None),
@@ -194,12 +202,17 @@ def update_composante(
     clean_label = label.strip()
     description_db = description.strip() if description and description.strip() else None
     abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
+    
+    # ✅ CORRECTION: Gérer la valeur vide ("") pour un champ nullable
+    clean_type = type_composante if type_composante and type_composante.strip() != "" else None
+
 
     # Mise à jour champs principaux
     composante.Composante_code = clean_code
     composante.Composante_label = clean_label
     composante.Institution_id_fk = institution_id_fk
-    composante.Composante_type = type_composante
+    # ✅ CORRECTION: Utiliser la valeur nettoyée
+    composante.Composante_type = clean_type 
     composante.Composante_description = description_db
     composante.Composante_abbreviation = abbreviation_db
     
@@ -207,7 +220,6 @@ def update_composante(
     if remove_logo:
         if composante.Composante_logo_path:
             old_path = f"app{composante.Composante_logo_path}"
-            # 🐛 CORRECTION SYNTAXIQUE (2/3)
             if os.path.exists(old_path): 
                 try: 
                     os.remove(old_path) 
@@ -249,9 +261,11 @@ def update_composante(
         raise HTTPException(status_code=400, detail="Erreur DB.")
     
     db.refresh(composante)
+    # ✅ CORRECTION: Ajout du joinedload pour le type
     composante = db.query(Composante).filter(Composante.Composante_id == composante_id_path).options(
         joinedload(Composante.institution),
-        joinedload(Composante.mentions)
+        joinedload(Composante.mentions),
+        joinedload(Composante.type_composante) 
     ).first()
     
     return composante
@@ -264,7 +278,6 @@ def delete_composante(composante_id_path: str, db: Session = Depends(get_db)):
     
     if composante.Composante_logo_path:
         path = f"app{composante.Composante_logo_path}"
-        # 🐛 CORRECTION SYNTAXIQUE (3/3)
         if os.path.exists(path): 
             try: 
                 os.remove(path) 
@@ -290,7 +303,12 @@ def get_composantes_by_institution(
             ComposanteHistorique.AnneeUniversitaire_id_fk.in_(annees)
         ).distinct()
     
-    results = query.options(joinedload(Composante.institution), joinedload(Composante.mentions)).all()
+    # Ajout du type_composante pour l'affichage en liste
+    results = query.options(
+        joinedload(Composante.institution), 
+        joinedload(Composante.mentions),
+        joinedload(Composante.type_composante)
+    ).all()
     
     # Logique de remplacement (Nom/Code) selon l'historique le plus récent
     if annees and len(annees) > 0:

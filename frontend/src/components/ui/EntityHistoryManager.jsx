@@ -134,7 +134,7 @@ const EntityHistoryManager = ({ isOpen, onClose, entityId, entityType = "institu
     // OVERLAY FIXE (Z-Index élevé pour passer au-dessus des autres modals)
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl h-[85vh] flex flex-col max-h-[90vh] overflow-hidden">
         
         {/* HEADER */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white">

@@ -49,9 +49,11 @@ class Composante(Base):
     Composante_description = Column(Text, nullable=True)
     Composante_abbreviation = Column(String(20), nullable=True)
     Composante_logo_path = Column(String(255), nullable=True)
-
+    Composante_type = Column(String(7), ForeignKey('types_composante.TypeComposante_id'), nullable=True)
+    
     Institution_id_fk = Column(String(10), ForeignKey('institutions.Institution_id'), nullable=False)
 
+    type_composante = relationship("TypeComposante", back_populates="composantes")
     institution = relationship("Institution", back_populates="composantes")
     mentions = relationship("Mention", backref="composante")
     enseignants_permanents = relationship("Enseignant", back_populates="composante_attachement")
@@ -638,6 +640,17 @@ class TypeEnseignement(Base):
 
     volumes_horaires = relationship("VolumeHoraireEC", back_populates="type_enseignement")
     affectations = relationship("AffectationEC", back_populates="type_enseignement")
+
+
+class TypeComposante(Base):
+    __tablename__ = 'types_composante'
+    __table_args__ = {'extend_existing': True}
+
+    TypeComposante_id = Column(String(7), primary_key=True) # Ex: TYCO_01
+    TypeComposante_label = Column(String(50), nullable=False, unique=True)
+    TypeComposante_description = Column(Text, nullable=True)
+
+    composantes = relationship("Composante", back_populates="type_composante")
 
 
 class VolumeHoraireEC(Base):

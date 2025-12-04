@@ -16,16 +16,9 @@ import EntityHistoryManager from "../../components/ui/EntityHistoryManager";
 import YearMultiSelect from "../../components/ui/YearMultiSelect"; 
 
 const API_BASE_URL = "http://127.0.0.1:8000";
-const ID_REGEX = /COMP_(\d+)/;
-
-const getNextMinimalId = (existingIds) => {
-  const usedNumbers = existingIds
-    .map((id) => { const match = id.match(ID_REGEX); return match ? parseInt(match[1], 10) : null; })
-    .filter((n) => n !== null).sort((a, b) => a - b);
-  let nextNum = 1;
-  for (const n of usedNumbers) { if (n !== nextNum) break; nextNum++; }
-  return `COMP_${String(nextNum).padStart(4, "000")}`;
-};
+// 🚨 RETIRÉ : ID_REGEX et getNextMinimalId ne sont plus nécessaires car l'ID est généré par le backend.
+// const ID_REGEX = /COMP_(\d+)/;
+// const getNextMinimalId = (existingIds) => { /* ... */ };
 
 const InstitutionDetail = () => {
   const { id: institutionId } = useParams();
@@ -35,19 +28,17 @@ const InstitutionDetail = () => {
   // --- ÉTATS ---
   const [institution, setInstitution] = useState(null);
   const [composantes, setComposantes] = useState([]);
-  
+  // ... (autres états)
+  const [typesComposante, setTypesComposante] = useState([]);
   const [years, setYears] = useState([]);
   const [selectedYearsIds, setSelectedYearsIds] = useState([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
   const [isLoading, setIsLoading] = useState(true);
   const firstLoadRef = useRef(true);
-  
   const [view, setView] = useState("grid");
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState("label");
   const [sortOrder, setSortOrder] = useState("asc");
-
   const [modalOpen, setModalOpen] = useState(false);
   const [historyManagerOpen, setHistoryManagerOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
@@ -56,7 +47,8 @@ const InstitutionDetail = () => {
   const [deleteInput, setDeleteInput] = useState("");
 
   const [form, setForm] = useState({ 
-    id: "", code: "", label: "", type: "", 
+    id: "", code: "", label: "", 
+    type_id: "", // Champ pour le select
     abbreviation: "", description: "", logo: null, logoPath: "" 
   });
   const [errors, setErrors] = useState({});
@@ -70,24 +62,37 @@ const InstitutionDetail = () => {
   };
   const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
-  // --- CHARGEMENT ---
+  // --- CHARGEMENT DES RÉFÉRENCES (unchanged) ---
   useEffect(() => {
-    const fetchYears = async () => {
+    const fetchReferences = async () => {
+        // ... (unchanged)
         try {
-            const res = await fetch(`${API_BASE_URL}/api/metadonnees/annees-universitaires`);
-            const data = res.ok ? await res.json() : [];
-            setYears(data);
-            const active = data.find(y => y.AnneeUniversitaire_is_active);
+            // 1. Fetch Années
+            const resYears = await fetch(`${API_BASE_URL}/api/metadonnees/annees-universitaires`);
+            const dataYears = resYears.ok ? await resYears.json() : [];
+            setYears(dataYears);
+            const active = dataYears.find(y => y.AnneeUniversitaire_is_active);
             if (active) setSelectedYearsIds([active.AnneeUniversitaire_id]);
+
+            // 2. Fetch Types Composante 
+            const resTypes = await fetch(`${API_BASE_URL}/api/metadonnees/types-composante`);
+            if (resTypes.ok) {
+                setTypesComposante(await resTypes.json());
+            } else {
+                console.error("Erreur chargement types composante:", resTypes.status);
+            }
+
         } catch (e) { console.error(e); }
     };
-    fetchYears();
+    fetchReferences();
   }, []);
 
+  // --- CHARGEMENT DES DONNÉES (unchanged) ---
   useEffect(() => {
     if (firstLoadRef.current && selectedYearsIds.length === 0) return;
 
     const fetchData = async () => {
+      // ... (unchanged)
       if (firstLoadRef.current) setIsLoading(true); else setIsRefreshing(true);
       
       try {
@@ -122,9 +127,24 @@ const InstitutionDetail = () => {
     fetchData();
   }, [institutionId, selectedYearsIds, setBreadcrumb]);
 
+  
+  // 🆕 NOUVELLE FONCTION : Récupérer l'ID minimal du backend (qui connaît toutes les composantes)
+  const fetchNextComposanteId = async () => {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/composantes/next-id`);
+        if (!res.ok) throw new Error("Erreur lors de la récupération du prochain ID.");
+        // Le backend retourne l'ID directement en tant que chaîne
+        return await res.json(); 
+    } catch (e) {
+        console.error(e);
+        addToast("Erreur ID: " + e.message, "error");
+        return ""; // Retourne une chaîne vide en cas d'échec
+    }
+  };
+
 
   // --- GESTION FORMULAIRE ---
-  const openModal = (comp = null) => {
+  const openModal = async (comp = null) => { // 🚨 openModal devient ASYNC
     setErrors({});
     if (comp) {
         setEditComposante(comp);
@@ -132,7 +152,8 @@ const InstitutionDetail = () => {
             id: comp.Composante_id,
             code: comp.Composante_code,
             label: comp.Composante_label,
-            type: comp.Composante_type,
+            // Note: l'ID stocké dans la DB est dans le champ 'Composante_type'
+            type_id: comp.Composante_type || (comp.type_composante ? comp.type_composante.TypeComposante_id : ""), 
             abbreviation: comp.Composante_abbreviation || "",
             description: comp.Composante_description || "",
             logo: null,
@@ -140,9 +161,12 @@ const InstitutionDetail = () => {
         });
     } else {
         setEditComposante(null);
+        // 🚨 FIX : Appel au backend pour l'ID global
+        const nextId = await fetchNextComposanteId();
         setForm({
-            id: getNextMinimalId(composantes.map(c => c.Composante_id)),
-            code: "", label: "", type: "FACULTE",
+            id: nextId,
+            code: "", label: "", 
+            type_id: "", // Par défaut vide
             abbreviation: "", description: "", logo: null, logoPath: ""
         });
     }
@@ -156,40 +180,63 @@ const InstitutionDetail = () => {
     const newErrors = {};
     if (!form.code.trim()) newErrors.code = "Requis";
     if (!form.label.trim()) newErrors.label = "Requis";
+    
     if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
 
     const fd = new FormData();
-    fd.append("id_composante", form.id);
-    fd.append("code", form.code);
-    fd.append("Composante_label", form.label);
-    fd.append("Composante_type", form.type);
-    fd.append("institution_id_fk", institutionId);
+    let url = `${API_BASE_URL}/api/composantes/`;
+    let method = "POST";
 
-    if (form.abbreviation) fd.append("Composante_abbreviation", form.abbreviation);
-    if (form.description) fd.append("Composante_description", form.description);
-    if (form.logo) fd.append("logo", form.logo);
+    if (editComposante) {
+        // --- PUT OPERATION (Modification) --- (unchanged)
+        url += editComposante.Composante_id;
+        method = "PUT";
+        
+        fd.append("institution_id_fk", institutionId);
+        
+        fd.append("code", form.code);
+        fd.append("Composante_label", form.label);
+        fd.append("Composante_type", form.type_id || ""); 
 
-    if (!editComposante) {
+        if (form.abbreviation) fd.append("Composante_abbreviation", form.abbreviation);
+        if (form.description) fd.append("Composante_description", form.description);
+        if (form.logo) fd.append("logo", form.logo);
+
+    } else {
+        // --- POST OPERATION (Création) --- (unchanged, sauf que form.id est maintenant fiable)
+        fd.append("id_composante", form.id);
+        fd.append("code", form.code);
+        fd.append("Composante_label", form.label);
+        
+        fd.append("Composante_type", form.type_id || ""); 
+        
+        fd.append("institution_id_fk", institutionId);
+
+        if (form.abbreviation) fd.append("Composante_abbreviation", form.abbreviation);
+        if (form.description) fd.append("Composante_description", form.description);
+        if (form.logo) fd.append("logo", form.logo);
+
         const active = years.find(y => y.AnneeUniversitaire_is_active);
         if (active) fd.append("annees_universitaires", active.AnneeUniversitaire_id);
     }
 
     try {
-        let url = `${API_BASE_URL}/api/composantes/`;
-        let method = "POST";
-
-        if (editComposante) {
-            url += editComposante.Composante_id;
-            method = "PUT";
-        }
-
         const res = await fetch(url, { method, body: fd });
         if (!res.ok) {
             const errDetail = await res.json();
-            throw new Error(errDetail.detail || "Erreur serveur");
+            throw new Error(errDetail.detail || `Erreur serveur: ${res.status}`);
         }
 
         const savedComp = await res.json();
+        
+        // Mise à jour optimiste du state local sans recharger
+        savedComp.Composante_type = form.type_id || null; 
+        
+        if (form.type_id) {
+            const selectedType = typesComposante.find(t => t.TypeComposante_id === form.type_id);
+            if (selectedType) savedComp.type_composante = selectedType;
+        }
+
         setComposantes(prev => 
             editComposante 
             ? prev.map(c => c.Composante_id === savedComp.Composante_id ? savedComp : c)
@@ -218,7 +265,7 @@ const InstitutionDetail = () => {
     } catch (e) { addToast("Erreur connexion", "error"); }
   };
 
-  // --- RENDER ---
+  // --- RENDER (unchanged) ---
   const filtered = composantes
     .filter(c => (c.Composante_label + c.Composante_code + (c.Composante_abbreviation||"")).toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
@@ -234,7 +281,9 @@ const InstitutionDetail = () => {
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
+      {/* HEADER */}
       <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1, y:0}} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-6 mb-6">
+         {/* ... (unchanged) */}
          <div className="flex-shrink-0">
             {institution.Institution_logo_path ? 
              <img src={`${API_BASE_URL}${institution.Institution_logo_path}`} className="w-20 h-20 object-contain"/> : 
@@ -250,6 +299,7 @@ const InstitutionDetail = () => {
          </div>
       </motion.div>
 
+      {/* CONTROLS */}
       <div className={AppStyles.header.container}>
         <h2 className={AppStyles.header.title}>Établissements / Composantes ({filtered.length})</h2>
         <div className={AppStyles.header.controls}>
@@ -268,37 +318,46 @@ const InstitutionDetail = () => {
         </div>
       </div>
 
+      {/* LIST / GRID */}
       <div className={view === "grid" ? AppStyles.gridContainer : "flex flex-col gap-2"}>
          <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
              <PlusIcon className={view==='grid'?"text-2xl":"text-lg"}/> <span className="font-bold text-blue-700 text-sm">Ajouter</span>
          </div>
          <AnimatePresence>
-            {filtered.map(comp => (
-                <CardItem 
-                   key={comp.Composante_id} viewMode={view}
-                   // MODIF: Afficher l'abréviation OU vide (ne pas afficher le code)
-                   title={comp.Composante_abbreviation || comp.Composante_label} 
-                   subTitle={comp.Composante_label}
-                   imageSrc={comp.Composante_logo_path ? `${API_BASE_URL}${comp.Composante_logo_path}` : null}
-                   PlaceholderIcon={LibraryIcon}
-                   onClick={() => navigate(`/institution/${institutionId}/etablissement/${comp.Composante_code}`, { state: { composante: comp, institution } })}
-                   onEdit={() => openModal(comp)}
-                   onDelete={() => {setComposanteToDelete(comp); setDeleteInput(""); setDeleteModalOpen(true);}}
-                >
-                    <div className="mt-2 text-xs text-gray-400 flex justify-between w-full">
-                        {/* MODIF: Suppression du span contenant le code */}
-                        <span></span> 
-                        <span className="font-bold">{comp.mentions ? comp.mentions.length : 0} Mentions</span>
-                    </div>
-                </CardItem>
-            ))}
+            {filtered.map(comp => {
+                // Récupération du label du type pour affichage
+                const typeLabel = comp.type_composante?.TypeComposante_label || 
+                                  typesComposante.find(t => t.TypeComposante_id === comp.Composante_type)?.TypeComposante_label || 
+                                  "Non défini";
+                return (
+                    <CardItem 
+                    key={comp.Composante_id} viewMode={view}
+                    title={comp.Composante_abbreviation || comp.Composante_label} 
+                    subTitle={comp.Composante_label}
+                    imageSrc={comp.Composante_logo_path ? `${API_BASE_URL}${comp.Composante_logo_path}` : null}
+                    PlaceholderIcon={LibraryIcon}
+                    onClick={() => navigate(`/institution/${institutionId}/etablissement/${comp.Composante_code}`, { state: { composante: comp, institution } })}
+                    onEdit={() => openModal(comp)}
+                    onDelete={() => {setComposanteToDelete(comp); setDeleteInput(""); setDeleteModalOpen(true);}}
+                    >
+                        <div className="mt-2 text-xs text-gray-400 flex justify-between w-full">
+                            <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] font-medium text-gray-600 truncate max-w-[100px]" title={typeLabel}>
+                                {typeLabel}
+                            </span>
+                            <span className="font-bold">{comp.mentions ? comp.mentions.length : 0} Mentions</span>
+                        </div>
+                    </CardItem>
+                );
+            })}
          </AnimatePresence>
       </div>
 
+      {/* MODAL FORM */}
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editComposante ? "Modifier Établissement" : "Nouvel Établissement"}>
          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
              <div className="flex gap-4">
                  <div className="flex flex-col items-center gap-1">
+                    {/* ... (unchanged) */}
                     <div onClick={()=>fileInputRef.current.click()} className="w-20 h-20 bg-gray-50 border rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-500 overflow-hidden relative group">
                         {form.logo ? (
                             <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover"/>
@@ -330,15 +389,26 @@ const InstitutionDetail = () => {
                     <span className={AppStyles.input.label}>Nom <span className="text-red-500">*</span></span>
                     <input name="label" value={form.label} onChange={e=>setForm({...form, label: e.target.value})} className={`${AppStyles.input.formControl} ${errors.label?"border-red-500":""}`}/>
                 </div>
-                <div>
-                    <span className={AppStyles.input.label}>Type</span>
-                    <select name="type" value={form.type} onChange={e=>setForm({...form, type: e.target.value})} className={AppStyles.input.formControl}>
-                         <option value="FACULTE">FACULTÉ</option>
-                         <option value="ECOLE">ÉCOLE</option>
-                         <option value="INSTITUT">INSTITUT</option>
+                
+                {/* LISTE DÉROULANTE TYPES */}
+                <div className="md:col-span-2">
+                    <span className={AppStyles.input.label}>Type d'établissement</span>
+                    <select 
+                        name="type_id" 
+                        value={form.type_id} 
+                        onChange={e=>setForm({...form, type_id: e.target.value})} 
+                        className={`${AppStyles.input.formControl} ${errors.type_id?"border-red-500":""}`}
+                    >
+                         <option value="">-- Sélectionner un type --</option>
+                         {typesComposante.map(t => (
+                            <option key={t.TypeComposante_id} value={t.TypeComposante_id}>
+                                {t.TypeComposante_label}
+                            </option>
+                         ))}
                     </select>
                 </div>
-                <div>
+
+                <div className="md:col-span-2">
                      <span className={AppStyles.input.label}>Abréviation</span>
                      <input name="abbreviation" value={form.abbreviation} onChange={e=>setForm({...form, abbreviation: e.target.value})} className={AppStyles.input.formControl}/>
                 </div>

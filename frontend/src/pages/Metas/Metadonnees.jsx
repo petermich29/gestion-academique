@@ -7,6 +7,7 @@ import TypesFormation from "./TypesFormation";
 import ModesInscription from "./ModesInscription";
 import AnneesUniversitaires from "./AnneesUniversitaires";
 import TypesEnseignement from "./TypesEnseignement";
+import TypesComposante from "./TypesComposante";
 
 export default function Metadonnees() {
   const [activeTab, setActiveTab] = useState(0);
@@ -14,6 +15,7 @@ export default function Metadonnees() {
   const tabs = [
     { label: "Domaines des Mentions", component: <Domaines /> },
     { label: "Types de Formation", component: <TypesFormation /> },
+    { label: "Types d'Etablissement", component: <TypesComposante /> },
     { label: "Modes d'inscription", component: <ModesInscription /> },
     { label: "Années universitaires", component: <AnneesUniversitaires /> },
     { label: "Types d’enseignement", component: <TypesEnseignement /> },
