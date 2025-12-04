@@ -651,8 +651,12 @@ class HistoriqueDetailSchema(BaseModel):
     nom_historique: Optional[str] = None
     code_historique: Optional[str] = None
     description_historique: Optional[str] = None
+    # 🆕 AJOUT
+    abbreviation_historique: Optional[str] = None
 
 class HistoriqueUpdateSchema(BaseModel):
     nom: str
     code: str
     description: Optional[str] = None
+    # 🆕 AJOUT
+    abbreviation: Optional[str] = None

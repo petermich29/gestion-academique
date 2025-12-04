@@ -81,7 +81,8 @@ def create_institution(
                 AnneeUniversitaire_id_fk=annee_id,
                 Institution_nom_historique=nom,
                 Institution_code_historique=clean_code,
-                Institution_description_historique=description_db
+                Institution_description_historique=description_db,
+                Institution_abbreviation_historique=abbreviation_db
             )
             db.add(hist)
     
@@ -156,6 +157,9 @@ def get_institutions(
             inst.Institution_nom = best_h.Institution_nom_historique
             inst.Institution_code = best_h.Institution_code_historique
             inst.Institution_description = best_h.Institution_description_historique
+            # 🆕 Surcharge Abbreviation
+            if best_h.Institution_abbreviation_historique:
+                inst.Institution_abbreviation = best_h.Institution_abbreviation_historique
 
     return results
 
@@ -234,7 +238,8 @@ def update_institution(
                     AnneeUniversitaire_id_fk=annee_id,
                     Institution_nom_historique=clean_nom,
                     Institution_code_historique=clean_code,
-                    Institution_description_historique=description_db
+                    Institution_description_historique=description_db,
+                    Institution_abbreviation_historique=abbreviation_db
                 )
                 db.add(hist)
 
@@ -277,7 +282,8 @@ def get_institution_history_details(id_institution: str, db: Session = Depends(g
             "annee_label": h.annee_univ.AnneeUniversitaire_annee if h.annee_univ else "N/A", 
             "nom_historique": h.Institution_nom_historique,
             "code_historique": h.Institution_code_historique,
-            "description_historique": h.Institution_description_historique
+            "description_historique": h.Institution_description_historique,
+            "abbreviation_historique": h.Institution_abbreviation_historique # 🆕
         })
     return sorted(result, key=lambda x: x['annee_label'], reverse=True)
 

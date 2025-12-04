@@ -1,6 +1,6 @@
 # backend/app/routers/mentions_routes.py
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Form, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
@@ -17,127 +17,118 @@ router = APIRouter(
     tags=["Mentions"]
 )
 
+# Configuration du dossier d'upload
 UPLOAD_DIR = "app/static/logos" 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# --- UTILS ---
-MENTION_ID_PREFIX = "MENT_"
-ID_REGEX = re.compile(r"MENT_(\d+)")
+# --- UTILITAIRES (Génération ID & Fichiers) ---
+
+MENTION_ID_PREFIX = "MEN_"
+ID_REGEX = re.compile(r"MEN_(\d+)")
 
 def get_next_mention_id(db: Session) -> str:
+    """Génère le prochain ID disponible (ex: MEN_0001)"""
     existing_ids = db.query(Mention.Mention_id).all()
     used_numbers = []
     for (id_str,) in existing_ids:
         match = ID_REGEX.match(id_str)
         if match:
-            used_numbers.append(int(match[1]))
+            used_numbers.append(int(match.group(1)))
     
-    if not used_numbers:
-        return f"{MENTION_ID_PREFIX}0001"
-
-    used_numbers.sort()
     next_num = 1
-    for num in used_numbers:
-        if num == next_num:
-            next_num += 1
-        elif num > next_num:
-            break
+    if used_numbers:
+        used_numbers.sort()
+        for num in used_numbers:
+            if num == next_num:
+                next_num += 1
+            elif num > next_num:
+                break
+    
     return f"{MENTION_ID_PREFIX}{str(next_num).zfill(4)}"
 
 def save_upload_file(upload_file: UploadFile, filename: str) -> str:
+    """Sauvegarde le fichier et retourne le chemin relatif pour la DB"""
     file_location = os.path.join(UPLOAD_DIR, filename)
-    with open(file_location, "wb") as buffer:
-        shutil.copyfileobj(upload_file.file, buffer)
+    try:
+        with open(file_location, "wb") as buffer:
+            shutil.copyfileobj(upload_file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur sauvegarde fichier: {e}")
+        
     return f"/static/logos/{filename}"
 
 # --- ROUTES ---
 
+@router.get("/next-id", response_model=str)
+def get_next_id(db: Session = Depends(get_db)):
+    """Route utilitaire pour le frontend (affichage ID prévisionnel)"""
+    return get_next_mention_id(db)
+
 @router.get("/{mention_id}", response_model=MentionSchema)
 def get_mention(mention_id: str, db: Session = Depends(get_db)):
-    """
-    Récupère les détails d'une mention spécifique par son ID.
-    Ceci est la route manquante qui cause le 405.
-    """
     mention = db.query(Mention).filter(Mention.Mention_id == mention_id).first()
     if not mention:
         raise HTTPException(status_code=404, detail="Mention introuvable")
-    # L'objet mention est retourné et mappé automatiquement vers MentionSchema
     return mention
 
-@router.get("/next-id", response_model=str)
-def get_next_id(db: Session = Depends(get_db)):
-    return get_next_mention_id(db)
-
-# Lister les mentions d'une composante spécifique
 @router.get("/composante/{composante_id}", response_model=List[MentionSchema])
 def get_mentions_by_composante(composante_id: str, db: Session = Depends(get_db)):
-    """
-    Récupère les mentions d'une composante incluant leurs parcours associés.
-    """
-    # 1. Vérifie si la composante existe
-    composante = db.query(Composante).filter(Composante.Composante_id == composante_id).first()
-    if not composante:
+    """Récupère les mentions d'une composante avec leurs parcours"""
+    # Vérif composante
+    if not db.query(Composante).filter(Composante.Composante_id == composante_id).first():
         raise HTTPException(status_code=404, detail="Composante introuvable")
     
-    # 2. Récupère les mentions avec chargement optimisé des parcours
-    # Assurez-vous que la relation 'parcours' est définie dans le modèle SQLAlchemy 'Mention'
     mentions = (
         db.query(Mention)
         .filter(Mention.Composante_id_fk == composante_id)
-        .options(joinedload(Mention.parcours)) # Eager Loading des parcours
+        .options(joinedload(Mention.parcours)) 
         .all()
     )
     return mentions
 
-
-# Créer une Mention
 @router.post("/", response_model=MentionSchema)
 def create_mention(
-    nom: str = Form(..., description="Libellé de la mention (Correspond à Mention_label)"),
-    code: str = Form(..., description="Code unique de la mention (ex: MEN_INFO)"),
-    composante_id: str = Form(..., description="ID de la composante parente"),
-    domaine_id: str = Form(..., description="ID du domaine de rattachement"),
+    nom: str = Form(..., description="Label de la mention"),
+    code: str = Form(..., description="Code unique"),
+    composante_id: str = Form(..., description="ID Composante"),
+    domaine_id: str = Form(..., description="ID Domaine"),
     abbreviation: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     logo_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-    # 1. Nettoyage
-    clean_code = code.strip()
+    clean_code = code.upper().strip()
     
-    # 2. Vérifications préalables
-    # Vérifier si la composante existe
+    # 1. Vérifications
     if not db.query(Composante).filter(Composante.Composante_id == composante_id).first():
         raise HTTPException(status_code=400, detail="Composante invalide.")
-        
-    # Vérifier si le domaine existe
     if not db.query(Domaine).filter(Domaine.Domaine_id == domaine_id).first():
-        raise HTTPException(status_code=400, detail="Domaine invalide. Veuillez vérifier l'ID du domaine.")
-
-    # Vérifier unicité du code (Global ou par composante selon vos contraintes, ici global par sécurité)
-    if db.query(Mention).filter(Mention.Mention_code == clean_code).first():
-         raise HTTPException(status_code=400, detail=f"Le code mention '{clean_code}' existe déjà.")
-
-    # 3. Génération ID
-    new_id = get_next_mention_id(db)
+        raise HTTPException(status_code=400, detail="Domaine invalide.")
     
-    # 4. Gestion Logo
+    # Unicité Code (Global)
+    if db.query(Mention).filter(Mention.Mention_code == clean_code).first():
+         raise HTTPException(status_code=400, detail=f"Le code '{clean_code}' existe déjà.")
+
+    # 2. ID & Logo
+    new_id = get_next_mention_id(db)
     logo_path = None
-    if logo_file:
-        ext = os.path.splitext(logo_file.filename)[1]
+    if logo_file and logo_file.filename:
+        ext = os.path.splitext(logo_file.filename)[1].lower()
+        if ext not in ['.jpg', '.jpeg', '.png', '.svg']:
+            raise HTTPException(400, "Format d'image non supporté")
         filename = f"{new_id}{ext}"
         logo_path = save_upload_file(logo_file, filename)
 
-    # 5. Création (Mapping correct avec models.py)
+    # 3. Création
     new_mention = Mention(
         Mention_id=new_id,
-        Mention_code=clean_code,       # CHAMP OBLIGATOIRE AJOUTÉ
-        Mention_label=nom,             # CORRECTION: Mention_label au lieu de Mention_nom
+        Mention_code=clean_code,
+        Mention_label=nom.strip(),
         Mention_abbreviation=abbreviation,
         Mention_description=description,
         Mention_logo_path=logo_path,
         Composante_id_fk=composante_id,
-        Domaine_id_fk=domaine_id       # CHAMP OBLIGATOIRE AJOUTÉ
+        Domaine_id_fk=domaine_id
     )
 
     try:
@@ -145,15 +136,13 @@ def create_mention(
         db.commit()
         db.refresh(new_mention)
         return new_mention
-    except IntegrityError as e:
+    except IntegrityError:
         db.rollback()
-        print(f"Erreur DB: {e}")
-        raise HTTPException(status_code=400, detail="Erreur d'intégrité (Code existant ou référence manquante).")
+        raise HTTPException(status_code=400, detail="Erreur d'intégrité.")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# Modifier une Mention
 @router.put("/{mention_id}", response_model=MentionSchema)
 def update_mention(
     mention_id: str,
@@ -169,24 +158,28 @@ def update_mention(
     if not mention:
         raise HTTPException(status_code=404, detail="Mention introuvable")
 
-    # Mise à jour des champs
-    mention.Mention_label = nom # CORRECTION: Label
-    mention.Mention_code = code.strip()
+    # Vérif Domaine si changé
+    if mention.Domaine_id_fk != domaine_id:
+        if not db.query(Domaine).filter(Domaine.Domaine_id == domaine_id).first():
+            raise HTTPException(400, "Nouveau domaine invalide")
+
+    # Mise à jour
+    mention.Mention_label = nom.strip()
+    mention.Mention_code = code.upper().strip()
     mention.Mention_abbreviation = abbreviation
     mention.Mention_description = description
-    mention.Domaine_id_fk = domaine_id # Mise à jour du domaine
+    mention.Domaine_id_fk = domaine_id
 
-    if logo_file:
-        # Supprimer vieux logo
+    # Gestion Logo
+    if logo_file and logo_file.filename:
+        # Supprimer l'ancien
         if mention.Mention_logo_path:
             old_path = f"app{mention.Mention_logo_path}"
             if os.path.exists(old_path):
-                try:
-                    os.remove(old_path)
-                except:
-                    pass
+                try: os.remove(old_path)
+                except: pass
         
-        ext = os.path.splitext(logo_file.filename)[1]
+        ext = os.path.splitext(logo_file.filename)[1].lower()
         filename = f"{mention_id}{ext}"
         mention.Mention_logo_path = save_upload_file(logo_file, filename)
 
@@ -196,12 +189,11 @@ def update_mention(
         return mention
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Erreur : Code mention déjà utilisé ou Domaine invalide.")
+        raise HTTPException(status_code=400, detail="Code déjà utilisé.")
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
-# Supprimer une Mention
 @router.delete("/{mention_id}", status_code=204)
 def delete_mention(mention_id: str, db: Session = Depends(get_db)):
     mention = db.query(Mention).filter(Mention.Mention_id == mention_id).first()
@@ -211,10 +203,8 @@ def delete_mention(mention_id: str, db: Session = Depends(get_db)):
     if mention.Mention_logo_path:
         path = f"app{mention.Mention_logo_path}"
         if os.path.exists(path):
-            try:
-                os.remove(path)
-            except:
-                pass
+            try: os.remove(path)
+            except: pass
 
     db.delete(mention)
     db.commit()

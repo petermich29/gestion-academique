@@ -137,6 +137,8 @@ class InstitutionHistorique(Base):
     Institution_nom_historique = Column(String(255), nullable=True)
     Institution_code_historique = Column(String(32), nullable=True)
     Institution_description_historique = Column(Text, nullable=True)
+    # 🆕 AJOUT
+    Institution_abbreviation_historique = Column(String(20), nullable=True)
 
     institution = relationship("Institution", back_populates="institution_historiques")
     annee_univ = relationship("AnneeUniversitaire")
@@ -152,6 +154,10 @@ class ComposanteHistorique(Base):
 
     Composante_label_historique = Column(String(100), nullable=True)
     Composante_code_historique = Column(String(50), nullable=True)
+
+    # 🆕 AJOUTER CES DEUX COLONNES MANQUANTES
+    Composante_description_historique = Column(Text, nullable=True)
+    Composante_abbreviation_historique = Column(String(20), nullable=True)
 
     composante = relationship("Composante", back_populates="composante_historiques")
     annee_univ = relationship("AnneeUniversitaire")

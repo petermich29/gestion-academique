@@ -90,18 +90,18 @@ const EntityHistoryManager = ({ isOpen, onClose, entityId, entityType = "institu
     setEditForm({
       nom: histItem.nom_historique || "",
       code: histItem.code_historique || "",
-      description: histItem.description_historique || ""
+      description: histItem.description_historique || "",
+      abbreviation: histItem.abbreviation_historique || "" // <--- AJOUT
     });
   };
 
   const cancelEdit = () => {
     setEditingYear(null);
-    setEditForm({ nom: "", code: "", description: "" });
+    setEditForm({ nom: "", code: "", description: "", abbreviation: "" }); // <--- AJOUT
   };
 
   const saveEdit = async (anneeId) => {
     try {
-      // PUT /api/{entityType}/{id}/historique/{yearId}
       const res = await fetch(`${API_BASE_URL}/${entityType}/${entityId}/historique/${anneeId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -109,14 +109,14 @@ const EntityHistoryManager = ({ isOpen, onClose, entityId, entityType = "institu
       });
       
       if (res.ok) {
-        // Mise à jour locale (Optimistic UI) pour éviter un reload complet
         setHistoryData(prev => prev.map(item => {
           if (item.annee_id === anneeId) {
             return { 
                 ...item, 
                 nom_historique: editForm.nom, 
                 code_historique: editForm.code, 
-                description_historique: editForm.description 
+                description_historique: editForm.description,
+                abbreviation_historique: editForm.abbreviation // <--- AJOUT
             };
           }
           return item;
@@ -125,9 +125,7 @@ const EntityHistoryManager = ({ isOpen, onClose, entityId, entityType = "institu
       } else {
         alert("Erreur lors de la sauvegarde.");
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   if (!isOpen) return null;
@@ -180,10 +178,11 @@ const EntityHistoryManager = ({ isOpen, onClose, entityId, entityType = "institu
                     <thead className="text-xs text-gray-500 uppercase bg-gray-50 border-b">
                         <tr>
                         <th className="px-4 py-3 text-center w-16">Active</th>
-                        <th className="px-4 py-3 w-32">Année Univ.</th>
+                        <th className="px-4 py-3 w-28">Année Univ.</th>
                         <th className="px-4 py-3">Nom à cette date</th>
-                        <th className="px-4 py-3 w-32">Code</th>
-                        <th className="px-4 py-3">Note / Desc.</th>
+                        <th className="px-4 py-3 w-24">Code</th>
+                        <th className="px-4 py-3 w-24">Abréviation</th> {/* <--- AJOUT HEADER */}
+                        <th className="px-4 py-3">Desc.</th>
                         <th className="px-4 py-3 text-center w-28">Action</th>
                         </tr>
                     </thead>
@@ -234,6 +233,9 @@ const EntityHistoryManager = ({ isOpen, onClose, entityId, entityType = "institu
                                                     <input className={AppStyles.input.formControl} value={editForm.code} onChange={(e) => setEditForm({...editForm, code: e.target.value})} placeholder="Code" />
                                                 </td>
                                                 <td className="px-2 py-2">
+                                                    <input className={AppStyles.input.formControl} value={editForm.abbreviation} onChange={(e) => setEditForm({...editForm, abbreviation: e.target.value})} placeholder="Abrév." />
+                                                </td>
+                                                <td className="px-2 py-2">
                                                     <input className={AppStyles.input.formControl} value={editForm.description} onChange={(e) => setEditForm({...editForm, description: e.target.value})} placeholder="Optionnel" />
                                                 </td>
                                                 <td className="px-2 py-2 text-center">
@@ -247,6 +249,7 @@ const EntityHistoryManager = ({ isOpen, onClose, entityId, entityType = "institu
                                             <>
                                                 <td className="px-4 py-3 font-semibold text-gray-700">{histItem.nom_historique}</td>
                                                 <td className="px-4 py-3"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-mono border border-blue-100">{histItem.code_historique}</span></td>
+                                                <td className="px-4 py-3 text-sm text-gray-600">{histItem.abbreviation_historique || "-"}</td>
                                                 <td className="px-4 py-3 text-xs italic text-gray-500 truncate max-w-[150px]">{histItem.description_historique || "-"}</td>
                                                 <td className="px-4 py-3 text-center">
                                                     <button onClick={() => startEdit(histItem)} className="text-gray-400 hover:text-blue-600 transition-colors p-1.5 rounded hover:bg-blue-50">

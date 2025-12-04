@@ -192,36 +192,103 @@ const Administration = () => {
       </div>
 
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editInstitution ? "Modifier" : "Nouvelle Institution"}>
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-             {/* Formulaire simplifié pour l'exemple */}
-             <div className="flex gap-4">
-                 <div onClick={() => fileInputRef.current.click()} className="w-20 h-20 bg-gray-100 rounded-full border cursor-pointer overflow-hidden flex items-center justify-center">
-                    {form.logo ? <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover"/> : form.logoPath ? <img src={`http://127.0.0.1:8000${form.logoPath}`} className="w-full h-full object-cover"/> : <PlusIcon/>}
-                 </div>
-                 <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setForm(p=>({...p, logo: e.target.files[0]}))}/>
-                 <div className="flex-1 space-y-2">
-                     <input value={form.id} disabled className={AppStyles.input.formControlDisabled} />
-                     <input value={form.code} onChange={e=>setForm({...form, code: e.target.value})} className={AppStyles.input.formControl} placeholder="Code"/>
-                 </div>
-             </div>
-             <input value={form.nom} onChange={e=>setForm({...form, nom: e.target.value})} className={AppStyles.input.formControl} placeholder="Nom"/>
-             <select value={form.type} onChange={e=>setForm({...form, type: e.target.value})} className={AppStyles.input.formControl}>
-                 <option value="">Selectionner type</option><option value="PRIVE">PRIVE</option><option value="PUBLIC">PUBLIC</option>
-             </select>
-             
-             <div className="flex justify-between items-center mt-4 pt-2 border-t">
-                 {/* BOUTON HISTORIQUE */}
-                 {editInstitution && (
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            {/* Section Logo et IDs */}
+            <div className="flex gap-4">
+                <div className="flex flex-col items-center gap-2">
+                    <div 
+                        onClick={() => fileInputRef.current.click()} 
+                        className="w-20 h-20 bg-gray-100 rounded-lg border border-gray-300 cursor-pointer overflow-hidden flex items-center justify-center hover:border-blue-500 transition-colors"
+                    >
+                        {form.logo ? (
+                            <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover" alt="Nouveau logo" />
+                        ) : form.logoPath ? (
+                            <img src={`http://127.0.0.1:8000${form.logoPath}`} className="w-full h-full object-cover" alt="Logo actuel" />
+                        ) : (
+                            <PlusIcon className="text-gray-400 text-2xl" />
+                        )}
+                    </div>
+                    <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => setForm(p => ({ ...p, logo: e.target.files[0] }))} />
+                    <span className="text-[10px] font-bold text-gray-500 uppercase">Logo</span>
+                </div>
+
+                <div className="flex-1 space-y-3">
+                    <div>
+                        <span className={AppStyles.input.label}>Identifiant (Auto)</span>
+                        <input value={form.id} disabled className={AppStyles.input.formControlDisabled} />
+                    </div>
+                    <div>
+                        <span className={AppStyles.input.label}>Code Institution <span className="text-red-500">*</span></span>
+                        <input 
+                            value={form.code} 
+                            onChange={e => setForm({ ...form, code: e.target.value })} 
+                            className={`${AppStyles.input.formControl} uppercase font-bold`} 
+                            placeholder="Ex: UFIV"
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* Section Informations Générales */}
+            <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                    <span className={AppStyles.input.label}>Nom de l'Institution <span className="text-red-500">*</span></span>
+                    <input 
+                        value={form.nom} 
+                        onChange={e => setForm({ ...form, nom: e.target.value })} 
+                        className={AppStyles.input.formControl} 
+                        placeholder="Ex: Université de Fianarantsoa"
+                    />
+                </div>
+
+                <div>
+                    <span className={AppStyles.input.label}>Type <span className="text-red-500">*</span></span>
+                    <select 
+                        value={form.type} 
+                        onChange={e => setForm({ ...form, type: e.target.value })} 
+                        className={AppStyles.input.formControl}
+                    >
+                        <option value="">-- Sélectionner --</option>
+                        <option value="PUBLIC">PUBLIC</option>
+                        <option value="PRIVE">PRIVE</option>
+                    </select>
+                </div>
+
+                {/* 🆕 AJOUT DU CHAMP ABRÉVIATION */}
+                <div>
+                    <span className={AppStyles.input.label}>Abréviation</span>
+                    <input 
+                        value={form.abbreviation} 
+                        onChange={e => setForm({ ...form, abbreviation: e.target.value })} 
+                        className={AppStyles.input.formControl} 
+                        placeholder="Ex: UNIV-FIANA"
+                    />
+                </div>
+            </div>
+
+            <div>
+                <span className={AppStyles.input.label}>Description</span>
+                <textarea 
+                    rows="2"
+                    value={form.description} 
+                    onChange={e => setForm({ ...form, description: e.target.value })} 
+                    className={AppStyles.input.formControl} 
+                    placeholder="Description optionnelle..."
+                />
+            </div>
+
+            <div className="flex justify-between items-center mt-4 pt-2 border-t">
+                {editInstitution && (
                     <button type="button" onClick={() => setHistoryManagerOpen(true)} className="flex items-center gap-2 text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs font-bold">
                         <FaHistory /> Gérer Historique
                     </button>
-                 )}
-                 <div className="flex gap-2">
-                     <button type="button" onClick={closeModal} className={AppStyles.button.secondary}>Annuler</button>
-                     <button type="submit" className={AppStyles.button.primary}>Enregistrer</button>
-                 </div>
-             </div>
-          </form>
+                )}
+                <div className="flex gap-2 ml-auto">
+                    <button type="button" onClick={closeModal} className={AppStyles.button.secondary}>Annuler</button>
+                    <button type="submit" className={AppStyles.button.primary}>Enregistrer</button>
+                </div>
+            </div>
+        </form>
       </DraggableModal>
 
       {/* 🆕 MODALE MANAGER (Fixe et Centrée) */}
