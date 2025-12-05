@@ -1,10 +1,8 @@
-// frontend/src/pages/Administration/ParcoursDetail.jsx
-
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  FaChevronLeft, FaLayerGroup, FaUniversity, FaGraduationCap,
+  FaChevronLeft, FaLayerGroup, FaGraduationCap,
   FaTrash, FaEdit, FaBook, FaCube, FaPlus, FaSearch
 } from "react-icons/fa";
 
@@ -14,6 +12,7 @@ import {
 import { AppStyles } from "../../components/ui/AppStyles";
 import { ToastContainer } from "../../components/ui/Toast";
 import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
+import { useBreadcrumb } from "../../context/BreadcrumbContext"
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -21,12 +20,16 @@ const ParcoursDetail = () => {
   const { id: institutionId, etablissementId, mentionId, parcoursId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { setBreadcrumb } = useOutletContext() || {};
+  
+  // Récupération de setBreadcrumb depuis le Layout
+  const { setBreadcrumb } = useBreadcrumb();
 
   // --- STATES DONNÉES ---
   const [parcours, setParcours] = useState(location.state?.parcours || null);
   const [mention, setMention] = useState(null); 
   const [etablissement, setEtablissement] = useState(null);
+  // 🟢 AJOUT : State pour l'institution
+  const [institution, setInstitution] = useState(null);
   
   const [structure, setStructure] = useState([]); 
   const [semestresList, setSemestresList] = useState([]); 
@@ -35,7 +38,7 @@ const ParcoursDetail = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [activeNiveauId, setActiveNiveauId] = useState(null); 
   const [view, setView] = useState("grid"); 
-  const [searchTerm, setSearchTerm] = useState(""); // 🟢 NOUVEAU : Recherche
+  const [searchTerm, setSearchTerm] = useState("");
   const [toasts, setToasts] = useState([]);
 
   // --- STATES CRUD UE ---
@@ -97,6 +100,7 @@ const ParcoursDetail = () => {
     const fetchData = async () => {
       setIsLoading(true);
       try {
+        // 1. Charger Parcours
         let currentParcours = parcours;
         const currentId = getVal(currentParcours, "Parcours_id", "id_parcours");
 
@@ -108,12 +112,17 @@ const ParcoursDetail = () => {
             }
         }
 
+        // 2. Charger Mention & Etablissement (si manquants)
         if (mentionId) {
             const resMention = await fetch(`${API_BASE_URL}/api/mentions/${mentionId}`);
             if (resMention.ok) {
                 const mData = await resMention.json();
                 setMention(mData);
-                if (mData.composante) setEtablissement(mData.composante);
+                // Si la mention contient l'objet composante, on l'utilise
+                if (mData.composante) {
+                    setEtablissement(mData.composante);
+                } 
+                // Sinon on le fetch via l'ID de l'URL
                 else if (etablissementId) {
                     const resEtab = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
                     if(resEtab.ok) setEtablissement(await resEtab.json());
@@ -121,6 +130,15 @@ const ParcoursDetail = () => {
             }
         }
 
+        // 3. 🟢 CHARGER L'INSTITUTION (Manquant dans le code original)
+        if (institutionId) {
+            const resInst = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
+            if(resInst.ok) {
+                setInstitution(await resInst.json());
+            }
+        }
+
+        // 4. Charger Structure et Semestres
         const structureData = await fetchStructure();
         if (structureData.length > 0 && activeNiveauId === null) {
             setActiveNiveauId(structureData[0].niveau_id);
@@ -137,7 +155,30 @@ const ParcoursDetail = () => {
       }
     };
     fetchData();
-  }, [parcoursId, mentionId, etablissementId, fetchStructure]); 
+  }, [parcoursId, mentionId, etablissementId, institutionId, fetchStructure]); 
+
+  // ==========================================
+  // 🟢 NOUVEAU : EFFET DÉDIÉ AU BREADCRUMB
+  // ==========================================
+  useEffect(() => {
+    // On vérifie que toutes les données nécessaires sont présentes
+    if (setBreadcrumb && parcours && mention && etablissement && institution) {
+        
+        const instLabel = getVal(institution, "Institution_nom", "nom") || institutionId;
+        const etabLabel = getVal(etablissement, "Composante_abbreviation", "Composante_label") || etablissementId;
+        const mentLabel = getVal(mention, "Mention_label", "label") || mentionId;
+        const parcLabel = getVal(parcours, "Parcours_label", "nom_parcours") || parcoursId;
+
+        setBreadcrumb([
+            { label: "Administration", path: "/administration" },
+            { label: instLabel, path: `/institution/${institutionId}` },
+            { label: etabLabel, path: `/institution/${institutionId}/etablissement/${etablissementId}` },
+            { label: mentLabel, path: `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}` },
+            { label: parcLabel, path: "#" }, // Page courante (non cliquable)
+        ]);
+    }
+  }, [setBreadcrumb, parcours, mention, etablissement, institution, institutionId, etablissementId, mentionId]); 
+  // ^ Dépendances complètes pour mettre à jour dès qu'une donnée arrive
 
   // ==========================================
   // 2. GESTION DU FORMULAIRE ET CRUD
@@ -182,7 +223,6 @@ const ParcoursDetail = () => {
       formData.append("code", form.code);
       formData.append("intitule", form.intitule);
       formData.append("credit", form.credit);
-      // 🟢 Envoi de l'ID parcours pour la logique de liaison niveau côté backend
       formData.append("parcours_id", parcoursId); 
       formData.append("semestre_id", form.semestre_id);
 
@@ -214,7 +254,6 @@ const ParcoursDetail = () => {
     const currentParcoursId = parcoursId; 
     
     try {
-        // Envoi de l'ID parcours en Query Param pour la logique de nettoyage côté backend
         const url = `${API_BASE_URL}/api/ues/${ueToDelete.id}?parcours_id=${currentParcoursId}`;
         const res = await fetch(url, { method: 'DELETE' });
         
@@ -230,7 +269,7 @@ const ParcoursDetail = () => {
     } catch(e) {
         addToast(e.message || "Erreur inconnue", "error");
     }
-};
+  };
 
   // ==========================================
   // 3. RENDER
@@ -382,12 +421,10 @@ const ParcoursDetail = () => {
                                             <p className="text-gray-400 text-sm">Aucune unité d'enseignement {searchTerm ? "trouvée" : "dans ce semestre"}.</p>
                                         </div>
                                     ) : view === "grid" ? (
-                                        // --- 🟢 VUE GRILLE REVAMPÉE ---
+                                        // --- 🟢 VUE GRILLE ---
                                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
                                             {filteredUEs.map(ue => (
                                                 <div key={ue.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-blue-300 transition-all relative group flex flex-col h-full min-h-[160px]">
-                                                    
-                                                    {/* En-tête Carte */}
                                                     <div className="flex justify-between items-start mb-3">
                                                         <div className="flex flex-col">
                                                             <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 inline-block mb-1 w-fit">
@@ -397,27 +434,21 @@ const ParcoursDetail = () => {
                                                                 <FaBook className="text-lg"/>
                                                             </div>
                                                         </div>
-                                                        
-                                                        {/* Actions (Absolue en haut à droite, apparaît au survol) */}
                                                         <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm p-1 rounded-lg shadow-sm border border-gray-100 absolute top-3 right-3 z-10">
                                                             <button onClick={() => openModal(sem.id, ue)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Modifier"><FaEdit /></button>
                                                             <button onClick={() => {setUeToDelete(ue); setDeleteModalOpen(true);}} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Supprimer"><FaTrash /></button>
                                                         </div>
                                                     </div>
 
-                                                    {/* Titre */}
                                                     <h3 className="font-bold text-gray-800 text-sm leading-tight mb-2 flex-grow" title={ue.intitule}>
                                                         {ue.intitule}
                                                     </h3>
                                                     
-                                                    {/* Pied de carte : Infos EC et Crédits */}
                                                     <div className="flex items-end justify-between mt-auto border-t border-gray-50 pt-3">
                                                         <div className="flex items-center gap-1.5 text-xs text-gray-400">
                                                             <FaCube className="text-gray-300" /> 
                                                             <span>{ue.ec_count} EC</span>
                                                         </div>
-                                                        
-                                                        {/* 🟢 Crédits en GRANDE police bien visible */}
                                                         <div className="text-right">
                                                             <span className="block text-2xl font-extrabold text-blue-600 leading-none">
                                                                 {ue.credit}

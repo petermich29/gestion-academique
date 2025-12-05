@@ -1,9 +1,7 @@
-// frontend/src/pages/Administration/EtablissementDetail.jsx - FICHIER COMPLET MIS À JOUR
-
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaLayerGroup, FaHistory } from "react-icons/fa"; // Ajout FaHistory
+import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaLayerGroup, FaHistory } from "react-icons/fa";
 
 import { 
   ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
@@ -12,9 +10,10 @@ import { AppStyles } from "../../components/ui/AppStyles";
 import { ToastContainer } from "../../components/ui/Toast";
 import { DraggableModal, ConfirmModal } from "../../components/ui/Modal";
 import { CardItem } from "../../components/ui/CardItem";
-import YearMultiSelect from "../../components/ui/YearMultiSelect"; // 🆕
-import EntityHistoryManager from "../../components/ui/EntityHistoryManager"; // 🆕
-import { useAdministration } from "../../context/AdministrationContext"; // 🆕
+import YearMultiSelect from "../../components/ui/YearMultiSelect";
+import EntityHistoryManager from "../../components/ui/EntityHistoryManager";
+import { useAdministration } from "../../context/AdministrationContext";
+import { useBreadcrumb } from "../../context/BreadcrumbContext";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -22,20 +21,20 @@ const EtablissementDetail = () => {
   const { etablissementId, id: institutionId } = useParams(); 
   const navigate = useNavigate();
   const location = useLocation();
-  const { setBreadcrumb } = useOutletContext() || {};
+  const { setBreadcrumb } = useBreadcrumb();
 
-  // 🆕 UTILISATION DU CONTEXTE GLOBAL
+  // CONTEXTE GLOBAL
   const { selectedYearsIds, setSelectedYearsIds, yearsList } = useAdministration();
 
   // --- ÉTATS ---
   const [etablissement, setEtablissement] = useState(location.state?.composante || null);
   const [institution, setInstitution] = useState(location.state?.institution || null);
   const [mentions, setMentions] = useState([]);
-  const [domaines, setDomaines] = useState([]); // 🆕 État pour les domaines
+  const [domaines, setDomaines] = useState([]); 
   const [etablissementsList, setEtablissementsList] = useState([]);
   
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false); // Pour le rechargement lors du changement d'année
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [view, setView] = useState("grid");
   const [search, setSearch] = useState("");
@@ -47,19 +46,19 @@ const EtablissementDetail = () => {
   // États Modales
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [historyManagerOpen, setHistoryManagerOpen] = useState(false); // 🆕
+  const [historyManagerOpen, setHistoryManagerOpen] = useState(false);
   
   const [editMention, setEditMention] = useState(null);
   const [mentionToDelete, setMentionToDelete] = useState(null);
   const [deleteInput, setDeleteInput] = useState("");
 
   const [form, setForm] = useState({ 
-      id: "", nom: "", code: "", domaine_id: "", // domaine_id est le champ du formulaire
+      id: "", nom: "", code: "", domaine_id: "", 
       abbreviation: "", description: "", logo: null, logoPath: "" 
   });
   const [errors, setErrors] = useState({});
   const fileInputRef = useRef(null);
-  const firstLoadRef = useRef(true); // Pour éviter double loading
+  const firstLoadRef = useRef(true); 
 
   const addToast = (message, type = "success") => {
     const id = Date.now();
@@ -68,20 +67,19 @@ const EtablissementDetail = () => {
   };
   const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
-  // --- UTILS : DOMAINE LABEL ---
+  // --- UTILS ---
   const getDomaineLabel = (id) => {
     if (!id) return "Non défini";
+    if (domaines.length === 0) return "..."; 
     const d = domaines.find(x => x.Domaine_id === id);
-    // 🆕 Afficher le label s'il est trouvé, sinon afficher l'ID (fallback)
     return d ? d.Domaine_label : id; 
   };
-  // -----------------------------
-
 
   // --- CHARGEMENT ---
   
   // 1. Liste pour navigation (Sidebar ou Next/Prev)
   useEffect(() => {
+    if (!institutionId) return;
     const fetchList = async () => {
         try {
             const res = await fetch(`${API_BASE_URL}/api/composantes/institution?institution_id=${institutionId}`);
@@ -89,59 +87,53 @@ const EtablissementDetail = () => {
                 const data = await res.json();
                 setEtablissementsList(data.sort((a,b)=>(a.Composante_code||"").localeCompare(b.Composante_code||"")));
             }
-        } catch(e) { console.error(e); }
+        } catch(e) { console.error("Erreur liste etab", e); }
     };
-    if (institutionId) fetchList();
+    fetchList();
   }, [institutionId]);
 
-  // 2. Main Fetch (Dépendant des années sélectionnées)
+  // 2. Main Fetch (Etablissement, Domaines, Mentions) - SANS BREADCRUMB
   useEffect(() => {
-    // Si premier chargement ou changement d'année
     const fetchData = async () => {
       if (firstLoadRef.current) setIsLoading(true); else setIsRefreshing(true);
       
       try {
-        // Institution (si pas dans le state)
+        // A. Institution
         let curInst = institution;
         if (!curInst) {
             const rI = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
             if(rI.ok) { curInst = await rI.json(); setInstitution(curInst); }
         }
 
-        // Etablissement
+        // B. Etablissement
         let curEtab = etablissement;
-        // On recharge l'établissement si l'ID change ou pour rafraîchir
-        if (!curEtab || curEtab.Composante_code !== etablissementId) {
+        if (!curEtab || (curEtab.Composante_code !== etablissementId && curEtab.Composante_id !== etablissementId)) {
+          setMentions([]); 
           const rE = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
-          if (!rE.ok) throw new Error("Établissement introuvable");
+          if (!rE.ok) throw new Error("Établissement introuvable (Vérifiez le code)");
           curEtab = await rE.json();
           setEtablissement(curEtab);
         }
 
-        // Domaines (Référence statique) - 🆕 CORRECTION DE L'URL
+        // C. Domaines
         if (domaines.length === 0) {
-            // Utilisation de la route dans metadonnees_routes
             const rD = await fetch(`${API_BASE_URL}/api/metadonnees/domaines`); 
             if (rD.ok) setDomaines(await rD.json());
         }
 
-        // Mentions (Avec filtre années)
-        if (curEtab.Composante_id) {
+        // D. Mentions
+        if (curEtab && curEtab.Composante_id) {
             const q = new URLSearchParams();
-            selectedYearsIds.forEach(id => q.append("annees", id));
+            (selectedYearsIds || []).forEach(id => q.append("annees", id));
             
             const rM = await fetch(`${API_BASE_URL}/api/mentions/composante/${curEtab.Composante_id}?${q.toString()}`);
-            if (rM.ok) setMentions(await rM.json());
-        }
-
-        if (setBreadcrumb) {
-          setBreadcrumb([
-            { label: "Administration", path: "/administration" },
-            { label: curInst?.Institution_nom || institutionId, path: `/institution/${institutionId}` },
-            { label: curEtab.Composante_abbreviation || curEtab.Composante_label, path: `#` },
-          ]);
+            if (rM.ok) {
+                const mentionsData = await rM.json();
+                setMentions(mentionsData);
+            }
         }
       } catch (err) {
+        console.error(err);
         addToast("Erreur chargement: " + err.message, "error");
       } finally {
         setIsLoading(false);
@@ -150,11 +142,23 @@ const EtablissementDetail = () => {
       }
     };
     
-    // On lance le fetch seulement si on a l'ID et (idéalement) les années chargées du context
     if (etablissementId) fetchData();
 
-  }, [etablissementId, institutionId, setBreadcrumb, selectedYearsIds, domaines.length]); 
-  // Ajout de domaines.length dans les dépendances pour recharger les mentions si les domaines sont enfin chargés
+  }, [etablissementId, institutionId, selectedYearsIds, domaines.length]); 
+
+  // 🟢 CORRECTION BREADCRUMB : EFFET SÉPARÉ
+  useEffect(() => {
+    if (setBreadcrumb && institution && etablissement) {
+        const instLabel = institution.Institution_nom || "Institution";
+        const etabLabel = etablissement.Composante_abbreviation || etablissement.Composante_label || "Établissement";
+
+        setBreadcrumb([
+          { label: "Administration", path: "/administration" },
+          { label: instLabel, path: `/institution/${institutionId}` },
+          { label: etabLabel, path: "#" },
+        ]);
+    }
+  }, [institution, etablissement, institutionId, setBreadcrumb]);
 
   // --- NAVIGATION ---
   const handleNavigate = (dir) => {
@@ -163,11 +167,12 @@ const EtablissementDetail = () => {
     const newIdx = dir === 'prev' ? idx - 1 : idx + 1;
     if (newIdx >= 0 && newIdx < etablissementsList.length) {
       const target = etablissementsList[newIdx];
+      setMentions([]);
+      setIsLoading(true);
+      
       navigate(`/institution/${institutionId}/etablissement/${target.Composante_code}`, { state: { composante: target, institution }});
       setEtablissement(target);
-      // Reset partiel
-      setMentions([]); 
-      firstLoadRef.current = false; // Permettre le re-fetch immédiat via useEffect
+      firstLoadRef.current = false; 
     }
   };
   const isFirst = etablissementsList.length > 0 && etablissement && etablissementsList[0].Composante_code === etablissement.Composante_code;
@@ -182,7 +187,7 @@ const EtablissementDetail = () => {
               id: mentionToEdit.Mention_id,
               nom: mentionToEdit.Mention_label, 
               code: mentionToEdit.Mention_code,
-              domaine_id: mentionToEdit.Domaine_id_fk || "", // Utilisation de Domaine_id_fk pour la modification
+              domaine_id: mentionToEdit.Domaine_id_fk || "",
               abbreviation: mentionToEdit.Mention_abbreviation || "",
               description: mentionToEdit.Mention_description || "",
               logo: null, logoPath: mentionToEdit.Mention_logo_path || ""
@@ -230,12 +235,11 @@ const EtablissementDetail = () => {
     const formData = new FormData();
     formData.append("nom", form.nom);
     formData.append("code", form.code);
-    formData.append("domaine_id", form.domaine_id); // 🆗 domaine_id est le champ envoyé
+    formData.append("domaine_id", form.domaine_id);
     if (form.abbreviation) formData.append("abbreviation", form.abbreviation);
     if (form.description) formData.append("description", form.description);
     if (form.logo) formData.append("logo_file", form.logo); 
 
-    // 🆕 Si création, on lie à l'année active par défaut
     if (!editMention) {
           const activeYear = yearsList.find(y => y.AnneeUniversitaire_is_active);
           if (activeYear) formData.append("annees_universitaires", activeYear.AnneeUniversitaire_id);
@@ -278,16 +282,21 @@ const EtablissementDetail = () => {
             setMentions(p => p.filter(m => m.Mention_id !== mentionToDelete.Mention_id));
             addToast("Supprimé");
             setDeleteModalOpen(false);
+        } else {
+            addToast("Impossible de supprimer", "error");
         }
-      } catch(e) { addToast("Erreur", "error"); }
+      } catch(e) { addToast("Erreur connexion", "error"); }
   };
 
-  // --- RENDER ---
   const filtered = mentions
-    .filter(m => (m.Mention_label+m.Mention_code).toLowerCase().includes(search.toLowerCase()))
+    .filter(m => {
+        const label = m.Mention_label || "";
+        const code = m.Mention_code || "";
+        return (label + code).toLowerCase().includes(search.toLowerCase());
+    })
     .sort((a,b) => {
-        const vA = sortField==='label'?a.Mention_label:a.Mention_code;
-        const vB = sortField==='label'?b.Mention_label:b.Mention_code;
+        const vA = (sortField==='label' ? a.Mention_label : a.Mention_code) || "";
+        const vB = (sortField==='label' ? b.Mention_label : b.Mention_code) || "";
         return sortOrder==='asc' ? vA.localeCompare(vB) : vB.localeCompare(vA);
     });
 
@@ -298,7 +307,6 @@ const EtablissementDetail = () => {
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       
-      {/* HEADER ETAB */}
       <div className={AppStyles.header.container}>
         <h2 className={AppStyles.mainTitle}>Détails Établissement</h2>
       </div>
@@ -307,7 +315,7 @@ const EtablissementDetail = () => {
       <motion.div initial={{opacity:0}} animate={{opacity:1}} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 relative">
            <div className="flex-shrink-0 mx-auto md:mx-0">
              {etablissement.Composante_logo_path ? 
-              <img src={`${API_BASE_URL}${etablissement.Composante_logo_path}`} className="w-24 h-24 object-contain border rounded-lg p-2"/> : 
+              <img src={`${API_BASE_URL}${etablissement.Composante_logo_path}`} className="w-24 h-24 object-contain border rounded-lg p-2" alt="Logo"/> : 
               <div className="w-24 h-24 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400"><FaGraduationCap size={40}/></div>
              }
            </div>
@@ -318,6 +326,11 @@ const EtablissementDetail = () => {
              <h1 className="text-2xl font-bold">{etablissement.Composante_label}</h1>
              <div className="flex gap-2 justify-center md:justify-start">
                  <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded font-mono font-bold text-sm">{etablissement.Composante_code}</span>
+                 {etablissement.type_composante && (
+                     <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border">
+                         {etablissement.type_composante.TypeComposante_label}
+                     </span>
+                 )}
              </div>
            </div>
            <div className="absolute top-4 right-4 flex gap-1">
@@ -326,15 +339,13 @@ const EtablissementDetail = () => {
            </div>
       </motion.div>
 
-      {/* LISTE MENTIONS */}
       <div className={AppStyles.header.container}>
         <h2 className={AppStyles.header.title}>Mentions ({filtered.length})</h2>
         <div className={AppStyles.header.controls}>
             
-            {/* 🆕 SELECTEUR D'ANNÉES GLOBAL */}
             <div className="flex items-center gap-2 relative">
               <YearMultiSelect years={yearsList} selectedYearIds={selectedYearsIds} onChange={setSelectedYearsIds} />
-              {isRefreshing && <span className="absolute left-full text-xs w-max text-gray-500 ml-2">MAJ...</span>}
+              {isRefreshing && <span className="absolute left-full text-xs w-max text-gray-500 ml-2 animate-pulse">MAJ...</span>}
             </div>
 
             <input className={AppStyles.input.text} placeholder="Rechercher..." value={search} onChange={e=>setSearch(e.target.value)} />
@@ -349,21 +360,20 @@ const EtablissementDetail = () => {
 
       <div className={view === "grid" ? AppStyles.gridContainer : "flex flex-col gap-2"}>
           <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
-              <PlusIcon className={view==='grid'?"text-2xl":"text-lg"}/> <span className="font-bold text-blue-700 text-sm">Ajouter</span>
+              <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12" : "w-8 h-8"}`}><PlusIcon /></div>
+              <p className="text-sm font-semibold text-blue-700">Ajouter Mention</p>
           </div>
           <AnimatePresence>
             {filtered.map(m => (
                 <CardItem 
                     key={m.Mention_id} viewMode={view}
-                    title={m.Mention_label} 
-                    // 🆕 AFFICHAGE DU LABEL DU DOMAINE
+                    title={m.Mention_label || "Sans nom"} 
                     subTitle={<span className="flex items-center gap-1"><FaLayerGroup size={10}/> {getDomaineLabel(m.Domaine_id_fk)}</span>}
                     imageSrc={m.Mention_logo_path ? `${API_BASE_URL}${m.Mention_logo_path}` : null}
                     PlaceholderIcon={FaGraduationCap}
                     onClick={() => navigate(`/institution/${institutionId}/etablissement/${etablissementId}/mention/${m.Mention_id}`, {state:{mention:m, etablissement, institution}})}
                     onEdit={() => openModal(m)}
                     onDelete={() => {setMentionToDelete(m); setDeleteInput(""); setDeleteModalOpen(true);}}
-                    // 🚨 NOTE: handleHistory n'est plus nécessaire car le bouton est dans le modal d'édition
                 >
                     <div className="mt-3 pt-2 border-t border-gray-100 w-full flex justify-between items-center text-xs">
                         <span className="font-bold text-gray-400 uppercase">Parcours</span>
@@ -374,16 +384,15 @@ const EtablissementDetail = () => {
           </AnimatePresence>
       </div>
 
-      {/* MODAL EDIT */}
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editMention ? "Modifier Mention" : "Nouvelle Mention"}>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            
               <div className="flex gap-4">
-                  <div className="flex flex-col items-center gap-1">
-                     <div onClick={()=>fileInputRef.current.click()} className="w-20 h-20 bg-gray-50 border rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-500 overflow-hidden">
+                  <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                     <div onClick={()=>fileInputRef.current.click()} className="w-20 h-20 bg-gray-50 border rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-500 overflow-hidden relative group">
                         {form.logo ? <img src={URL.createObjectURL(form.logo)} className="w-full h-full object-cover"/> : form.logoPath ? <img src={`${API_BASE_URL}${form.logoPath}`} className="w-full h-full object-cover"/> : <PlusIcon className="text-gray-400"/>}
+                        <div className="absolute inset-0 bg-black/20 hidden group-hover:flex items-center justify-center text-white text-xs">Changer</div>
                      </div>
-                     <input type="file" ref={fileInputRef} className="hidden" name="logo" onChange={handleChange}/>
+                     <input type="file" ref={fileInputRef} className="hidden" name="logo" onChange={handleChange} accept="image/*"/>
                      <span className="text-[10px] uppercase font-bold text-gray-500">Logo</span>
                   </div>
                   <div className="flex-1 space-y-3">
@@ -393,20 +402,19 @@ const EtablissementDetail = () => {
                       </div>
                       <div>
                           <span className={AppStyles.input.label}>Code <span className="text-red-500">*</span></span>
-                          <input name="code" value={form.code} onChange={handleChange} className={`${AppStyles.input.formControl} uppercase font-bold ${errors.code?"border-red-500":""}`}/>
+                          <input name="code" value={form.code} onChange={handleChange} className={`${AppStyles.input.formControl} uppercase font-bold ${errors.code?"border-red-500":""}`} placeholder="EX: MEN_INFO"/>
                       </div>
                   </div>
               </div>
             
               <div>
                   <span className={AppStyles.input.label}>Nom de la mention <span className="text-red-500">*</span></span>
-                  <input name="nom" value={form.nom} onChange={handleChange} className={`${AppStyles.input.formControl} ${errors.nom?"border-red-500":""}`}/>
+                  <input name="nom" value={form.nom} onChange={handleChange} className={`${AppStyles.input.formControl} ${errors.nom?"border-red-500":""}`} placeholder="Ex: Informatique et Systèmes"/>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                   <div>
                       <span className={AppStyles.input.label}>Domaine <span className="text-red-500">*</span></span>
-                      {/* 🆕 LISTE DÉROULANTE DES DOMAINES POPULÉE */}
                       <select 
                         name="domaine_id" 
                         value={form.domaine_id} 
@@ -425,7 +433,7 @@ const EtablissementDetail = () => {
                   </div>
                   <div>
                       <span className={AppStyles.input.label}>Abréviation</span>
-                      <input name="abbreviation" value={form.abbreviation} onChange={handleChange} className={AppStyles.input.formControl}/>
+                      <input name="abbreviation" value={form.abbreviation} onChange={handleChange} className={AppStyles.input.formControl} placeholder="Ex: M.Info"/>
                   </div>
               </div>
 
@@ -435,7 +443,6 @@ const EtablissementDetail = () => {
               </div>
 
               <div className="flex justify-between items-center pt-2 border-t mt-2">
-                  {/* BOUTON HISTORIQUE */}
                   {editMention ? (
                       <button type="button" onClick={() => setHistoryManagerOpen(true)} className="flex items-center gap-2 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">
                           <FaHistory /> Gérer Historique
@@ -452,7 +459,6 @@ const EtablissementDetail = () => {
           </form>
       </DraggableModal>
 
-      {/* MODALE HISTOIRE MANAGER */}
       {editMention && (
         <EntityHistoryManager
             isOpen={historyManagerOpen}
@@ -463,9 +469,8 @@ const EtablissementDetail = () => {
         />
       )}
 
-      {/* MODAL DELETE */}
       <ConfirmModal isOpen={deleteModalOpen} onClose={()=>setDeleteModalOpen(false)} title="Supprimer Mention ?">
-          <p className="text-gray-600 mb-2">Tapez <b>{mentionToDelete?.Mention_label}</b> pour confirmer.</p>
+          <p className="text-gray-600 mb-2 text-sm">Attention, cela supprimera également tous les parcours associés.<br/>Tapez <b>{mentionToDelete?.Mention_label}</b> pour confirmer.</p>
           <input value={deleteInput} onChange={e=>setDeleteInput(e.target.value)} className={AppStyles.input.formControl}/>
           <div className="flex justify-end gap-2 mt-4">
              <button onClick={()=>setDeleteModalOpen(false)} className={AppStyles.button.secondary}>Annuler</button>

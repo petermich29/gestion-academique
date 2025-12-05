@@ -30,41 +30,38 @@ import Parametres from "../pages/Parametres/Parametres";
 const AppRouter = () => (
   <Router>
     <Routes>
-      {/* Route parente : Layout entoure tout */}
+
+      {/* Layout entoure tout */}
       <Route element={<Layout />}>
+
         {/* Tableau de bord */}
         <Route path="/" element={<Dashboard />} />
 
-        {/* Administration */}
-        {/* Wrapper les routes d'administration avec le Provider */}
-        <Route element={<AdministrationProvider><Outlet /></AdministrationProvider>}>
-            <Route path="/administration" element={<Administration />} />
-            <Route path="/institution/:id" element={<InstitutionDetail />} />
-            <Route path="/institution/:id/etablissement/:etablissementId" element={<EtablissementDetail />} />
-            <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId" element={<MentionDetail />} /> {/* <--- Route pour le détail de la mention */}
-            <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId/parcours/:parcoursId" element={<ParcoursDetail />} /> {/* <--- Route pour le détail du parcours */}
+        {/* Administration (LE CONTEXTE NE DOIT PAS CASSER LE CONTEXT DU LAYOUT) */}
+        <Route
+          element={
+            <AdministrationProvider>
+              <Outlet /> 
+            </AdministrationProvider>
+          }
+        >
+          <Route path="/administration" element={<Administration />} />
+          <Route path="/institution/:id" element={<InstitutionDetail />} />
+          <Route path="/institution/:id/etablissement/:etablissementId" element={<EtablissementDetail />} />
+          <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId" element={<MentionDetail />} />
+          <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId/parcours/:parcoursId" element={<ParcoursDetail />} />
         </Route>
-      
-        {/* Ressources humaines */}
-
-
-        {/* Inscriptions */}
-
-
-        {/* Notes */}
-
-
-        {/* Services */}
-
 
         {/* Métadonnées */}
         <Route path="/metadonnees" element={<Metadonnees />} />
 
         {/* Paramètres */}
         <Route path="/parametres" element={<Parametres />} />
+
       </Route>
     </Routes>
   </Router>
 );
+
 
 export default AppRouter;

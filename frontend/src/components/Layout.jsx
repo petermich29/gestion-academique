@@ -2,50 +2,50 @@
 import React, { useState } from "react";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom"; // <- IMPORTANT
+import { BreadcrumbProvider, useBreadcrumb } from "../context/BreadcrumbContext"; // <- TON CONTEXTE
 
-const Layout = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [menuTitle, setMenuTitle] = useState("Tableau de bord");
-  const [breadcrumb, setBreadcrumb] = useState([
-    { label: "Tableau de bord", path: "/" },
-  ]);
-
-  const handleMenuChange = (label) => {
-    setMenuTitle(label);
-
-    if (label === "Administration") {
-      setBreadcrumb([{ label: "Administration", path: "/administration" }]);
-    } else if (label === "Tableau de bord") {
-      setBreadcrumb([{ label: "Tableau de bord", path: "/" }]);
-    }
-    // Tu pourras ajouter d'autres cas ici (Ressources humaines, Inscriptions, etc.)
-  };
+const LayoutContent = ({ sidebarOpen, setSidebarOpen, menuTitle, setMenuTitle }) => {
+  const location = useLocation();
+  const { breadcrumb, setBreadcrumb } = useBreadcrumb(); // <- RÉCUPÈRE LE CONTEXTE GLOBAL
 
   return (
     <div className="flex h-screen bg-gray-100">
       <Sidebar
         isOpen={sidebarOpen}
         toggle={() => setSidebarOpen(!sidebarOpen)}
-        onMenuChange={handleMenuChange}
+        onMenuChange={(label) => setMenuTitle(label)}
       />
+
       <div className="flex-1 flex flex-col">
         <Navbar
           toggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           menuTitle={menuTitle}
-          breadcrumb={breadcrumb}
+          breadcrumb={breadcrumb}          // <- TRÈS IMPORTANT
         />
+
         <main className="flex-1 p-6 overflow-auto">
-          <Outlet
-            context={{
-              setBreadcrumb,
-              menuTitle,
-              setMenuTitle,
-            }}
-          />
+          {/* ENVOIE setBreadcrumb AUX PAGES */}
+          <Outlet context={{ setBreadcrumb }} />
         </main>
       </div>
     </div>
+  );
+};
+
+const Layout = () => {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [menuTitle, setMenuTitle] = useState("Tableau de bord");
+
+  return (
+    <BreadcrumbProvider>
+      <LayoutContent
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        menuTitle={menuTitle}
+        setMenuTitle={setMenuTitle}
+      />
+    </BreadcrumbProvider>
   );
 };
 

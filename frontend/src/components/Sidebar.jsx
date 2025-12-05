@@ -5,10 +5,16 @@ import { Link, useLocation } from "react-router-dom";
 import { FaTachometerAlt, FaUniversity, FaUsers, FaFileAlt } from "react-icons/fa";
 import { MdAppRegistration, MdSettings } from "react-icons/md";
 import { BiCategory } from "react-icons/bi";
-import { SiDatabricks } from "react-icons/si"; // <-- Icône pour Métadonnées
+import { SiDatabricks } from "react-icons/si"; 
+
+// 1. IMPORT DU CONTEXTE BREADCRUMB
+import { useBreadcrumb } from "../context/BreadcrumbContext"; 
 
 const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
   const location = useLocation();
+  
+  // 2. RÉCUPÉRATION DU SETTER
+  const { setBreadcrumb } = useBreadcrumb(); 
 
   const menuItems = [
     { path: "/", label: "Tableau de bord", icon: <FaTachometerAlt className="text-lg" /> },
@@ -17,16 +23,23 @@ const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
     { path: "/inscriptions", label: "Inscriptions", icon: <MdAppRegistration className="text-xl" /> },
     { path: "/notes", label: "Notes", icon: <FaFileAlt className="text-lg" /> },
     { path: "/services", label: "Services", icon: <BiCategory className="text-xl" /> },
-    // 🔹 Ici on met SiDatabricks pour Métadonnées
     { path: "/metadonnees", label: "Métadonnées", icon: <SiDatabricks className="text-xl" /> },
     { path: "/parametres", label: "Paramètres", icon: <MdSettings className="text-xl" /> },
   ];
 
-  const handleClick = (label) => {
+  // 3. LOGIQUE MISE À JOUR LORS DU CLIC
+  const handleClick = (item) => {
+    // Mise à jour du titre (Header)
     if (onMenuChange) {
-      onMenuChange(label);
+      onMenuChange(item.label);
     }
-    // sur mobile, referme le sidebar après clic
+
+    // Mise à jour du Breadcrumb (Réinitialisation à la racine)
+    setBreadcrumb([
+      { label: item.label, path: item.path }
+    ]);
+
+    // Fermeture du menu sur mobile
     if (toggle) toggle();
   };
 
@@ -70,7 +83,8 @@ const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
               <Link
                 key={item.path}
                 to={item.path}
-                onClick={() => handleClick(item.label)}
+                // 4. PASSAGE DE L'OBJET ITEM ENTIER
+                onClick={() => handleClick(item)}
                 className={`
                   flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium
                   transition-all
