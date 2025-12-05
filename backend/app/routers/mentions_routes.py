@@ -8,7 +8,7 @@ import os
 import shutil
 import re 
 
-from app.models import Mention, Composante, Domaine, Parcours, MentionHistorique, AnneeUniversitaire
+from app.models import Mention, Composante, Domaine, MentionHistorique, AnneeUniversitaire
 from app.schemas import MentionSchema, HistoriqueDetailSchema, HistoriqueUpdateSchema
 from app.database import get_db
 
@@ -135,7 +135,7 @@ def create_mention(
 ):
     clean_code = code.upper().strip()
     
-    # 1. Vérifications
+    # 1. Vérifications standards
     if not db.query(Composante).filter(Composante.Composante_id == composante_id).first():
         raise HTTPException(status_code=400, detail="Composante invalide.")
     if not db.query(Domaine).filter(Domaine.Domaine_id == domaine_id).first():
@@ -155,7 +155,7 @@ def create_mention(
         filename = f"{new_id}{ext}"
         logo_path = save_upload_file(logo_file, filename)
 
-    # 3. Création
+    # 3. Création de l'Entité Principale (Mention)
     new_mention = Mention(
         Mention_id=new_id,
         Mention_code=clean_code,
@@ -169,14 +169,34 @@ def create_mention(
 
     try:
         db.add(new_mention)
-        db.commit()
+        # On ne commit pas encore, on attend l'historique
+        
+        # 4. 🆕 FIX : Historisation Automatique pour l'Année Active
+        active_year = db.query(AnneeUniversitaire).filter(AnneeUniversitaire.AnneeUniversitaire_is_active == True).first()
+        
+        if active_year:
+            # Création de la ligne d'historique miroir
+            hist = MentionHistorique(
+                Mention_id_fk=new_id,
+                AnneeUniversitaire_id_fk=active_year.AnneeUniversitaire_id,
+                Mention_label_historique=nom.strip(),
+                Mention_code_historique=clean_code,
+                Mention_description_historique=description,
+                Mention_abbreviation_historique=abbreviation
+            )
+            db.add(hist)
+        
+        db.commit() # Commit global (Mention + Historique)
         db.refresh(new_mention)
         return new_mention
-    except IntegrityError:
+
+    except IntegrityError as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Erreur d'intégrité.")
+        print(f"Erreur intégrité: {e}")
+        raise HTTPException(status_code=400, detail="Erreur d'intégrité (Code ou liaison incorrecte).")
     except Exception as e:
         db.rollback()
+        print(f"Erreur serveur: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{mention_id}", response_model=MentionSchema)

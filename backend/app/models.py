@@ -193,6 +193,10 @@ class ParcoursHistorique(Base):
     Parcours_label_historique = Column(String(100), nullable=True)
     Parcours_code_historique = Column(String(50), nullable=True)
 
+    # 🆕 AJOUTS POUR LA COHÉRENCE
+    Parcours_description_historique = Column(Text, nullable=True)
+    Parcours_abbreviation_historique = Column(String(20), nullable=True)
+
     parcours = relationship("Parcours", back_populates="parcours_historiques")
     annee_univ = relationship("AnneeUniversitaire")
 
