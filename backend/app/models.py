@@ -175,6 +175,10 @@ class MentionHistorique(Base):
     Mention_label_historique = Column(String(100), nullable=True)
     Mention_code_historique = Column(String(30), nullable=True)
 
+    # 🆕 AJOUTS POUR S'ALIGNER AVEC LE COMPOSANT FRONTEND
+    Mention_description_historique = Column(Text, nullable=True)
+    Mention_abbreviation_historique = Column(String(20), nullable=True)
+
     mention = relationship("Mention", back_populates="mention_historiques")
     annee_univ = relationship("AnneeUniversitaire")
 

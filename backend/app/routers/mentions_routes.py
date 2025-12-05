@@ -1,6 +1,6 @@
 # backend/app/routers/mentions_routes.py
 
-from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile, Query, Body
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
@@ -8,8 +8,8 @@ import os
 import shutil
 import re 
 
-from app.models import Mention, Composante, Domaine, Parcours
-from app.schemas import MentionSchema
+from app.models import Mention, Composante, Domaine, Parcours, MentionHistorique, AnneeUniversitaire
+from app.schemas import MentionSchema, HistoriqueDetailSchema, HistoriqueUpdateSchema
 from app.database import get_db
 
 router = APIRouter(
@@ -23,8 +23,8 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # --- UTILITAIRES (Génération ID & Fichiers) ---
 
-MENTION_ID_PREFIX = "MEN_"
-ID_REGEX = re.compile(r"MEN_(\d+)")
+MENTION_ID_PREFIX = "MENT_"
+ID_REGEX = re.compile(r"MENT_(\d+)")
 
 def get_next_mention_id(db: Session) -> str:
     """Génère le prochain ID disponible (ex: MEN_0001)"""
@@ -44,7 +44,7 @@ def get_next_mention_id(db: Session) -> str:
             elif num > next_num:
                 break
     
-    return f"{MENTION_ID_PREFIX}{str(next_num).zfill(4)}"
+    return f"{MENTION_ID_PREFIX}{str(next_num).zfill(6)}"
 
 def save_upload_file(upload_file: UploadFile, filename: str) -> str:
     """Sauvegarde le fichier et retourne le chemin relatif pour la DB"""
@@ -72,18 +72,54 @@ def get_mention(mention_id: str, db: Session = Depends(get_db)):
     return mention
 
 @router.get("/composante/{composante_id}", response_model=List[MentionSchema])
-def get_mentions_by_composante(composante_id: str, db: Session = Depends(get_db)):
-    """Récupère les mentions d'une composante avec leurs parcours"""
-    # Vérif composante
+def get_mentions_by_composante(
+    composante_id: str, 
+    annees: Optional[List[str]] = Query(None), # 🆕 Ajout du filtre années
+    db: Session = Depends(get_db)
+):
+    """Récupère les mentions d'une composante avec support de l'historique"""
     if not db.query(Composante).filter(Composante.Composante_id == composante_id).first():
         raise HTTPException(status_code=404, detail="Composante introuvable")
     
-    mentions = (
-        db.query(Mention)
-        .filter(Mention.Composante_id_fk == composante_id)
-        .options(joinedload(Mention.parcours)) 
-        .all()
-    )
+    query = db.query(Mention).filter(Mention.Composante_id_fk == composante_id)
+
+    # 1. Filtrage par année (si historique existant pour cette année)
+    if annees and len(annees) > 0:
+        query = query.join(MentionHistorique).filter(
+            MentionHistorique.AnneeUniversitaire_id_fk.in_(annees)
+        ).distinct()
+
+    mentions = query.options(joinedload(Mention.parcours)).all()
+
+    # 2. Remplacement par les données historiques (Snapshot)
+    if annees and len(annees) > 0:
+        m_ids = [m.Mention_id for m in mentions]
+        histories = (
+            db.query(MentionHistorique)
+            .join(AnneeUniversitaire, MentionHistorique.AnneeUniversitaire_id_fk == AnneeUniversitaire.AnneeUniversitaire_id)
+            .filter(
+                MentionHistorique.Mention_id_fk.in_(m_ids),
+                MentionHistorique.AnneeUniversitaire_id_fk.in_(annees)
+            )
+            .all()
+        )
+
+        # On garde l'historique de l'année la plus récente (ordre le plus élevé)
+        best_history_map = {}
+        for h in histories:
+            m_id = h.Mention_id_fk
+            current_ordre = h.annee_univ.AnneeUniversitaire_ordre if h.annee_univ else 0
+            if m_id not in best_history_map or current_ordre > best_history_map[m_id][0]:
+                best_history_map[m_id] = (current_ordre, h)
+        
+        for m in mentions:
+            if m.Mention_id in best_history_map:
+                best_h = best_history_map[m.Mention_id][1]
+                m.Mention_label = best_h.Mention_label_historique
+                m.Mention_code = best_h.Mention_code_historique
+                m.Mention_description = best_h.Mention_description_historique
+                m.Mention_abbreviation = best_h.Mention_abbreviation_historique
+
     return mentions
 
 @router.post("/", response_model=MentionSchema)
@@ -152,36 +188,57 @@ def update_mention(
     abbreviation: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
     logo_file: Optional[UploadFile] = File(None),
+    # 🆕 Ajout pour gérer l'historique auto
+    annees_universitaires: Optional[List[str]] = Form(None), 
     db: Session = Depends(get_db)
 ):
     mention = db.query(Mention).filter(Mention.Mention_id == mention_id).first()
-    if not mention:
-        raise HTTPException(status_code=404, detail="Mention introuvable")
+    if not mention: raise HTTPException(404, "Introuvable")
 
-    # Vérif Domaine si changé
-    if mention.Domaine_id_fk != domaine_id:
-        if not db.query(Domaine).filter(Domaine.Domaine_id == domaine_id).first():
-            raise HTTPException(400, "Nouveau domaine invalide")
-
-    # Mise à jour
+    # Mise à jour champs principaux
     mention.Mention_label = nom.strip()
     mention.Mention_code = code.upper().strip()
     mention.Mention_abbreviation = abbreviation
     mention.Mention_description = description
     mention.Domaine_id_fk = domaine_id
 
-    # Gestion Logo
+    # Gestion Logo (inchangée)
     if logo_file and logo_file.filename:
-        # Supprimer l'ancien
         if mention.Mention_logo_path:
             old_path = f"app{mention.Mention_logo_path}"
             if os.path.exists(old_path):
                 try: os.remove(old_path)
                 except: pass
-        
         ext = os.path.splitext(logo_file.filename)[1].lower()
         filename = f"{mention_id}{ext}"
         mention.Mention_logo_path = save_upload_file(logo_file, filename)
+
+    # 🆕 Synchronisation Historique
+    if annees_universitaires is not None:
+        historique_existant = db.query(MentionHistorique).filter(
+            MentionHistorique.Mention_id_fk == mention.Mention_id
+        ).all()
+        
+        map_hist = {h.AnneeUniversitaire_id_fk: h for h in historique_existant}
+        annees_cible = set(annees_universitaires)
+
+        # Supprimer ceux qui ne sont plus cochés
+        for annee_id, hist_obj in map_hist.items():
+            if annee_id not in annees_cible:
+                db.delete(hist_obj)
+
+        # Ajouter ou mettre à jour ceux cochés
+        for annee_id in annees_cible:
+            if annee_id not in map_hist:
+                hist = MentionHistorique(
+                    Mention_id_fk=mention.Mention_id,
+                    AnneeUniversitaire_id_fk=annee_id,
+                    Mention_label_historique=nom.strip(),
+                    Mention_code_historique=code.upper().strip(),
+                    Mention_description_historique=description,
+                    Mention_abbreviation_historique=abbreviation
+                )
+                db.add(hist)
 
     try:
         db.commit()
@@ -189,10 +246,7 @@ def update_mention(
         return mention
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Code déjà utilisé.")
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(400, "Erreur intégrité ou Code déjà utilisé.")
 
 @router.delete("/{mention_id}", status_code=204)
 def delete_mention(mention_id: str, db: Session = Depends(get_db)):
@@ -209,3 +263,75 @@ def delete_mention(mention_id: str, db: Session = Depends(get_db)):
     db.delete(mention)
     db.commit()
     return
+
+# ------------------------------------
+#   NOUVEAUX ENDPOINTS HISTORIQUE
+# ------------------------------------
+
+@router.get("/{mention_id}/historique-details", response_model=List[HistoriqueDetailSchema])
+def get_mention_history_details(mention_id: str, db: Session = Depends(get_db)):
+    historiques = db.query(MentionHistorique).filter(
+        MentionHistorique.Mention_id_fk == mention_id
+    ).all()
+    
+    result = []
+    for h in historiques:
+        result.append({
+            "annee_id": h.AnneeUniversitaire_id_fk,
+            "annee_label": h.annee_univ.AnneeUniversitaire_annee if h.annee_univ else h.AnneeUniversitaire_id_fk,
+            "nom_historique": h.Mention_label_historique,
+            "code_historique": h.Mention_code_historique,
+            "description_historique": h.Mention_description_historique,
+            "abbreviation_historique": h.Mention_abbreviation_historique
+        })
+    return sorted(result, key=lambda x: x['annee_label'], reverse=True)
+
+@router.post("/{mention_id}/historique")
+def add_mention_history_line(mention_id: str, annee_id: str = Body(..., embed=True), db: Session = Depends(get_db)):
+    mention = db.query(Mention).filter(Mention.Mention_id == mention_id).first()
+    if not mention: raise HTTPException(404, "Mention introuvable")
+
+    exists = db.query(MentionHistorique).filter(
+        MentionHistorique.Mention_id_fk == mention_id,
+        MentionHistorique.AnneeUniversitaire_id_fk == annee_id
+    ).first()
+    if exists: return {"message": "Déjà présent"}
+
+    hist = MentionHistorique(
+        Mention_id_fk=mention_id,
+        AnneeUniversitaire_id_fk=annee_id,
+        Mention_label_historique=mention.Mention_label,
+        Mention_code_historique=mention.Mention_code,
+        Mention_description_historique=mention.Mention_description,
+        Mention_abbreviation_historique=mention.Mention_abbreviation
+    )
+    db.add(hist)
+    db.commit()
+    return {"message": "Ajouté"}
+
+@router.delete("/{mention_id}/historique/{annee_id}")
+def remove_mention_history_line(mention_id: str, annee_id: str, db: Session = Depends(get_db)):
+    hist = db.query(MentionHistorique).filter(
+        MentionHistorique.Mention_id_fk == mention_id,
+        MentionHistorique.AnneeUniversitaire_id_fk == annee_id
+    ).first()
+    if hist:
+        db.delete(hist)
+        db.commit()
+    return {"message": "Retiré"}
+
+@router.put("/{mention_id}/historique/{annee_id}")
+def update_mention_history_line(mention_id: str, annee_id: str, payload: HistoriqueUpdateSchema, db: Session = Depends(get_db)):
+    history_item = db.query(MentionHistorique).filter(
+        MentionHistorique.Mention_id_fk == mention_id,
+        MentionHistorique.AnneeUniversitaire_id_fk == annee_id
+    ).first()
+    if not history_item: raise HTTPException(404, "Introuvable")
+    
+    history_item.Mention_label_historique = payload.nom
+    history_item.Mention_code_historique = payload.code
+    history_item.Mention_description_historique = payload.description
+    history_item.Mention_abbreviation_historique = payload.abbreviation
+    
+    db.commit()
+    return {"message": "Mis à jour"}

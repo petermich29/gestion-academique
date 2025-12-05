@@ -125,6 +125,14 @@ def delete_domaine(id: str, db: Session = Depends(get_db)):
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Impossible de supprimer (domaine lié).")
+    
+@router.get("/domaines", response_model=List[schemas.DomaineSchema], summary="Récupérer tous les Domaines")
+def get_all_domaines(db: Session = Depends(get_db)):
+    """
+    Récupère la liste complète des domaines, triés par label.
+    Utilisé par le frontend pour les listes déroulantes.
+    """
+    return db.query(models.Domaine).order_by(models.Domaine.Domaine_label).all()
 
 
 # =================================================================

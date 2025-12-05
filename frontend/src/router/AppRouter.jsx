@@ -1,9 +1,11 @@
 // frontend/src/router/AppRouter.jsx
 import React from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Outlet } from "react-router-dom";
+import { AdministrationProvider } from "../context/AdministrationContext"; // Importer le provider
 import Layout from "../components/Layout";
 
 import Dashboard from "../pages/dashboard/Dashboard";
+
 
 // Administration
 import Administration from "../pages/Administration/Administration";
@@ -34,11 +36,14 @@ const AppRouter = () => (
         <Route path="/" element={<Dashboard />} />
 
         {/* Administration */}
-        <Route path="/administration" element={<Administration />} />
-        <Route path="/institution/:id" element={<InstitutionDetail />} />
-        <Route path="/institution/:id/etablissement/:etablissementId" element={<EtablissementDetail />} />
-        <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId" element={<MentionDetail />} /> {/* <--- Route pour le détail de la mention */}
-        <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId/parcours/:parcoursId" element={<ParcoursDetail />} /> {/* <--- Route pour le détail du parcours */}
+        {/* Wrapper les routes d'administration avec le Provider */}
+        <Route element={<AdministrationProvider><Outlet /></AdministrationProvider>}>
+            <Route path="/administration" element={<Administration />} />
+            <Route path="/institution/:id" element={<InstitutionDetail />} />
+            <Route path="/institution/:id/etablissement/:etablissementId" element={<EtablissementDetail />} />
+            <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId" element={<MentionDetail />} /> {/* <--- Route pour le détail de la mention */}
+            <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId/parcours/:parcoursId" element={<ParcoursDetail />} /> {/* <--- Route pour le détail du parcours */}
+        </Route>
       
         {/* Ressources humaines */}
 
