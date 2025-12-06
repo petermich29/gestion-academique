@@ -157,28 +157,38 @@ const ParcoursDetail = () => {
     fetchData();
   }, [parcoursId, mentionId, etablissementId, institutionId, fetchStructure]); 
 
-  // ==========================================
-  // 🟢 NOUVEAU : EFFET DÉDIÉ AU BREADCRUMB
-  // ==========================================
   useEffect(() => {
-    // On vérifie que toutes les données nécessaires sont présentes
-    if (setBreadcrumb && parcours && mention && etablissement && institution) {
-        
-        const instLabel = getVal(institution, "Institution_nom", "nom") || institutionId;
-        const etabLabel = getVal(etablissement, "Composante_abbreviation", "Composante_label") || etablissementId;
-        const mentLabel = getVal(mention, "Mention_label", "label") || mentionId;
-        const parcLabel = getVal(parcours, "Parcours_label", "nom_parcours") || parcoursId;
+        if (isLoading) return;
+        if (!institution || !etablissement || !mention || !parcours) return;
 
         setBreadcrumb([
             { label: "Administration", path: "/administration" },
-            { label: instLabel, path: `/institution/${institutionId}` },
-            { label: etabLabel, path: `/institution/${institutionId}/etablissement/${etablissementId}` },
-            { label: mentLabel, path: `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}` },
-            { label: parcLabel, path: "#" }, // Page courante (non cliquable)
+            {
+                label: institution.Institution_nom,
+                path: `/institution/${institutionId}`,
+                state: { institution },
+                type: "institution" 
+            },
+            {
+                label: etablissement.Composante_abbreviation || etablissement.Composante_label,
+                path: `/institution/${institutionId}/etablissement/${etablissementId}`,
+                state: { institution, composante: etablissement },
+                type: "etablissement" 
+            },
+            {
+                label: mention.Mention_label,
+                path: `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}`,
+                state: { institution, etablissement, mention },
+                type: "mention" 
+            },
+            {
+                label: parcours.Parcours_label,
+                path: "#",
+                type: "parcours"
+            }
         ]);
-    }
-  }, [setBreadcrumb, parcours, mention, etablissement, institution, institutionId, etablissementId, mentionId]); 
-  // ^ Dépendances complètes pour mettre à jour dès qu'une donnée arrive
+    }, [institution, etablissement, mention, parcours, isLoading]);
+
 
   // ==========================================
   // 2. GESTION DU FORMULAIRE ET CRUD

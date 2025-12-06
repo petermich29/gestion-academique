@@ -117,13 +117,17 @@ const InstitutionDetail = () => {
   // BREADCRUMB CORRIGÉ
   // --------------------------
   useEffect(() => {
-    if (institution && setBreadcrumb) {
+    if (setBreadcrumb) {
+      // Si on n'a pas l'institution et que ça charge, on met "..." pour éviter d'afficher l'ID
+      const labelStr = institution?.Institution_nom || (isLoading ? "..." : institutionId);
+
       setBreadcrumb([
         { label: "Administration", path: "/administration" },
-        { label: institution.Institution_nom, path: `/institution/${institutionId}` },
+        { label: labelStr, path: `/institution/${institutionId}` , type: "institution" },
       ]);
     }
-  }, [institution, setBreadcrumb, institutionId]);
+    // Ajout de isLoading dans les dépendances
+  }, [institution, setBreadcrumb, institutionId, isLoading]);
 
   // --------------------------
   // FORMULAIRE

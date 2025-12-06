@@ -92,7 +92,7 @@ const EtablissementDetail = () => {
     fetchList();
   }, [institutionId]);
 
-  // 2. Main Fetch (Etablissement, Domaines, Mentions) - SANS BREADCRUMB
+  // 🟢 2. Main Fetch CORRIGÉ (Gestion ID vs Code)
   useEffect(() => {
     const fetchData = async () => {
       if (firstLoadRef.current) setIsLoading(true); else setIsRefreshing(true);
@@ -100,19 +100,43 @@ const EtablissementDetail = () => {
       try {
         // A. Institution
         let curInst = institution;
-        if (!curInst) {
+        if (!curInst || curInst.Institution_id !== parseInt(institutionId)) {
             const rI = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
-            if(rI.ok) { curInst = await rI.json(); setInstitution(curInst); }
+            if(rI.ok) { 
+                curInst = await rI.json(); 
+                setInstitution(curInst); 
+            }
         }
 
         // B. Etablissement
         let curEtab = etablissement;
-        if (!curEtab || (curEtab.Composante_code !== etablissementId && curEtab.Composante_id !== etablissementId)) {
-          setMentions([]); 
-          const rE = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
-          if (!rE.ok) throw new Error("Établissement introuvable (Vérifiez le code)");
-          curEtab = await rE.json();
-          setEtablissement(curEtab);
+        const isSameEtab = curEtab && (curEtab.Composante_code === etablissementId || curEtab.Composante_id == etablissementId);
+
+        if (!curEtab || !isSameEtab) {
+          // ICI LA CORRECTION : 
+          // Au lieu de fetcher directement par ID (ce qui échoue si etablissementId est un Code),
+          // on fetch la liste de l'institution et on cherche le bon code.
+          const rList = await fetch(`${API_BASE_URL}/api/composantes/institution?institution_id=${institutionId}`);
+          
+          if (!rList.ok) throw new Error("Erreur lors du chargement des composantes");
+          
+          const list = await rList.json();
+          // On cherche par Code OU par ID pour être robuste
+          const found = list.find(c => c.Composante_code === etablissementId || c.Composante_id == etablissementId);
+
+          if (found) {
+            curEtab = found;
+            setEtablissement(found);
+          } else {
+            // Dernier recours : si ce n'est pas dans la liste (ex: param URL bizarre), on tente fetch direct
+            const rDirect = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
+            if (rDirect.ok) {
+               curEtab = await rDirect.json();
+               setEtablissement(curEtab);
+            } else {
+               throw new Error("Établissement introuvable (Code invalide)");
+            }
+          }
         }
 
         // C. Domaines
@@ -123,18 +147,18 @@ const EtablissementDetail = () => {
 
         // D. Mentions
         if (curEtab && curEtab.Composante_id) {
+            setMentions([]); // Reset pour éviter mélange
             const q = new URLSearchParams();
             (selectedYearsIds || []).forEach(id => q.append("annees", id));
             
             const rM = await fetch(`${API_BASE_URL}/api/mentions/composante/${curEtab.Composante_id}?${q.toString()}`);
             if (rM.ok) {
-                const mentionsData = await rM.json();
-                setMentions(mentionsData);
+                setMentions(await rM.json());
             }
         }
       } catch (err) {
         console.error(err);
-        addToast("Erreur chargement: " + err.message, "error");
+        addToast(err.message, "error");
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -142,23 +166,31 @@ const EtablissementDetail = () => {
       }
     };
     
-    if (etablissementId) fetchData();
+    fetchData();
 
-  }, [etablissementId, institutionId, selectedYearsIds, domaines.length]); 
+  }, [etablissementId, institutionId, selectedYearsIds]); 
 
-  // 🟢 CORRECTION BREADCRUMB : EFFET SÉPARÉ
+  // BREADCRUMB CORRIGÉ
   useEffect(() => {
-    if (setBreadcrumb && institution && etablissement) {
-        const instLabel = institution.Institution_nom || "Institution";
-        const etabLabel = etablissement.Composante_abbreviation || etablissement.Composante_label || "Établissement";
+      if (isLoading) return;
+      if (!institution || !etablissement) return; // sécurité
 
-        setBreadcrumb([
+      setBreadcrumb([
           { label: "Administration", path: "/administration" },
-          { label: instLabel, path: `/institution/${institutionId}` },
-          { label: etabLabel, path: "#" },
-        ]);
-    }
-  }, [institution, etablissement, institutionId, setBreadcrumb]);
+          {
+              label: institution.Institution_nom,
+              path: `/institution/${institutionId}`,
+              state: { institution },
+              type: "institution" 
+          },
+          {
+              label: etablissement.Composante_abbreviation || etablissement.Composante_label,
+              path: `/institution/${institutionId}/etablissement/${etablissementId}`,
+              state: { institution, composante: etablissement },
+              type: "etablissement" 
+          }
+      ]);
+  }, [institution, etablissement, isLoading]);
 
   // --- NAVIGATION ---
   const handleNavigate = (dir) => {

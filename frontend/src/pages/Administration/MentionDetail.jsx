@@ -1,3 +1,4 @@
+// src/pages/Administration/MentionDetail.jsx
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -18,6 +19,7 @@ import YearMultiSelect from "../../components/ui/YearMultiSelect";
 import { useAdministration } from "../../context/AdministrationContext";
 import { useBreadcrumb } from "../../context/BreadcrumbContext";
 
+
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 const MentionDetail = () => {
@@ -33,6 +35,7 @@ const MentionDetail = () => {
   const [etablissement, setEtablissement] = useState(location.state?.etablissement || null);
   const [institution, setInstitution] = useState(location.state?.institution || null);
   const [parcours, setParcours] = useState([]);
+  
   
   const [mentionsList, setMentionsList] = useState([]); 
   const [typesFormation, setTypesFormation] = useState([]); 
@@ -79,23 +82,56 @@ const MentionDetail = () => {
 
     const fetchData = async () => {
       try {
+        // 1. Charger Metadata
         if (typesFormation.length === 0) {
             const resTypes = await fetch(`${API_BASE_URL}/api/metadonnees/types-formation`);
             if (resTypes.ok) setTypesFormation(await resTypes.json());
         }
 
+        // 2. Charger Institution (Nécessaire pour charger l'établissement par la suite)
         let currentInst = institution;
-        if(!currentInst) {
+        if(!currentInst || currentInst.Institution_id !== parseInt(institutionId)) {
              const resInst = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
              if(resInst.ok) { currentInst = await resInst.json(); setInstitution(currentInst); }
         }
         
+        // 3. Charger Etablissement - CORRECTION MAJEURE ICI POUR L'ERREUR 405
         let currentEtab = etablissement;
-        if (!currentEtab) {
-            const resEtab = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
-            if(resEtab.ok) { currentEtab = await resEtab.json(); setEtablissement(currentEtab); }
-        }
+        // Vérifier si l'établissement en mémoire correspond à celui de l'URL (ID ou Code)
+        const isSameEtab = currentEtab && (
+            String(currentEtab.Composante_id) === String(etablissementId) ||
+            currentEtab.Composante_code === etablissementId
+        );
 
+        if (!currentEtab || !isSameEtab) {
+            // On ne peut pas fetcher directement par le code (erreur 405).
+            // On doit récupérer la liste via l'institution et chercher dedans.
+            if (currentInst && currentInst.Institution_id) {
+                const rList = await fetch(`${API_BASE_URL}/api/composantes/institution?institution_id=${currentInst.Institution_id}`);
+                if (rList.ok) {
+                    const list = await rList.json();
+                    // Recherche flexible : par Code OU par ID
+                    const found = list.find(c => c.Composante_code === etablissementId || String(c.Composante_id) === String(etablissementId));
+                    
+                    if (found) {
+                        currentEtab = found;
+                        setEtablissement(found);
+                    } else {
+                        // Fallback ultime (peu probable si l'erreur est 405, mais sécurité)
+                        try {
+                            const resDirect = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
+                            if(resDirect.ok) {
+                                curEtab = await resDirect.json();
+                                setEtablissement(curEtab);
+                            }
+                        } catch(eDirect) { console.warn("Fetch direct échoué:", eDirect); }
+                    }
+                }
+            }
+        }
+        // FIN CORRECTION 405
+
+        // 4. Charger Mention
         let currentMention = mention;
         if (firstLoadRef.current || !currentMention || currentMention.Mention_id !== mentionId) {
             const res = await fetch(`${API_BASE_URL}/api/mentions/${mentionId}`);
@@ -104,6 +140,7 @@ const MentionDetail = () => {
             setMention(currentMention);
         }
 
+        // 5. Charger Parcours
         const q = new URLSearchParams();
         selectedYearsIds.forEach(id => q.append("annees", id));
         
@@ -113,7 +150,8 @@ const MentionDetail = () => {
         }
 
       } catch (err) {
-        addToast("Erreur: " + err.message, "error");
+        console.error(err);
+        addToast("Erreur de chargement: " + err.message, "error");
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -123,23 +161,37 @@ const MentionDetail = () => {
     fetchData();
   }, [mentionId, etablissementId, institutionId, selectedYearsIds]);
 
-  // 🟢 CORRECTION BREADCRUMB : EFFET SÉPARÉ
-  useEffect(() => {
-      if (setBreadcrumb && institution && etablissement && mention) {
-          const instLabel = institution.Institution_nom || "Institution";
-          const etabLabel = etablissement.Composante_abbreviation || etablissement.Composante_label || "Établissement";
-          const mentLabel = mention.Mention_label || "Mention";
+  // =========================================================
+  // BREADCRUMB CORRIGÉ AVEC GESTION DU CHARGEMENT
+  // =========================================================
+    useEffect(() => {
+      if (isLoading) return;
+      if (!institution || !etablissement || !mention) return;
 
-          setBreadcrumb([
-              { label: "Administration", path: "/administration" },
-              { label: instLabel, path: `/institution/${institutionId}` },
-              { label: etabLabel, path: `/institution/${institutionId}/etablissement/${etablissementId}` },
-              { label: mentLabel, path: "#" }, 
-          ]);
-      }
-  }, [institution, etablissement, mention, institutionId, etablissementId, setBreadcrumb]);
+      setBreadcrumb([
+          { label: "Administration", path: "/administration" },
+          {
+              label: institution.Institution_nom,
+              path: `/institution/${institutionId}`,
+              state: { institution },
+              type: "institution" 
+          },
+          {
+              label: etablissement.Composante_abbreviation || etablissement.Composante_label,
+              path: `/institution/${institutionId}/etablissement/${etablissementId}`,
+              state: { institution, composante: etablissement },
+              type: "etablissement" 
+          },
+          {
+              label: mention.Mention_label,
+              path: `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}`,
+              type: "mention" 
+          }
+      ]);
+  }, [institution, etablissement, mention, isLoading]);
 
 
+  // ... Reste du code (List navigation, UI, CRUD) inchangé ...
   useEffect(() => {
      const fetchMentionsList = async () => {
          if(!etablissement?.Composante_id) return; 
