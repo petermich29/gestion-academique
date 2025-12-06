@@ -179,10 +179,14 @@ def get_institution_years_history(id_institution: str, db: Session = Depends(get
     ).all()
     return [rec.AnneeUniversitaire_id_fk for rec in history_records]
 
-# 🔹 Modifier une institution (PUT)
-@router.put("/", response_model=InstitutionSchema)
+# =========================================================
+# 🔹 MODIFICATION 1 : CORRECTION DE LA ROUTE PUT
+# =========================================================
+
+# On ajoute {id_institution} dans le chemin pour correspondre au Frontend
+@router.put("/{id_institution}", response_model=InstitutionSchema)
 def update_institution(
-    id_institution: str = Form(...),
+    id_institution: str,  # Récupéré depuis l'URL
     code: str = Form(...),
     nom: str = Form(...),
     type_institution: str = Form(...),
@@ -197,28 +201,32 @@ def update_institution(
     abbreviation_db = abbreviation.strip() if abbreviation and abbreviation.strip() else None
     description_db = description.strip() if description and description.strip() else None
 
+    # Recherche de l'institution
     institution = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
     if not institution:
         raise HTTPException(status_code=404, detail="Institution non trouvée")
 
-    # Mise à jour des champs de base (État "Actuel")
+    # Mise à jour des champs de base
     institution.Institution_code = clean_code
     institution.Institution_nom = clean_nom
     institution.Institution_type = type_institution
     institution.Institution_abbreviation = abbreviation_db
     institution.Institution_description = description_db
 
+    # Gestion du logo
     if logo_file and logo_file.filename:
         file_ext = os.path.splitext(logo_file.filename)[1]
         logo_path = f"/static/logos/{id_institution}{file_ext}"
         try:
-            with open(f"app{logo_path}", "wb") as buffer:
+            full_path = f"app{logo_path}"
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "wb") as buffer:
                 shutil.copyfileobj(logo_file.file, buffer)
             institution.Institution_logo_path = logo_path 
-        except Exception:
-            raise HTTPException(status_code=500, detail="Erreur logo upload")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erreur logo upload: {str(e)}")
 
-    # Logique de synchronisation historique (uniquement si liste fournie)
+    # Gestion de l'historique (inchangée, mais le contexte est préservé)
     if annees_universitaires is not None:
         historique_existant = db.query(InstitutionHistorique).filter(
             InstitutionHistorique.Institution_id_fk == id_institution
@@ -247,26 +255,44 @@ def update_institution(
         db.commit()
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Erreur DB.")
+        raise HTTPException(status_code=400, detail="Erreur DB : Code probablement dupliqué.")
         
     db.refresh(institution)
     return institution
 
-# 🔹 Supprimer
+
+# =========================================================
+# 🔹 MODIFICATION 2 : SUPPRESSION AVEC HISTORIQUE
+# =========================================================
+
 @router.delete("/{id_institution}", status_code=204)
 def delete_institution(id_institution: str, db: Session = Depends(get_db)):
     institution = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
     if not institution:
         raise HTTPException(status_code=404, detail="Introuvable")
         
+    # 1. Suppression du fichier Logo physique s'il existe
     if institution.Institution_logo_path:
         p = f"app{institution.Institution_logo_path}"
         if os.path.exists(p):
             try: os.remove(p)
             except: pass
     
+    # 2. Suppression explicite des historiques liés
+    # Même si 'cascade' est configuré dans le modèle, cela force le nettoyage explicite
+    db.query(InstitutionHistorique).filter(
+        InstitutionHistorique.Institution_id_fk == id_institution
+    ).delete(synchronize_session=False)
+
+    # 3. Suppression de l'institution
     db.delete(institution)
-    db.commit()
+    
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la suppression: {str(e)}")
+        
     return
 
 # 🆕 Détails historique
