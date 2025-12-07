@@ -1,4 +1,4 @@
-# models.py (CORRIGÉ)
+# models.py
 from sqlalchemy import (
     Column, Integer, String, Date, Numeric, ForeignKey,
     UniqueConstraint, Text, Boolean, CheckConstraint
@@ -8,7 +8,7 @@ from sqlalchemy.orm import relationship, declarative_base
 Base = declarative_base()
 
 # ===================================================================
-# --- TABLES DE RÉFÉRENCE: HIERARCHIE ADMINISTRATIVE ET ACADÉMIQUE ---
+# --- 1. STRUCTURE ADMINISTRATIVE ET ACADÉMIQUE ---
 # ===================================================================
 
 class Institution(Base):
@@ -20,7 +20,6 @@ class Institution(Base):
 
     Institution_id = Column(String(10), primary_key=True, nullable=False)
     Institution_code = Column(String(32), unique=True, nullable=False)
-
     Institution_nom = Column(String(255), nullable=False)
     Institution_type = Column(String(10), nullable=False)
     Institution_description = Column(Text, nullable=True)
@@ -52,7 +51,6 @@ class Composante(Base):
     institution = relationship("Institution", back_populates="composantes")
     mentions = relationship("Mention", backref="composante")
     enseignants_permanents = relationship("Enseignant", back_populates="composante_attachement")
-
     composante_historiques = relationship("ComposanteHistorique", back_populates="composante")
 
 
@@ -120,101 +118,79 @@ class Parcours(Base):
 
 
 # =========================================================
-# --- TABLES D'HISTORISATION (Surcharges par Année) ---
+# --- HISTORISATION (Surcharges par Année) ---
 # =========================================================
 
 class InstitutionHistorique(Base):
     __tablename__ = 'institutions_historique'
     __table_args__ = {'extend_existing': True}
-
     Institution_id_fk = Column(String(10), ForeignKey('institutions.Institution_id'), primary_key=True)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), primary_key=True)
-
-    Institution_nom_historique = Column(String(255), nullable=True)
-    Institution_code_historique = Column(String(32), nullable=True)
-    Institution_description_historique = Column(Text, nullable=True)
-    Institution_abbreviation_historique = Column(String(20), nullable=True)
-
+    Institution_nom_historique = Column(String(255))
+    Institution_code_historique = Column(String(32))
+    Institution_description_historique = Column(Text)
+    Institution_abbreviation_historique = Column(String(20))
     institution = relationship("Institution", back_populates="institution_historiques")
     annee_univ = relationship("AnneeUniversitaire")
-
 
 class ComposanteHistorique(Base):
     __tablename__ = 'composantes_historique'
     __table_args__ = {'extend_existing': True}
-
     Composante_id_fk = Column(String(12), ForeignKey('composantes.Composante_id'), primary_key=True)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), primary_key=True)
-
-    Composante_label_historique = Column(String(100), nullable=True)
-    Composante_code_historique = Column(String(50), nullable=True)
-
-    Composante_description_historique = Column(Text, nullable=True)
-    Composante_abbreviation_historique = Column(String(20), nullable=True)
-
+    Composante_label_historique = Column(String(100))
+    Composante_code_historique = Column(String(50))
+    Composante_description_historique = Column(Text)
+    Composante_abbreviation_historique = Column(String(20))
     composante = relationship("Composante", back_populates="composante_historiques")
     annee_univ = relationship("AnneeUniversitaire")
-
 
 class MentionHistorique(Base):
     __tablename__ = 'mentions_historique'
     __table_args__ = {'extend_existing': True}
-
     Mention_id_fk = Column(String(12), ForeignKey('mentions.Mention_id'), primary_key=True)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), primary_key=True)
-
-    Mention_label_historique = Column(String(100), nullable=True)
-    Mention_code_historique = Column(String(30), nullable=True)
-
-    Mention_description_historique = Column(Text, nullable=True)
-    Mention_abbreviation_historique = Column(String(20), nullable=True)
-
+    Mention_label_historique = Column(String(100))
+    Mention_code_historique = Column(String(30))
+    Mention_description_historique = Column(Text)
+    Mention_abbreviation_historique = Column(String(20))
     mention = relationship("Mention", back_populates="mention_historiques")
     annee_univ = relationship("AnneeUniversitaire")
-
 
 class ParcoursHistorique(Base):
     __tablename__ = 'parcours_historique'
     __table_args__ = {'extend_existing': True}
-
     Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), primary_key=True)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), primary_key=True)
-
-    Parcours_label_historique = Column(String(100), nullable=True)
-    Parcours_code_historique = Column(String(50), nullable=True)
-
-    Parcours_description_historique = Column(Text, nullable=True)
-    Parcours_abbreviation_historique = Column(String(20), nullable=True)
-
+    Parcours_label_historique = Column(String(100))
+    Parcours_code_historique = Column(String(50))
+    Parcours_description_historique = Column(Text)
+    Parcours_abbreviation_historique = Column(String(20))
     parcours = relationship("Parcours", back_populates="parcours_historiques")
     annee_univ = relationship("AnneeUniversitaire")
-
 
 class CycleHistorique(Base):
     __tablename__ = 'cycles_historique'
     __table_args__ = {'extend_existing': True}
-
     Cycle_id_fk = Column(String(10), ForeignKey('cycles.Cycle_id'), primary_key=True)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), primary_key=True)
-
-    Cycle_label_historique = Column(String(50), nullable=True)
+    Cycle_label_historique = Column(String(50))
     cycle = relationship("Cycle")
     annee_univ = relationship("AnneeUniversitaire")
-
 
 class NiveauHistorique(Base):
     __tablename__ = 'niveaux_historique'
     __table_args__ = {'extend_existing': True}
-
     Niveau_id_fk = Column(String(10), ForeignKey('niveaux.Niveau_id'), primary_key=True)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), primary_key=True)
-
-    Niveau_label_historique = Column(String(50), nullable=True)
+    Niveau_label_historique = Column(String(50))
     niveau = relationship("Niveau")
     annee_univ = relationship("AnneeUniversitaire")
 
 
-# Tables de Référence LMD et UE/EC
+# =========================================================
+# --- NIVEAUX, CYCLES ET SEMESTRES ---
+# =========================================================
 
 class ParcoursNiveau(Base):
     __tablename__ = 'parcours_niveaux'
@@ -222,15 +198,11 @@ class ParcoursNiveau(Base):
         UniqueConstraint('Parcours_id_fk', 'Niveau_id_fk', 'AnneeUniversitaire_id_fk', name='uq_parcours_niveau_annee'),
         {'extend_existing': True}
     )
-
     ParcoursNiveau_id = Column(String(50), primary_key=True)
-
     Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), nullable=False)
     Niveau_id_fk = Column(String(10), ForeignKey('niveaux.Niveau_id'), nullable=False)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
-
     ParcoursNiveau_ordre = Column(Integer, nullable=True)
-
     parcours_lie = relationship("Parcours", back_populates="niveaux_couverts")
     niveau_lie = relationship("Niveau", back_populates="parcours_associes")
     annee_univ = relationship("AnneeUniversitaire")
@@ -239,11 +211,9 @@ class ParcoursNiveau(Base):
 class Cycle(Base):
     __tablename__ = 'cycles'
     __table_args__ = {'extend_existing': True}
-
     Cycle_id = Column(String(10), primary_key=True)
     Cycle_code = Column(String(10), unique=True)
     Cycle_label = Column(String(50), unique=True, nullable=False)
-
     niveaux = relationship("Niveau", back_populates="cycle")
     suivi_credits = relationship("SuiviCreditCycle", back_populates="cycle")
 
@@ -251,13 +221,10 @@ class Cycle(Base):
 class Niveau(Base):
     __tablename__ = 'niveaux'
     __table_args__ = {'extend_existing': True}
-
     Niveau_id = Column(String(10), primary_key=True)
     Niveau_code = Column(String(10), unique=True)
     Niveau_label = Column(String(50))
-
     Cycle_id_fk = Column(String(10), ForeignKey('cycles.Cycle_id'), nullable=False)
-
     cycle = relationship("Cycle", back_populates="niveaux")
     semestres = relationship("Semestre", back_populates="niveau")
     parcours_associes = relationship("ParcoursNiveau", back_populates="niveau_lie")
@@ -269,20 +236,17 @@ class Semestre(Base):
         UniqueConstraint('Niveau_id_fk', 'Semestre_numero', name='uq_niveau_numero_semestre'),
         {'extend_existing': True}
     )
-
     Semestre_id = Column(String(10), primary_key=True)
     Semestre_code = Column(String(10), unique=True)
     Semestre_numero = Column(String(10), nullable=False)
-
     Niveau_id_fk = Column(String(10), ForeignKey('niveaux.Niveau_id'), nullable=False)
-
     niveau = relationship("Niveau", back_populates="semestres")
     inscriptions = relationship("Inscription", back_populates="semestre")
 
 
-# -------------------------------------------------------------------
-# --- TABLES DE RÉFÉRENCE: UNITÉS D'ENSEIGNEMENT ET SESSIONS ---
-# -------------------------------------------------------------------
+# ===================================================================
+# --- CATALOGUES ET MAQUETTES (UE/EC) ---
+# ===================================================================
 
 class UniteEnseignement(Base):
     """CATALOGUE DES UEs (La bibliothèque de cours)"""
@@ -294,7 +258,6 @@ class UniteEnseignement(Base):
     UE_description = Column(Text, nullable=True)
 
     maquettes = relationship("MaquetteUE", back_populates="ue_catalog")
-    resultats = relationship("ResultatUE", back_populates="unite_enseignement")  # <-- ajouté
 
 
 class ElementConstitutif(Base):
@@ -306,13 +269,8 @@ class ElementConstitutif(Base):
     EC_intitule = Column(String(255), nullable=False)
     
     maquettes_ec = relationship("MaquetteEC", back_populates="ec_catalog")
-    notes = relationship("Note", back_populates="element_constitutif")          # <-- ajouté
-    affectations = relationship("AffectationEC", back_populates="element_constitutif")  # <-- ajouté
+    notes = relationship("Note", back_populates="element_constitutif")
 
-
-# =========================================================
-# 2. MAQUETTE (La configuration par Année et Parcours)
-# =========================================================
 
 class MaquetteUE(Base):
     __tablename__ = 'maquettes_ue'
@@ -324,40 +282,41 @@ class MaquetteUE(Base):
 
     Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), nullable=False)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
-    
     UE_id_fk = Column(String(50), ForeignKey('unites_enseignement_catalog.UE_id'), nullable=False)
-
     Semestre_id_fk = Column(String(10), ForeignKey('semestres.Semestre_id'), nullable=False)
+    
     MaquetteUE_credit = Column(Integer, nullable=False)
 
     ue_catalog = relationship("UniteEnseignement", back_populates="maquettes")
     parcours = relationship("Parcours")
     annee = relationship("AnneeUniversitaire")
     semestre = relationship("Semestre")
-
     maquette_ecs = relationship("MaquetteEC", back_populates="maquette_ue", cascade="all, delete-orphan")
+    
+    # AJOUT DE LA RELATION VERS LES RÉSULTATS
+    resultats = relationship("ResultatUE", back_populates="maquette_ue")
 
 
 class MaquetteEC(Base):
+    """Configuration d'un EC au sein d'une MaquetteUE"""
     __tablename__ = 'maquettes_ec'
 
     MaquetteEC_id = Column(String(50), primary_key=True)
-
     MaquetteUE_id_fk = Column(String(50), ForeignKey('maquettes_ue.MaquetteUE_id'), nullable=False)
     EC_id_fk = Column(String(50), ForeignKey('elements_constitutifs_catalog.EC_id'), nullable=False)
-
     MaquetteEC_coefficient = Column(Integer, default=1, nullable=False)
 
     maquette_ue = relationship("MaquetteUE", back_populates="maquette_ecs")
     ec_catalog = relationship("ElementConstitutif", back_populates="maquettes_ec")
     
-    volumes_horaires = relationship("VolumeHoraire", back_populates="maquette_ec")
-    affectations = relationship("Affectation", back_populates="maquette_ec")  # <-- reste pour Affectation (sur MaquetteEC)
+    volumes_horaires = relationship("VolumeHoraire", back_populates="maquette_ec", cascade="all, delete-orphan")
+    attributions = relationship("AttributionEnseignant", back_populates="maquette_ec", cascade="all, delete-orphan")
 
 
 # ===================================================================
-# --- TABLES DE RÉFÉRENCE: SESSIONS D'EXAMEN et TYPES ---
+# --- PARAMÈTRES ET TYPES ---
 # ===================================================================
+
 class SessionExamen(Base):
     __tablename__ = 'sessions_examen'
     __table_args__ = {'extend_existing': True}
@@ -395,17 +354,36 @@ class TypeFormation(Base):
     parcours = relationship("Parcours", back_populates="type_formation_defaut")
 
 
+class TypeEnseignement(Base):
+    __tablename__ = 'types_enseignement'
+    __table_args__ = {'extend_existing': True}
+
+    TypeEnseignement_id = Column(String(10), primary_key=True)
+    TypeEnseignement_code = Column(String(10), unique=True)
+    TypeEnseignement_label = Column(String(50), unique=True, nullable=False)
+
+    attributions = relationship("AttributionEnseignant", back_populates="type_enseignement")
+
+
+class TypeComposante(Base):
+    __tablename__ = 'types_composante'
+    __table_args__ = {'extend_existing': True}
+
+    TypeComposante_id = Column(String(7), primary_key=True)
+    TypeComposante_label = Column(String(50), nullable=False, unique=True)
+    TypeComposante_description = Column(Text, nullable=True)
+
+    composantes = relationship("Composante", back_populates="type_composante")
+
+
 # ===================================================================
-# --- TABLES DE DONNÉES: ÉTUDIANT, INSCRIPTION, RÉSULTATS ---
+# --- DONNÉES ETUDIANT, INSCRIPTIONS, RESULTATS ---
 # ===================================================================
 
 class AnneeUniversitaire(Base):
     __tablename__ = 'annees_universitaires'
     __table_args__ = (
-        UniqueConstraint(
-            "AnneeUniversitaire_ordre",
-            name="uq_annee_ordre_unique"
-        ),
+        UniqueConstraint("AnneeUniversitaire_ordre", name="uq_annee_ordre_unique"),
         {'extend_existing': True}
     )
 
@@ -417,8 +395,6 @@ class AnneeUniversitaire(Base):
 
     inscriptions = relationship("Inscription", back_populates="annee_univ")
     notes_obtenues = relationship("Note", back_populates="annee_univ")
-    resultats_ue = relationship("ResultatUE", back_populates="annee_univ")
-    affectations_ec = relationship("AffectationEC", back_populates="annee_univ_affectation")
 
     def __repr__(self):
         etat = "ACTIVE" if self.AnneeUniversitaire_is_active else "INACTIVE"
@@ -463,17 +439,13 @@ class Inscription(Base):
     __tablename__ = 'inscriptions'
     __table_args__ = (
         UniqueConstraint(
-            'Etudiant_id_fk',
-            'AnneeUniversitaire_id_fk',
-            'Parcours_id_fk',
-            'Semestre_id_fk',
+            'Etudiant_id_fk', 'AnneeUniversitaire_id_fk', 'Parcours_id_fk', 'Semestre_id_fk',
             name='uq_etudiant_annee_parcours_semestre'
         ),
         {'extend_existing': True}
     )
 
     Inscription_id = Column(String(100), primary_key=True)
-
     Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
     Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), nullable=False)
@@ -498,17 +470,12 @@ class ResultatSemestre(Base):
     )
 
     ResultatSemestre_id = Column(String(50), primary_key=True)
-
     Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
     Semestre_id_fk = Column(String(10), ForeignKey('semestres.Semestre_id'), nullable=False)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
     SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)
 
-    ResultatSemestre_statut_validation = Column(
-        String(5),
-        CheckConstraint(""" "ResultatSemestre_statut_validation" IN ('V', 'NV', 'AJ') """, name='check_statut_validation'),
-        nullable=False
-    )
+    ResultatSemestre_statut_validation = Column(String(5), nullable=False) # 'V', 'NV', 'AJ'
     ResultatSemestre_credits_acquis = Column(Numeric(4, 1))
     ResultatSemestre_moyenne_obtenue = Column(Numeric(4, 2))
 
@@ -517,57 +484,56 @@ class ResultatSemestre(Base):
     session_examen = relationship("SessionExamen", back_populates="resultats_semestre_collection")
     annee_univ = relationship("AnneeUniversitaire")
 
-    def __repr__(self):
-        return (f"<ResultatSemestre {self.Etudiant_id_fk} - {self.Semestre_id_fk} "
-                f"(Sess: {self.SessionExamen_id_fk}, Moy: {self.ResultatSemestre_moyenne_obtenue}): {self.ResultatSemestre_statut_validation}>")
-
 
 class ResultatUE(Base):
     __tablename__ = 'resultats_ue'
     __table_args__ = (
-        UniqueConstraint('Etudiant_id_fk', 'UE_id_fk', 'AnneeUniversitaire_id_fk', 'SessionExamen_id_fk', name='uq_resultat_ue_unique'),
+        # Unicité : Un étudiant a un seul résultat pour une Maquette donnée lors d'une session donnée
+        UniqueConstraint('Etudiant_id_fk', 'MaquetteUE_id_fk', 'SessionExamen_id_fk', name='uq_resultat_maquette_session'),
     )
 
     ResultatUE_id = Column(String(50), primary_key=True)
 
     Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
-    UE_id_fk = Column(String(50), ForeignKey('unites_enseignement_catalog.UE_id'), nullable=False)  # <-- corrigé
-    AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
-    SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)  # <- taille alignée sur SessionExamen_id
+    
+    # CHANGEMENT ICI : On pointe vers MaquetteUE au lieu de UE + Annee
+    # Cela inclut implicitement l'Année, le Parcours et les Crédits de référence
+    MaquetteUE_id_fk = Column(String(50), ForeignKey('maquettes_ue.MaquetteUE_id'), nullable=False)
+    
+    SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)
 
     ResultatUE_moyenne = Column(Numeric(4, 2), nullable=False)
     ResultatUE_is_acquise = Column(Boolean, default=False, nullable=False)
+    
+    # On garde le crédit obtenu ici (stockage du résultat acquis), 
+    # même si la valeur de référence (crédit total possible) est dans maquette_ue.MaquetteUE_credit
     ResultatUE_credit_obtenu = Column(Integer, default=0, nullable=False)
 
     etudiant = relationship("Etudiant", back_populates="resultats_ue")
-    unite_enseignement = relationship("UniteEnseignement", back_populates="resultats")  # <-- back_populates ajouté
     session = relationship("SessionExamen", back_populates="resultats_ue_session")
-    annee_univ = relationship("AnneeUniversitaire", back_populates="resultats_ue")
+    
+    # NOUVELLE RELATION
+    maquette_ue = relationship("MaquetteUE", back_populates="resultats")
 
-    def __repr__(self):
-        return (f"<ResultatUE {self.Etudiant_id_fk} - {self.UE_id_fk} "
-                f"(Sess: {self.SessionExamen_id_fk}, Moy: {self.ResultatUE_moyenne}): {self.ResultatUE_is_acquise}>")
+    # Note : On supprime les relations directes vers 'unite_enseignement' et 'annee_univ'
+    # car elles sont accessibles via self.maquette_ue.ue_catalog et self.maquette_ue.annee
 
 
 class Note(Base):
     __tablename__ = 'notes'
     __table_args__ = (
         UniqueConstraint(
-            'Etudiant_id_fk',
-            'EC_id_fk',
-            'AnneeUniversitaire_id_fk',
-            'SessionExamen_id_fk',
+            'Etudiant_id_fk', 'EC_id_fk', 'AnneeUniversitaire_id_fk', 'SessionExamen_id_fk',
             name='uq_etudiant_ec_annee_session'
         ),
         {'extend_existing': True}
     )
 
     Note_id = Column(String(50), primary_key=True)
-
     Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
-    EC_id_fk = Column(String(50), ForeignKey('elements_constitutifs_catalog.EC_id'), nullable=False)  # <-- corrigé
+    EC_id_fk = Column(String(50), ForeignKey('elements_constitutifs_catalog.EC_id'), nullable=False)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
-    SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)  # <- aligné
+    SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)
 
     Note_valeur = Column(Numeric(5, 2), nullable=False)
 
@@ -575,10 +541,6 @@ class Note(Base):
     element_constitutif = relationship("ElementConstitutif", back_populates="notes")
     annee_univ = relationship("AnneeUniversitaire", back_populates="notes_obtenues")
     session = relationship("SessionExamen", back_populates="notes_session")
-
-    def __repr__(self):
-        return (f"<Note {self.Etudiant_id_fk} - {self.EC_id_fk} "
-                f"({self.AnneeUniversitaire_id_fk}, {self.SessionExamen_id_fk}): {self.Note_valeur}>")
 
 
 class SuiviCreditCycle(Base):
@@ -589,7 +551,6 @@ class SuiviCreditCycle(Base):
     )
 
     SuiviCreditCycle_id = Column(String(50), primary_key=True)
-
     Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
     Cycle_id_fk = Column(String(10), ForeignKey('cycles.Cycle_id'), nullable=False)
 
@@ -601,7 +562,7 @@ class SuiviCreditCycle(Base):
 
 
 # ===================================================================
-# --- TABLES DE DONNÉES: ENSEIGNANT ET CHARGE D'ENSEIGNEMENT ---
+# --- GESTION DES ENSEIGNANTS, VOLUMES ET ATTRIBUTIONS ---
 # ===================================================================
 
 class Enseignant(Base):
@@ -623,7 +584,6 @@ class Enseignant(Base):
         CheckConstraint(""" "Enseignant_statut" IN ('PERM', 'VAC') """, name='check_statut_enseignant'),
         nullable=False
     )
-
     Composante_id_affectation_fk = Column(String(12), ForeignKey('composantes.Composante_id'), nullable=True)
 
     Enseignant_cin = Column(String(100))
@@ -636,37 +596,13 @@ class Enseignant(Base):
     Enseignant_scan_cin_path = Column(String(255), nullable=True)
 
     composante_attachement = relationship("Composante", back_populates="enseignants_permanents")
-    charges_enseignement = relationship("AffectationEC", back_populates="enseignant")  # <-- lié à AffectationEC
+    # REMPLACÉ: charges_enseignement -> attributions
+    attributions = relationship("AttributionEnseignant", back_populates="enseignant")
     presidences_jury = relationship("Jury", back_populates="enseignant_president")
 
 
-class TypeEnseignement(Base):
-    __tablename__ = 'types_enseignement'
-    __table_args__ = {'extend_existing': True}
-
-    TypeEnseignement_id = Column(String(10), primary_key=True)
-    TypeEnseignement_code = Column(String(10), unique=True)
-    TypeEnseignement_label = Column(String(50), unique=True, nullable=False)
-
-    affectations = relationship("AffectationEC", back_populates="type_enseignement")
-
-
-class TypeComposante(Base):
-    __tablename__ = 'types_composante'
-    __table_args__ = {'extend_existing': True}
-
-    TypeComposante_id = Column(String(7), primary_key=True)
-    TypeComposante_label = Column(String(50), nullable=False, unique=True)
-    TypeComposante_description = Column(Text, nullable=True)
-
-    composantes = relationship("Composante", back_populates="type_composante")
-
-
-# =========================================================
-# 3. VOLUMES & AFFECTATIONS (Détails fins)
-# =========================================================
-
 class VolumeHoraire(Base):
+    """Volume horaire THÉORIQUE défini pour un EC dans une Maquette"""
     __tablename__ = 'volumes_horaires'
     
     Volume_id = Column(String(50), primary_key=True)
@@ -677,48 +613,32 @@ class VolumeHoraire(Base):
     maquette_ec = relationship("MaquetteEC", back_populates="volumes_horaires")
 
 
-# --- Affectation (sur une MaquetteEC) ---
-class Affectation(Base):
-    __tablename__ = 'affectations'
+class AttributionEnseignant(Base):
+    """REMPLACE Affectation et AffectationEC. 
+    Lie un enseignant à un EC spécifique d'une maquette (donc une année/parcours) pour un type de cours (CM/TD).
+    """
+    __tablename__ = 'attributions_enseignant'
 
-    Affectation_id = Column(String(50), primary_key=True)
-    MaquetteEC_id_fk = Column(String(50), ForeignKey('maquettes_ec.MaquetteEC_id'), nullable=False)
-    TypeEnseignement_id_fk = Column(String(10), ForeignKey('types_enseignement.TypeEnseignement_id'), nullable=False)
-    Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
+    Attribution_id = Column(String(50), primary_key=True)
     
-    Heures_effectues = Column(Numeric(5, 2), nullable=True)
-
-    maquette_ec = relationship("MaquetteEC", back_populates="affectations")
-    enseignant = relationship("Enseignant")
-    type_enseignement = relationship("TypeEnseignement")
-
-
-# --- AffectationEC : affectation d'un EC sur une année (nouvelle table) ---
-class AffectationEC(Base):
-    __tablename__ = 'affectations_ec'
-
-    AffectationEC_id = Column(String(50), primary_key=True)
+    MaquetteEC_id_fk = Column(String(50), ForeignKey('maquettes_ec.MaquetteEC_id'), nullable=False)
     Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
-    EC_id_fk = Column(String(50), ForeignKey('elements_constitutifs_catalog.EC_id'), nullable=False)
     TypeEnseignement_id_fk = Column(String(10), ForeignKey('types_enseignement.TypeEnseignement_id'), nullable=False)
-    AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
 
-    AffectationEC_volume_heure_effectif = Column(Numeric(5, 2), nullable=True)
+    # Optionnel: Nombre d'heures attribuées à cet enseignant (si partage de cours)
+    Attribution_heures = Column(Numeric(5, 2), nullable=True)
 
-    enseignant = relationship("Enseignant", back_populates="charges_enseignement")
-    element_constitutif = relationship("ElementConstitutif", back_populates="affectations")
-    type_enseignement = relationship("TypeEnseignement", back_populates="affectations")
-    annee_univ_affectation = relationship("AnneeUniversitaire", back_populates="affectations_ec")
+    maquette_ec = relationship("MaquetteEC", back_populates="attributions")
+    enseignant = relationship("Enseignant", back_populates="attributions")
+    type_enseignement = relationship("TypeEnseignement", back_populates="attributions")
 
-
-# ===================================================================
-# --- TABLES DE DONNÉES: GESTION DES JURYS D'EXAMEN (MODIFIÉE) ---
-# ===================================================================
 
 class Jury(Base):
+    """JURY D'EXAMEN"""
     __tablename__ = 'jurys'
     __table_args__ = (
-        UniqueConstraint('Semestre_id_fk', 'AnneeUniversitaire_id_fk', name='uq_jury_unique'),
+        # Un jury est unique pour un Semestre, une Année ET une Session (ex: Session Normale S1 2024)
+        UniqueConstraint('Semestre_id_fk', 'AnneeUniversitaire_id_fk', 'SessionExamen_id_fk', name='uq_jury_unique'),
         {'extend_existing': True}
     )
 
@@ -726,13 +646,15 @@ class Jury(Base):
     Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
     Semestre_id_fk = Column(String(10), ForeignKey('semestres.Semestre_id'), nullable=False)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
+    SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False) # Ajouté
 
     Jury_date_nomination = Column(Date, nullable=True)
 
     enseignant_president = relationship("Enseignant", back_populates="presidences_jury")
     semestre_jury = relationship("Semestre")
     annee_univ_jury = relationship("AnneeUniversitaire")
+    session_jury = relationship("SessionExamen")
 
     def __repr__(self):
-        return (f"<Jury Sémestre {self.Semestre_id_fk} ({self.AnneeUniversitaire_id_fk}) "
-                f"présidé par {self.Enseignant_id_fk}>")
+        return (f"<Jury Semestre {self.Semestre_id_fk} (Annee: {self.AnneeUniversitaire_id_fk}, Session: {self.SessionExamen_id_fk}) "
+                f"Président: {self.Enseignant_id_fk}>")

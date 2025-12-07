@@ -220,17 +220,21 @@ const ParcoursDetail = () => {
   const openModal = async (semestreId = "", ue = null) => {
       setErrors({});
       if(ue) {
+          // MODE ÉDITION : On édite la MaquetteUE
           setEditUE(ue);
-          setGeneratedId(ue.id); 
+          // ue.id_maquette est l'ID à utiliser pour le PUT
           setForm({ 
               code: ue.code, 
               intitule: ue.intitule, 
               credit: ue.credit, 
               semestre_id: semestreId || "" 
           });
+          // On ne génère pas d'ID catalogue ici car on édite l'existant
+          setGeneratedId(ue.id_catalog); 
       } else {
+          // MODE CRÉATION
           setEditUE(null);
-          await fetchNextId(); 
+          await fetchNextId(); // Récupère un ID catalogue suggéré
           setForm({ 
               code: "", 
               intitule: "", 
@@ -244,39 +248,32 @@ const ParcoursDetail = () => {
   const handleSubmit = async (e) => {
       e.preventDefault();
       setIsSubmitting(true);
-      setErrors({});
-
-      if(!form.code || !form.intitule || !form.semestre_id) {
-          setErrors({ global: "Code, Intitulé et Semestre sont requis."});
-          setIsSubmitting(false);
-          return;
-      }
-
+      
       const formData = new FormData();
       formData.append("code", form.code);
       formData.append("intitule", form.intitule);
       formData.append("credit", form.credit);
-      formData.append("parcours_id", parcoursId); 
       formData.append("semestre_id", form.semestre_id);
-      // 🟢 AJOUT CRITIQUE : L'année pour laquelle on crée l'UE
+      
+      // Contexte obligatoire pour la Maquette
+      formData.append("parcours_id", parcoursId); 
       formData.append("annee_id", selectedYearId);
 
       try {
           let url = `${API_BASE_URL}/api/ues`;
           let method = "POST";
+          
           if(editUE) {
-              url += `/${editUE.id}`;
+              // Si édition, on tape sur l'ID de la MAQUETTE (pour mettre à jour crédits/lien semestre)
+              url += `/${editUE.id_maquette}`; 
               method = "PUT";
           }
           
           const res = await fetch(url, { method, body: formData });
-          if(!res.ok) {
-              const err = await res.json();
-              throw new Error(err.detail || "Erreur lors de l'enregistrement");
-          }
+          if(!res.ok) throw new Error("Erreur sauvegarde");
           
-          await fetchStructure(); // Recharger la structure
-          addToast(editUE ? "UE modifiée." : "UE ajoutée.");
+          await fetchStructure();
+          addToast("Enregistré");
           setModalOpen(false);
       } catch(e) {
           setErrors({ global: e.message });
@@ -287,22 +284,17 @@ const ParcoursDetail = () => {
 
   const handleDelete = async () => {
     if(!ueToDelete) return;
-    
     try {
-        const url = `${API_BASE_URL}/api/ues/${ueToDelete.id}?parcours_id=${parcoursId}`;
+        // Suppression via ID MAQUETTE
+        const url = `${API_BASE_URL}/api/ues/${ueToDelete.id_maquette}`; 
         const res = await fetch(url, { method: 'DELETE' });
-        
-        if(!res.ok) {
-            const errorData = await res.json().catch(() => ({ detail: "Erreur suppression" }));
-            throw new Error(errorData.detail || "Erreur lors de la suppression");
-        }
+        if(!res.ok) throw new Error("Erreur suppression");
         
         await fetchStructure(); 
-        addToast("UE supprimée.");
+        addToast("UE retirée de la maquette.");
         setDeleteModalOpen(false); 
-        setUeToDelete(null); 
     } catch(e) {
-        addToast(e.message || "Erreur inconnue", "error");
+        addToast("Erreur", "error");
     }
   };
 

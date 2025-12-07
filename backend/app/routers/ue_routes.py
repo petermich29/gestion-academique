@@ -1,163 +1,168 @@
 # backend/app/routers/ue_routes.py
-
 from fastapi import APIRouter, Depends, HTTPException, Form, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
 from typing import Optional
+import uuid
 
 from app import models, schemas
 from app.database import get_db
-from app.models import AnneeUniversitaire, ParcoursNiveau
 
-router = APIRouter(
-    prefix="/ues", 
-    tags=["Unités d'Enseignement (UE)"]
-)
+router = APIRouter(prefix="/ues", tags=["Gestion UEs (Maquette & Catalogue)"])
 
-# --- UTILITAIRE ID ---
-def generate_next_ue_id(db: Session) -> str:
-    """Génère le prochain ID (UE_0000000001)"""
-    last_ue = db.query(models.UniteEnseignement).order_by(models.UniteEnseignement.UE_id.desc()).first()
-    if not last_ue:
-        return "UE_0000000001"
-    
-    try:
-        part_num = last_ue.UE_id.split('_')[1]
-        next_num = int(part_num) + 1
-        return f"UE_{str(next_num).zfill(10)}"
-    except:
-        count = db.query(models.UniteEnseignement).count() + 1
-        return f"UE_{str(count).zfill(10)}"
-
-# --- ROUTES ---
+def generate_ue_id(db: Session) -> str:
+    """Génère un ID pour le CATALOGUE"""
+    count = db.query(models.UniteEnseignement).count()
+    return f"UE_{str(count + 1).zfill(8)}"
 
 @router.get("/next-id", response_model=str)
 def get_next_ue_id_endpoint(db: Session = Depends(get_db)):
-    return generate_next_ue_id(db)
+    return generate_ue_id(db)
 
-@router.post("/", response_model=schemas.UniteEnseignementSchema)
-def create_ue(
+@router.post("/", response_model=schemas.StructureUE)
+def create_or_add_ue_to_maquette(
     code: str = Form(...),
     intitule: str = Form(...),
     credit: int = Form(...),
     semestre_id: str = Form(...),
     parcours_id: str = Form(...), 
-    annee_id: str = Form(...), # 👈 OBLIGATOIRE MAINTENANT
+    annee_id: str = Form(...),
+    description: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
-    # 1. Vérif semestre
-    semestre = db.query(models.Semestre).filter(models.Semestre.Semestre_id == semestre_id).first()
-    if not semestre: raise HTTPException(400, "Semestre invalide")
-    niveau_id = semestre.Niveau_id_fk
+    """
+    1. Vérifie si l'UE existe dans le catalogue (par Code). Sinon, la crée.
+    2. Ajoute l'UE à la maquette (MaquetteUE) pour l'année/parcours/semestre donnés.
+    """
+    # A. Gestion du Catalogue
+    code_clean = code.strip().upper()
+    ue_catalog = db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_code == code_clean).first()
+    
+    if not ue_catalog:
+        # Création dans le catalogue
+        ue_catalog = models.UniteEnseignement(
+            UE_id=generate_ue_id(db),
+            UE_code=code_clean,
+            UE_intitule=intitule.strip(),
+            UE_description=description
+        )
+        db.add(ue_catalog)
+        db.flush() # Pour avoir l'ID disponible
+    else:
+        # (Optionnel) Mise à jour du libellé catalogue si nécessaire ? 
+        # Pour l'instant on garde le catalogue intact pour éviter les effets de bord sur d'autres années.
+        pass
 
-    # 2. Vérif doublon code (Optionnel: on peut autoriser le même code sur des années différentes, 
-    # ou l'interdire globalement. Ici, on l'interdit par année/parcours via la contrainte DB, 
-    # mais vérifions-le proprement)
-    exists = db.query(models.UniteEnseignement).filter(
-        models.UniteEnseignement.UE_code == code.strip(),
-        models.UniteEnseignement.Parcours_id_fk == parcours_id,
-        models.UniteEnseignement.AnneeUniversitaire_id_fk == annee_id
+    # B. Vérification doublon dans la Maquette
+    existing_link = db.query(models.MaquetteUE).filter(
+        models.MaquetteUE.Parcours_id_fk == parcours_id,
+        models.MaquetteUE.AnneeUniversitaire_id_fk == annee_id,
+        models.MaquetteUE.UE_id_fk == ue_catalog.UE_id
     ).first()
-    if exists: raise HTTPException(400, f"Ce code UE existe déjà pour ce parcours cette année.")
+    
+    if existing_link:
+        raise HTTPException(400, f"L'UE {code_clean} est déjà présente dans cette maquette pour cette année.")
 
-    # 3. GESTION LIEN PARCOURS-NIVEAU (Pour l'année cible)
-    lien_pn = db.query(models.ParcoursNiveau).filter(
+    # C. Ajout à la Maquette (Le lien contextuel)
+    # Génération ID Maquette : MUE_{Parcours}_{Annee}_{UE} ou UUID
+    maquette_id = f"MUE_{uuid.uuid4().hex[:8]}"
+    
+    new_maquette = models.MaquetteUE(
+        MaquetteUE_id=maquette_id,
+        Parcours_id_fk=parcours_id,
+        AnneeUniversitaire_id_fk=annee_id,
+        UE_id_fk=ue_catalog.UE_id,
+        Semestre_id_fk=semestre_id,
+        MaquetteUE_credit=credit # Le crédit est spécifique à cette maquette !
+    )
+    
+    # D. Gestion automatique du ParcoursNiveau (Si le niveau n'est pas encore lié à l'année)
+    semestre = db.query(models.Semestre).get(semestre_id)
+    niveau_id = semestre.Niveau_id_fk
+    
+    pn_link = db.query(models.ParcoursNiveau).filter(
         models.ParcoursNiveau.Parcours_id_fk == parcours_id,
         models.ParcoursNiveau.Niveau_id_fk == niveau_id,
-        models.ParcoursNiveau.AnneeUniversitaire_id_fk == annee_id # 👈 Important
+        models.ParcoursNiveau.AnneeUniversitaire_id_fk == annee_id
     ).first()
-
-    if not lien_pn:
-        # Création du lien niveau <-> parcours pour cette année
-        pn_id = f"PN_{parcours_id}_{niveau_id}_{annee_id}" # ID Composite unique
-        # Calcul ordre
-        count_ord = db.query(models.ParcoursNiveau).filter(
+    
+    if not pn_link:
+        count = db.query(models.ParcoursNiveau).filter(
             models.ParcoursNiveau.Parcours_id_fk == parcours_id,
             models.ParcoursNiveau.AnneeUniversitaire_id_fk == annee_id
         ).count()
-        
         new_pn = models.ParcoursNiveau(
-            ParcoursNiveau_id=pn_id,
+            ParcoursNiveau_id=f"PN_{uuid.uuid4().hex[:8]}",
             Parcours_id_fk=parcours_id,
             Niveau_id_fk=niveau_id,
             AnneeUniversitaire_id_fk=annee_id,
-            ParcoursNiveau_ordre=count_ord + 1
+            ParcoursNiveau_ordre=count + 1
         )
         db.add(new_pn)
 
-    # 4. Création UE
-    new_id = generate_next_ue_id(db)
-    new_ue = models.UniteEnseignement(
-        UE_id=new_id,
-        UE_code=code.strip(),
-        UE_intitule=intitule.strip(),
-        UE_credit=credit,
-        Semestre_id_fk=semestre_id,
-        Parcours_id_fk=parcours_id,
-        AnneeUniversitaire_id_fk=annee_id # 👈 On attache l'année
-    )
-    
     try:
-        db.add(new_ue)
+        db.add(new_maquette)
         db.commit()
-        db.refresh(new_ue)
-        return new_ue
+        db.refresh(new_maquette)
+        
+        # 🟢 CORRECTION DU RETOUR
+        # On mappe correctement les champs définis dans le Schema mis à jour
+        return schemas.StructureUE(
+            id=new_maquette.MaquetteUE_id,          # ID utilisé comme clé React
+            id_maquette=new_maquette.MaquetteUE_id, # ID spécifique pour suppression/modif
+            id_catalog=ue_catalog.UE_id,            # ID catalogue pour réutilisation
+            code=ue_catalog.UE_code,
+            intitule=ue_catalog.UE_intitule,
+            credit=new_maquette.MaquetteUE_credit,
+            ec_count=0
+        )
     except Exception as e:
         db.rollback()
         raise HTTPException(500, str(e))
 
-
-@router.put("/{ue_id}", response_model=schemas.UniteEnseignementSchema)
-def update_ue(
-    ue_id: str,
+@router.put("/{maquette_ue_id}", response_model=schemas.StructureUE)
+def update_ue_in_maquette(
+    maquette_ue_id: str,
+    credit: int = Form(...),
+    semestre_id: str = Form(...),
+    # On permet de changer le code/intitulé, mais attention : cela change le CATALOGUE
+    # ou change l'UE pointée ? Ici on change simplement les attributs Maquette + Catalogue
     code: str = Form(...),
     intitule: str = Form(...),
-    credit: int = Form(...),
-    semestre_id: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
-    ue = db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_id == ue_id).first()
-    if not ue:
-        raise HTTPException(status_code=404, detail="UE introuvable")
+    # 1. Récupérer la Maquette
+    maquette = db.query(models.MaquetteUE).filter(models.MaquetteUE.MaquetteUE_id == maquette_ue_id).first()
+    if not maquette: raise HTTPException(404, "UE (Maquette) introuvable")
 
-    # Vérification unicité code seulement si changé
-    if code.strip() != ue.UE_code:
-        if db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_code == code.strip()).first():
-            raise HTTPException(status_code=400, detail="Code UE déjà utilisé.")
-
-    ue.UE_code = code.strip()
-    ue.UE_intitule = intitule.strip()
-    ue.UE_credit = credit
+    # 2. Update Maquette (Spécifique année)
+    maquette.MaquetteUE_credit = credit
+    maquette.Semestre_id_fk = semestre_id
     
-    if semestre_id is not None:
-        ue.Semestre_id_fk = semestre_id
+    # 3. Update Catalogue (Attention: Impact global !)
+    # Si on veut permettre de corriger une faute de frappe :
+    ue_catalog = maquette.ue_catalog
+    ue_catalog.UE_code = code.strip().upper()
+    ue_catalog.UE_intitule = intitule.strip()
     
     try:
         db.commit()
-        db.refresh(ue)
-        return ue
+        return schemas.StructureUE(
+            id_maquette=maquette.MaquetteUE_id,
+            id_catalog=ue_catalog.UE_id,
+            code=ue_catalog.UE_code,
+            intitule=ue_catalog.UE_intitule,
+            credit=maquette.MaquetteUE_credit,
+            ec_count=len(maquette.maquette_ecs)
+        )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(500, str(e))
 
-
-# Pour le DELETE, ajoutez également le nettoyage basé sur l'année :
-@router.delete("/{ue_id}", status_code=204)
-def delete_ue(
-    ue_id: str, 
-    parcours_id: str = Query(...),
-    # On a besoin de connaître l'année pour nettoyer le ParcoursNiveau si nécessaire
-    # On peut la récupérer depuis l'UE avant suppression
-    db: Session = Depends(get_db)
-):
-    ue = db.query(models.UniteEnseignement).filter(models.UniteEnseignement.UE_id == ue_id).first()
-    if not ue: raise HTTPException(404, "UE introuvable")
+@router.delete("/{maquette_ue_id}", status_code=204)
+def remove_ue_from_maquette(maquette_ue_id: str, db: Session = Depends(get_db)):
+    """Supprime le lien Maquette (n'efface pas l'UE du catalogue)"""
+    maquette = db.query(models.MaquetteUE).filter(models.MaquetteUE.MaquetteUE_id == maquette_ue_id).first()
+    if not maquette: raise HTTPException(404, "Introuvable")
     
-    annee_ref = ue.AnneeUniversitaire_id_fk
-    niveau_ref = ue.semestre.Niveau_id_fk
-    
-    if ue.Parcours_id_fk != parcours_id:
-         raise HTTPException(400, "Erreur de parcours.")
-    
-    db.delete(ue)
+    db.delete(maquette)
     db.commit()

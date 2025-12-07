@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 
 # Imports des routeurs
-from app.routers import composantes_routes, institutions_routes, mentions_routes, metadonnees_routes, ue_routes, parcours_routes # <--- AJOUT
+from app.routers import composantes_routes, institutions_routes, mentions_routes, metadonnees_routes, ue_routes, parcours_routes, ec_routes # <--- AJOUT
 from app.database import engine
 from app.models import Base
 
@@ -28,6 +28,7 @@ app.include_router(composantes_routes.router, prefix="/api")
 app.include_router(mentions_routes.router, prefix="/api")
 app.include_router(parcours_routes.router, prefix="/api") # <--- AJOUT
 app.include_router(metadonnees_routes.router, prefix="/api")
-app.include_router(ue_routes.router, prefix="/api") # <--- AJOUT
+app.include_router(ue_routes.router, prefix="/api") 
+app.include_router(ec_routes.router, prefix="/api")# <--- AJOUT
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

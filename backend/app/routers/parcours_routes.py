@@ -121,88 +121,83 @@ def get_parcours_structure(
     annee_id: Optional[str] = Query(None, description="Année universitaire cible"),
     db: Session = Depends(get_db)
 ):
-    """
-    Récupère la structure (Niveaux > Semestres > UEs) pour une année spécifique.
-    Si pas d'année fournie, utilise l'année active.
-    """
-    # 1. Déterminer l'année à consulter
+    # 1. Déterminer l'année
     if not annee_id:
         active_year = db.query(models.AnneeUniversitaire).filter(models.AnneeUniversitaire.AnneeUniversitaire_is_active == True).first()
         if not active_year:
-            # Si aucune année active n'est trouvée, renvoyer une liste vide ou un statut 404
-            raise HTTPException(status_code=404, detail="Aucune année universitaire active trouvée.")
+            raise HTTPException(404, "Aucune année active définie.")
         annee_target = active_year.AnneeUniversitaire_id
     else:
         annee_target = annee_id
 
-    # 2. Récupérer les informations d'historique du Parcours (Nom/Code à cette époque)
-    parcours_info = {
-        "label": None,
-        "code": None
-    }
-    
-    # 🌟 LIGNE CORRIGÉE : Utiliser models.ParcoursHistorique
-    historique = db.query(models.ParcoursHistorique).filter(
-        models.ParcoursHistorique.Parcours_id_fk == parcours_id,
-        models.ParcoursHistorique.AnneeUniversitaire_id_fk == annee_target
-    ).first()
-
-    # Si on a un historique, on l'utilise, sinon on prend le courant (fallback)
-    if historique:
-        parcours_info["label"] = historique.Parcours_label_historique
-        parcours_info["code"] = historique.Parcours_code_historique
-    else:
-        curr = db.query(models.Parcours).filter(models.Parcours.Parcours_id == parcours_id).first()
-        if curr:
-            parcours_info["label"] = curr.Parcours_label
-            parcours_info["code"] = curr.Parcours_code
-        else:
-             # Le parcours n'existe pas
-             raise HTTPException(status_code=404, detail="Parcours non trouvé.")
-
-    # 3. Récupérer les liens Parcours-Niveau pour CETTE ANNÉE
-    liens = (
+    # 2. Récupérer la structure Niveaux -> Semestres via ParcoursNiveau
+    # On vérifie quels niveaux sont ouverts pour ce parcours cette année-là
+    liens_niveaux = (
         db.query(models.ParcoursNiveau)
         .filter(
             models.ParcoursNiveau.Parcours_id_fk == parcours_id,
             models.ParcoursNiveau.AnneeUniversitaire_id_fk == annee_target
         )
-        .options(joinedload(models.ParcoursNiveau.niveau_lie).joinedload(models.Niveau.semestres))
+        .options(
+            joinedload(models.ParcoursNiveau.niveau_lie)
+            .joinedload(models.Niveau.semestres)
+        )
         .order_by(models.ParcoursNiveau.ParcoursNiveau_ordre)
         .all()
     )
     
     structure_response = []
     
-    for lien in liens:
+    for lien in liens_niveaux:
         niveau = lien.niveau_lie
         if not niveau: continue
         
         semestres_data = []
-        # Trier les semestres par numéro
+        # Pour chaque semestre du niveau
         for sem in sorted(niveau.semestres, key=lambda x: x.Semestre_numero):
             ues_data = []
             
-            # 4. Récupérer les UE liées à ce Parcours, ce Semestre ET CETTE ANNÉE
-            ues = db.query(models.UniteEnseignement).filter(
-                models.UniteEnseignement.Semestre_id_fk == sem.Semestre_id,
-                models.UniteEnseignement.Parcours_id_fk == parcours_id,
-                models.UniteEnseignement.AnneeUniversitaire_id_fk == annee_target
-            ).options(joinedload(models.UniteEnseignement.elements_constitutifs)).all()
+            # 3. CRITIQUE : Récupérer les MaquetteUE (Liaison) et non les UE catalogue directes
+            # On cherche : Les Maquettes pour ce Parcours + Cette Année + Ce Semestre
+            maquettes = (
+                db.query(models.MaquetteUE)
+                .join(models.UniteEnseignement, models.MaquetteUE.UE_id_fk == models.UniteEnseignement.UE_id)
+                .filter(
+                    models.MaquetteUE.Parcours_id_fk == parcours_id,
+                    models.MaquetteUE.AnneeUniversitaire_id_fk == annee_target,
+                    models.MaquetteUE.Semestre_id_fk == sem.Semestre_id
+                )
+                .options(
+                    joinedload(models.MaquetteUE.ue_catalog),
+                    joinedload(models.MaquetteUE.maquette_ecs)
+                )
+                .all()
+            )
             
-            for ue in sorted(ues, key=lambda x: x.UE_code):
+            # Transformation vers le schéma frontend
+            for mq in maquettes:
                 ues_data.append(schemas.StructureUE(
-                    id=ue.UE_id, 
-                    code=ue.UE_code, 
-                    intitule=ue.UE_intitule, 
-                    credit=ue.UE_credit, 
-                    ec_count=len(ue.elements_constitutifs)
+                    # 1. 'id' est OBLIGATOIRE pour le frontend (key={ue.id})
+                    id=mq.MaquetteUE_id,
+                    
+                    # 2. Ces champs sont nécessaires pour vos actions (Supprimer/Modifier)
+                    id_maquette=mq.MaquetteUE_id,
+                    id_catalog=mq.ue_catalog.UE_id,
+                    
+                    # 3. Les champs standards
+                    code=mq.ue_catalog.UE_code,
+                    intitule=mq.ue_catalog.UE_intitule,
+                    credit=mq.MaquetteUE_credit,
+                    ec_count=len(mq.maquette_ecs)
                 ))
             
+            # Tri par code UE
+            ues_data.sort(key=lambda x: x.code)
+
             semestres_data.append(schemas.StructureSemestre(
-                id=sem.Semestre_id, 
-                numero=sem.Semestre_numero, 
-                code=sem.Semestre_code, 
+                id=sem.Semestre_id,            # Mappage correct vers 'id'
+                numero=str(sem.Semestre_numero), # Mappage vers 'numero' (converti en str si besoin)
+                code=sem.Semestre_code,        # Mappage vers 'code'
                 ues=ues_data
             ))
             
