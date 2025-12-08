@@ -304,7 +304,7 @@ class MaquetteEC(Base):
     MaquetteEC_id = Column(String(50), primary_key=True)
     MaquetteUE_id_fk = Column(String(50), ForeignKey('maquettes_ue.MaquetteUE_id'), nullable=False)
     EC_id_fk = Column(String(50), ForeignKey('elements_constitutifs_catalog.EC_id'), nullable=False)
-    MaquetteEC_coefficient = Column(Integer, default=1, nullable=False)
+    MaquetteEC_coefficient = Column(Numeric(4, 2), default=1.00, nullable=False)
 
     maquette_ue = relationship("MaquetteUE", back_populates="maquette_ecs")
     ec_catalog = relationship("ElementConstitutif", back_populates="maquettes_ec")

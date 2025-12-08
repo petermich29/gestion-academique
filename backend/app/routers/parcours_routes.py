@@ -176,19 +176,30 @@ def get_parcours_structure(
             
             # Transformation vers le schéma frontend
             for mq in maquettes:
+                # 🟢 CORRECTION : Construction de la liste des ECs
+                ecs_data = []
+                for mec in mq.maquette_ecs:
+                    if mec.ec_catalog: # Sécurité
+                        ecs_data.append(schemas.StructureEC(
+                            id=mec.MaquetteEC_id,
+                            id_catalog=mec.ec_catalog.EC_id,
+                            code=mec.ec_catalog.EC_code,
+                            intitule=mec.ec_catalog.EC_intitule,
+                            coefficient=mec.MaquetteEC_coefficient
+                        ))
+                
+                # Tri des EC par code pour un affichage propre
+                ecs_data.sort(key=lambda x: x.code)
+
                 ues_data.append(schemas.StructureUE(
-                    # 1. 'id' est OBLIGATOIRE pour le frontend (key={ue.id})
                     id=mq.MaquetteUE_id,
-                    
-                    # 2. Ces champs sont nécessaires pour vos actions (Supprimer/Modifier)
                     id_maquette=mq.MaquetteUE_id,
                     id_catalog=mq.ue_catalog.UE_id,
-                    
-                    # 3. Les champs standards
                     code=mq.ue_catalog.UE_code,
                     intitule=mq.ue_catalog.UE_intitule,
                     credit=mq.MaquetteUE_credit,
-                    ec_count=len(mq.maquette_ecs)
+                    ec_count=len(ecs_data),
+                    ecs=ecs_data # <--- Injection ici
                 ))
             
             # Tri par code UE

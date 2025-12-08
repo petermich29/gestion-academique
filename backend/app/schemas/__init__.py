@@ -26,7 +26,7 @@ from .maquette import (
     UniteEnseignementBase, UniteEnseignementSchema,
     ElementConstitutifBase, ElementConstitutifSchema,
     MaquetteElementConstitutifSchema,  # <-- NOUVEL EXPORT
-    StructureUE, StructureSemestre, StructureNiveau
+    StructureUE, StructureEC, StructureSemestre, StructureNiveau
 )
 from .users import (
     EtudiantBase, EtudiantSchema,

@@ -363,3 +363,4 @@ def update_institution_history_line(id_institution: str, annee_id: str, payload:
     history_item.Institution_description_historique = payload.description
     db.commit()
     return {"message": "Mis à jour"}
+

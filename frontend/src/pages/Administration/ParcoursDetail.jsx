@@ -1,10 +1,11 @@
 // src/pages/Administration/ParcoursDetail.jsx
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   FaChevronLeft, FaLayerGroup, FaGraduationCap,
-  FaTrash, FaEdit, FaBook, FaCube, FaPlus, FaSearch, FaCalendarAlt
+  FaTrash, FaEdit, FaPlus, FaSearch, FaCalendarAlt,
+  FaListUl, FaSave, FaMinus, FaTimes, FaCheck, FaCog
 } from "react-icons/fa";
 
 import { 
@@ -25,7 +26,7 @@ const ParcoursDetail = () => {
   
   // Contextes
   const { setBreadcrumb } = useBreadcrumb();
-  const { yearsList } = useAdministration(); // Liste des années chargée globalement
+  const { yearsList } = useAdministration();
 
   // --- STATES DONNÉES ---
   const [parcours, setParcours] = useState(location.state?.parcours || null);
@@ -37,7 +38,7 @@ const ParcoursDetail = () => {
   const [semestresList, setSemestresList] = useState([]); 
   
   // --- STATES UI & FILTRES ---
-  const [selectedYearId, setSelectedYearId] = useState(""); // 🟢 Année sélectionnée
+  const [selectedYearId, setSelectedYearId] = useState(""); 
   const [isLoading, setIsLoading] = useState(true);
   const [isStructureLoading, setIsStructureLoading] = useState(false);
   const [activeNiveauId, setActiveNiveauId] = useState(null); 
@@ -50,18 +51,27 @@ const ParcoursDetail = () => {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editUE, setEditUE] = useState(null);
   const [ueToDelete, setUeToDelete] = useState(null);
-  
-  const [generatedId, setGeneratedId] = useState(""); 
   const [form, setForm] = useState({ code: "", intitule: "", credit: 5, semestre_id: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // Refs pour éviter les re-fetch inutiles au montage strict mode
+  // --- STATES GESTION EC ---
+  const [ecModalOpen, setEcModalOpen] = useState(false);
+  const [selectedUEForEC, setSelectedUEForEC] = useState(null); 
+  
+  // Édition en ligne des EC
+  const [editingEcId, setEditingEcId] = useState(null); 
+  const [editEcData, setEditEcData] = useState({ code: "", intitule: "", coefficient: 1.0 });
+  
+  // Formulaire ajout EC
+  const [ecForm, setEcForm] = useState({ code: "", intitule: "", coefficient: 1.0 });
+  const [isEcSubmitting, setIsEcSubmitting] = useState(false);
+
+  // Refs
   const dataFetchedRef = useRef(false);
 
   // Helpers
   const getVal = (obj, keyAlias, keyName) => obj ? (obj[keyAlias] || obj[keyName] || "") : "";
-
   const addToast = (message, type = "success") => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -70,10 +80,9 @@ const ParcoursDetail = () => {
   const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
   // ==========================================
-  // 1. INITIALISATION & CHARGEMENT
+  // 1. INITIALISATION & CHARGEMENT STRUCTURE
   // ==========================================
 
-  // Initialiser l'année par défaut (Active ou la plus récente)
   useEffect(() => {
     if (yearsList && yearsList.length > 0 && !selectedYearId) {
         const active = yearsList.find(y => y.AnneeUniversitaire_is_active);
@@ -82,56 +91,70 @@ const ParcoursDetail = () => {
     }
   }, [yearsList, selectedYearId]);
 
-  // Récupération de la structure dépendante de l'année
   const fetchStructure = useCallback(async () => {
-      if (!selectedYearId) return;
-      
+      if (!selectedYearId || !parcoursId) return;
       setIsStructureLoading(true);
       try {
-        // 🟢 On passe l'année en paramètre pour avoir la maquette historique
         const resStruct = await fetch(`${API_BASE_URL}/api/parcours/${parcoursId}/structure?annee_id=${selectedYearId}`);
         if(resStruct.ok) {
             const data = await resStruct.json();
             setStructure(data);
             
-            // Gestion intelligente de l'onglet actif (garder le même niveau si possible)
             setActiveNiveauId(prev => {
                 if (data.length === 0) return null;
                 const exists = data.find(d => d.niveau_id === prev);
                 return exists ? prev : data[0].niveau_id;
             });
         } else {
+            const errorData = await resStruct.json();
+            console.error("Erreur API structure:", errorData);
             setStructure([]);
         }
       } catch(e) { 
-          console.error(e); 
-          addToast("Erreur chargement structure", "error");
+          console.error("Erreur réseau/parsing:", e); 
+          addToast("Erreur réseau lors du chargement de la structure", "error");
       } finally {
           setIsStructureLoading(false);
       }
   }, [parcoursId, selectedYearId]); 
 
-  // ID Generator
+  // Sync Modal EC si la structure change (ex: après ajout/edit)
+  useEffect(() => {
+      if (ecModalOpen && selectedUEForEC && structure.length > 0) {
+          let found = null;
+          for (const niv of structure) {
+              for (const sem of niv.semestres) {
+                  const match = sem.ues.find(u => u.id === selectedUEForEC.id);
+                  if (match) { found = match; break; }
+              }
+              if (found) break;
+          }
+          if (found) {
+              if (JSON.stringify(found) !== JSON.stringify(selectedUEForEC)) {
+                  setSelectedUEForEC(found);
+              }
+          } else {
+              setEcModalOpen(false);
+          }
+      }
+  }, [structure, ecModalOpen, selectedUEForEC]); 
+
   const fetchNextId = async () => {
     try {
-      setGeneratedId("Chargement...");
       const res = await fetch(`${API_BASE_URL}/api/ues/next-id`);
-      if (res.ok) setGeneratedId(await res.json());
-      else setGeneratedId("Erreur");
+      if (res.ok) return await res.json();
+      return "Erreur ID";
     } catch (e) {
-      setGeneratedId("Erreur");
+      return "Erreur ID";
     }
   };
 
-  // Chargement global (Entités parentes)
   useEffect(() => {
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
-
     const fetchMeta = async () => {
       setIsLoading(true);
       try {
-        // 1. Parcours
         let currentParcours = parcours;
         if (!currentParcours || getVal(currentParcours, "Parcours_id", "id_parcours") !== parcoursId) {
             const res = await fetch(`${API_BASE_URL}/api/parcours/${parcoursId}`);
@@ -140,14 +163,11 @@ const ParcoursDetail = () => {
                 setParcours(currentParcours);
             }
         }
-
-        // 2. Parents (Mention, Etablissement, Institution)
         if (mentionId) {
             const resM = await fetch(`${API_BASE_URL}/api/mentions/${mentionId}`);
             if (resM.ok) {
                 const mData = await resM.json();
                 setMention(mData);
-                // Si la mention contient la composante
                 if (mData.composante) setEtablissement(mData.composante);
                 else if (etablissementId) {
                     const resE = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
@@ -155,92 +175,47 @@ const ParcoursDetail = () => {
                 }
             }
         }
-
         if (institutionId && !institution) {
             const resI = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
             if(resI.ok) setInstitution(await resI.json());
         }
-
-        // 3. Semestres (Métadonnées pour le select)
         const resSem = await fetch(`${API_BASE_URL}/api/metadonnees/semestres`);
         if(resSem.ok) setSemestresList(await resSem.json());
-
-      } catch (e) {
-        console.error(e);
-        addToast("Erreur chargement données", "error");
-      } finally {
-        setIsLoading(false);
-      }
+      } catch (e) { console.error(e); } finally { setIsLoading(false); }
     };
     fetchMeta();
-  }, [parcoursId, mentionId, etablissementId, institutionId]);
-
-  // Déclencher le fetch structure quand l'année change
+  }, [parcoursId, mentionId, etablissementId, institutionId, parcours]);
+  
   useEffect(() => {
-      fetchStructure();
-  }, [fetchStructure]);
+      if (parcoursId && selectedYearId && !isLoading) {
+        fetchStructure();
+      }
+  }, [selectedYearId, isLoading, parcoursId, fetchStructure]); 
 
-  // Breadcrumb
   useEffect(() => {
-        if (isLoading || !institution || !etablissement || !mention || !parcours) return;
-
-        setBreadcrumb([
-            { label: "Administration", path: "/administration" },
-            {
-                label: institution.Institution_nom,
-                path: `/institution/${institutionId}`,
-                state: { institution },
-                type: "institution" 
-            },
-            {
-                label: etablissement.Composante_abbreviation || etablissement.Composante_label,
-                path: `/institution/${institutionId}/etablissement/${etablissementId}`,
-                state: { institution, composante: etablissement },
-                type: "etablissement" 
-            },
-            {
-                label: mention.Mention_label,
-                path: `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}`,
-                state: { institution, etablissement, mention },
-                type: "mention" 
-            },
-            {
-                label: parcours.Parcours_label,
-                path: "#",
-                type: "parcours"
-            }
-        ]);
-    }, [institution, etablissement, mention, parcours, isLoading, setBreadcrumb, institutionId, etablissementId, mentionId]);
+      if (isLoading || !institution || !etablissement || !mention || !parcours) return;
+      setBreadcrumb([
+          { label: "Administration", path: "/administration" },
+          { label: institution.Institution_nom, path: `/institution/${institutionId}`, state: { institution }, type: "institution" },
+          { label: etablissement.Composante_abbreviation || etablissement.Composante_label, path: `/institution/${institutionId}/etablissement/${etablissementId}`, state: { institution, composante: etablissement }, type: "etablissement" },
+          { label: mention.Mention_label, path: `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}`, state: { institution, etablissement, mention }, type: "mention" },
+          { label: parcours.Parcours_label, path: "#", type: "parcours" }
+      ]);
+  }, [institution, etablissement, mention, parcours, isLoading, institutionId, etablissementId, mentionId]);
 
 
   // ==========================================
-  // 2. GESTION FORMULAIRE & ACTIONS
+  // 2. GESTION UE
   // ==========================================
 
   const openModal = async (semestreId = "", ue = null) => {
       setErrors({});
       if(ue) {
-          // MODE ÉDITION : On édite la MaquetteUE
           setEditUE(ue);
-          // ue.id_maquette est l'ID à utiliser pour le PUT
-          setForm({ 
-              code: ue.code, 
-              intitule: ue.intitule, 
-              credit: ue.credit, 
-              semestre_id: semestreId || "" 
-          });
-          // On ne génère pas d'ID catalogue ici car on édite l'existant
-          setGeneratedId(ue.id_catalog); 
+          setForm({ code: ue.code, intitule: ue.intitule, credit: ue.credit, semestre_id: semestreId || "" });
       } else {
-          // MODE CRÉATION
           setEditUE(null);
-          await fetchNextId(); // Récupère un ID catalogue suggéré
-          setForm({ 
-              code: "", 
-              intitule: "", 
-              credit: 5, 
-              semestre_id: semestreId || "" 
-          });
+          setForm({ code: await fetchNextId(), intitule: "", credit: 5, semestre_id: semestreId || "" });
       }
       setModalOpen(true);
   };
@@ -248,32 +223,29 @@ const ParcoursDetail = () => {
   const handleSubmit = async (e) => {
       e.preventDefault();
       setIsSubmitting(true);
-      
+      setErrors({});
       const formData = new FormData();
       formData.append("code", form.code);
       formData.append("intitule", form.intitule);
       formData.append("credit", form.credit);
       formData.append("semestre_id", form.semestre_id);
-      
-      // Contexte obligatoire pour la Maquette
       formData.append("parcours_id", parcoursId); 
       formData.append("annee_id", selectedYearId);
 
       try {
           let url = `${API_BASE_URL}/api/ues`;
           let method = "POST";
-          
           if(editUE) {
-              // Si édition, on tape sur l'ID de la MAQUETTE (pour mettre à jour crédits/lien semestre)
               url += `/${editUE.id_maquette}`; 
               method = "PUT";
           }
-          
           const res = await fetch(url, { method, body: formData });
-          if(!res.ok) throw new Error("Erreur sauvegarde");
-          
+          if(!res.ok) {
+             const errorData = await res.json();
+             throw new Error(errorData.detail || "Erreur sauvegarde UE");
+          }
           await fetchStructure();
-          addToast("Enregistré");
+          addToast("UE Enregistrée avec succès");
           setModalOpen(false);
       } catch(e) {
           setErrors({ global: e.message });
@@ -285,11 +257,9 @@ const ParcoursDetail = () => {
   const handleDelete = async () => {
     if(!ueToDelete) return;
     try {
-        // Suppression via ID MAQUETTE
         const url = `${API_BASE_URL}/api/ues/${ueToDelete.id_maquette}`; 
         const res = await fetch(url, { method: 'DELETE' });
-        if(!res.ok) throw new Error("Erreur suppression");
-        
+        if(!res.ok) throw new Error("Erreur suppression UE");
         await fetchStructure(); 
         addToast("UE retirée de la maquette.");
         setDeleteModalOpen(false); 
@@ -299,48 +269,187 @@ const ParcoursDetail = () => {
   };
 
   // ==========================================
-  // 3. RENDU
+  // 3. GESTION EC (AJOUT, SUPPRESSION, EDITION)
+  // ==========================================
+
+  const openEcModal = (ue) => {
+      setSelectedUEForEC(ue);
+      setEcForm({ code: "", intitule: "", coefficient: 1.0 });
+      setEditingEcId(null); 
+      setEcModalOpen(true);
+  };
+
+  // --- AJOUT ---
+  const handleAddEC = async (e) => {
+      e.preventDefault();
+      if (!selectedUEForEC) return;
+      setIsEcSubmitting(true);
+      setErrors({});
+
+      const formData = new FormData();
+      formData.append("maquette_ue_id", selectedUEForEC.id_maquette);
+      formData.append("code", ecForm.code);
+      formData.append("intitule", ecForm.intitule);
+      // Support décimaux
+      formData.append("coefficient", ecForm.coefficient);
+
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/ecs/`, { method: "POST", body: formData });
+          if (!res.ok) {
+              const errorData = await res.json();
+              throw new Error(errorData.detail || "Erreur ajout EC");
+          }
+          addToast("EC ajouté");
+          await fetchStructure(); 
+          setEcForm({ code: "", intitule: "", coefficient: 1.0 }); 
+      } catch (error) {
+          addToast(error.message, "error");
+          setErrors({ ec_form: error.message });
+      } finally {
+          setIsEcSubmitting(false);
+      }
+  };
+
+  // --- SUPPRESSION ---
+  const handleDeleteEC = async (maquetteEcId) => {
+      if (!window.confirm("Supprimer cet élément ?")) return;
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/ecs/${maquetteEcId}`, { method: "DELETE" });
+          if (!res.ok) throw new Error("Erreur suppression EC");
+          addToast("EC supprimé");
+          await fetchStructure();
+      } catch (e) {
+          addToast("Erreur lors de la suppression", "error");
+      }
+  };
+
+  // --- EDITION (Mise en place) ---
+  const startEditEC = (ec) => {
+      setEditingEcId(ec.id);
+      // Support décimaux (parseFloat)
+      setEditEcData({ 
+          code: ec.code, 
+          intitule: ec.intitule, 
+          coefficient: parseFloat(ec.coefficient) || 0
+      });
+  };
+
+  const cancelEditEC = () => {
+      setEditingEcId(null);
+      setEditEcData({ code: "", intitule: "", coefficient: 1.0 });
+  };
+
+  // --- SAUVEGARDE EDITION ---
+  const handleUpdateEC = async () => {
+      if(!editingEcId) return;
+      
+      const formData = new FormData();
+      formData.append("maquette_ec_id", editingEcId);
+      formData.append("code", editEcData.code);
+      formData.append("intitule", editEcData.intitule);
+      formData.append("coefficient", editEcData.coefficient);
+
+      try {
+          const res = await fetch(`${API_BASE_URL}/api/ecs/${editingEcId}`, { 
+              method: "PUT", 
+              body: formData 
+          });
+          
+          if(!res.ok) {
+              const data = await res.json();
+              throw new Error(data.detail || "Erreur lors de la modification");
+          }
+          
+          addToast("EC modifié avec succès");
+          setEditingEcId(null); 
+          await fetchStructure(); 
+      } catch(e) {
+          addToast(e.message, "error");
+      }
+  };
+
+  // ==========================================
+  // 4. LOGIQUE DYNAMIQUE DES CRÉDITS (PLAFOND 30 ECTS)
+  // ==========================================
+
+  /**
+   * Calcule la valeur maximale que le crédit de l'UE peut prendre,
+   * en tenant compte du plafond de 30 ECTS du semestre et des autres UEs.
+   */
+  const maxCreditsAllowed = useMemo(() => {
+    // Si aucun semestre n'est sélectionné, la limite est 30
+    if (!form.semestre_id) return 30; 
+
+    // 1. Trouver le semestre ciblé
+    let targetSemestre = null;
+    for (const niv of structure) {
+        const s = niv.semestres.find(sem => sem.id === form.semestre_id);
+        if (s) { targetSemestre = s; break; }
+    }
+    if (!targetSemestre) return 30;
+
+    // 2. Calculer les crédits TOTAUX des autres UEs dans ce semestre.
+    let usedCreditsExcludingCurrentUE = targetSemestre.ues.reduce((acc, ue) => {
+        // Exclure l'UE actuellement éditée (si elle est dans ce semestre)
+        if (editUE && editUE.id === ue.id) {
+            return acc; 
+        }
+        return acc + (parseFloat(ue.credit) || 0);
+    }, 0);
+
+    // 3. Le crédit maximal que cette UE peut prendre est : 30 - crédits des autres.
+    // C'est la valeur MAX du slider.
+    return Math.max(0, 30 - usedCreditsExcludingCurrentUE);
+  }, [form.semestre_id, structure, editUE]);
+
+  /**
+   * Effet pour corriger la valeur du formulaire si elle dépasse le nouveau maximum autorisé
+   * (ex: après un changement de semestre dans le formulaire)
+   */
+  useEffect(() => {
+     // Si la valeur du formulaire dépasse la valeur max autorisée ET si le max autorisé est > 0
+     if (form.credit > maxCreditsAllowed && maxCreditsAllowed > 0) {
+         setForm(prev => ({ ...prev, credit: maxCreditsAllowed }));
+     }
+     // Si la valeur du formulaire est 0 alors que le max est > 0, on la remet à 1 (le minimum)
+     if (form.credit === 0 && maxCreditsAllowed > 0) {
+        setForm(prev => ({ ...prev, credit: 1 }));
+     }
+  }, [maxCreditsAllowed, form.credit]);
+
+
+  // ==========================================
+  // 5. RENDU
   // ==========================================
 
   if (isLoading) return <div className="p-10 text-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600 inline" /></div>;
   if (!parcours) return <div className="p-10 text-center text-red-500">Parcours introuvable</div>;
 
-  const currentNiveau = activeNiveauId 
-    ? structure.find(niv => niv.niveau_id === activeNiveauId) 
-    : structure[0];
-  
-  // Données d'affichage (Note: on pourrait utiliser des données historiques si l'API structure renvoyait un champ meta)
+  const currentNiveau = activeNiveauId ? structure.find(niv => niv.niveau_id === activeNiveauId) : structure[0];
   const parcoursLabel = getVal(parcours, "Parcours_label", "nom_parcours");
   const parcoursCode = getVal(parcours, "Parcours_code", "code");
   const logoPath = getVal(parcours, "Parcours_logo_path", "logo_path");
   const mentionLabel = mention ? getVal(mention, "Mention_label", "label") : mentionId;
-
-  // Récupérer le label de l'année sélectionnée pour l'affichage
   const selectedYearObj = yearsList.find(y => y.AnneeUniversitaire_id === selectedYearId);
   const selectedYearLabel = selectedYearObj ? selectedYearObj.AnneeUniversitaire_annee : "Année inconnue";
+  
+  // La valeur max du range sera toujours au minimum 1 (sauf si maxCreditsAllowed est 0)
+  const maxRangeValue = Math.max(1, maxCreditsAllowed);
 
   return (
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       
-      {/* --- HEADER --- */}
+      {/* HEADER */}
       <div className={AppStyles.header.container}>
          <div className="flex flex-col">
             <h2 className={AppStyles.mainTitle}>Détail du Parcours</h2>
             <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-               <FaCalendarAlt /> Gestion pour l'année : <strong>{selectedYearLabel}</strong>
+               <FaCalendarAlt /> Année : <strong>{selectedYearLabel}</strong>
             </p>
          </div>
-
-         {/* 🟢 SÉLECTEUR D'ANNÉE */}
          <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200 shadow-sm">
-            <span className="text-xs font-bold text-gray-500 uppercase px-2">Année :</span>
-            <select 
-                value={selectedYearId} 
-                onChange={(e) => setSelectedYearId(e.target.value)}
-                className="bg-transparent text-sm font-bold text-blue-700 outline-none cursor-pointer py-1 pr-2"
-                disabled={isStructureLoading}
-            >
+            <select value={selectedYearId} onChange={(e) => setSelectedYearId(e.target.value)} className="bg-transparent text-sm font-bold text-blue-700 outline-none cursor-pointer py-1 pr-2">
                 {yearsList.map(y => (
                     <option key={y.AnneeUniversitaire_id} value={y.AnneeUniversitaire_id}>
                         {y.AnneeUniversitaire_annee} {y.AnneeUniversitaire_is_active ? " (Active)" : ""}
@@ -351,13 +460,11 @@ const ParcoursDetail = () => {
       </div>
       <hr className={AppStyles.separator} />
 
-      {/* --- FICHE INFO --- */}
+      {/* FICHE INFO */}
       <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1, y:0}} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 mb-6 relative overflow-hidden">
-          {/* Filigrane année en fond */}
           <div className="absolute -right-4 -top-6 text-[100px] font-black text-gray-50 opacity-5 pointer-events-none select-none">
               {selectedYearLabel.split('-')[0]}
           </div>
-
           <div className="flex-shrink-0 mx-auto md:mx-0 z-10">
              {logoPath ? (
                  <img src={`${API_BASE_URL}${logoPath}`} className="w-24 h-24 object-contain rounded-lg border bg-gray-50 p-2" alt="Logo" />
@@ -382,10 +489,9 @@ const ParcoursDetail = () => {
           </div>
       </motion.div>
 
-      {/* --- STRUCTURE PÉDAGOGIQUE --- */}
+      {/* STRUCTURE PÉDAGOGIQUE */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 min-h-[500px] flex flex-col relative">
           
-          {/* Loader Overlay */}
           {isStructureLoading && (
               <div className="absolute inset-0 bg-white/60 z-20 flex items-center justify-center backdrop-blur-[1px] rounded-xl">
                   <SpinnerIcon className="animate-spin text-3xl text-blue-600" />
@@ -404,14 +510,12 @@ const ParcoursDetail = () => {
                       </button>
                   ))
               ) : (
-                  // Si vide, on n'affiche pas d'onglet spécifique, le corps gère l'état vide
                   <div className="p-4 text-sm text-gray-400 italic">Maquette vide</div>
               )}
           </div>
 
-          {/* Barre d'outils */}
+          {/* Toolbar */}
           <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col sm:flex-row justify-between items-center gap-4">
-               {/* Recherche */}
                <div className="relative w-full sm:w-72">
                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                        <FaSearch className="text-gray-400 text-xs" />
@@ -424,8 +528,6 @@ const ParcoursDetail = () => {
                         className="pl-8 pr-3 py-2 w-full border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
                    />
                </div>
-
-               {/* Toggle View */}
                <div className="flex bg-gray-200 p-1 rounded-lg">
                    <button onClick={() => setView("grid")} className={`p-1.5 rounded-md flex items-center gap-2 text-xs font-bold transition-all ${view === "grid" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
                        <ThIcon />
@@ -436,20 +538,16 @@ const ParcoursDetail = () => {
                </div>
           </div>
 
-          {/* Contenu Semestres & UE */}
+          {/* Contenu */}
           <div className="p-6 bg-gray-50/30 space-y-8 flex-1">
               <AnimatePresence mode="wait">
                 {structure.length > 0 && currentNiveau ? (
                     <motion.div 
                         key={`${currentNiveau.niveau_id}-${selectedYearId}`} 
-                        initial={{ opacity: 0, x: 20 }} 
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20 }} 
-                        transition={{ duration: 0.2 }}
+                        initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} 
                         className="space-y-8 relative w-full"
                     >
                         {currentNiveau.semestres.map((sem) => {
-                            // Filtrage local
                             const filteredUEs = sem.ues.filter(ue => 
                                 ue.intitule.toLowerCase().includes(searchTerm.toLowerCase()) || 
                                 ue.code.toLowerCase().includes(searchTerm.toLowerCase())
@@ -457,103 +555,108 @@ const ParcoursDetail = () => {
 
                             if (searchTerm && filteredUEs.length === 0) return null;
 
+                            // CALCUL TOTAL CREDITS DU SEMESTRE (Pour l'affichage)
+                            const totalCreditsSemestre = sem.ues.reduce((acc, curr) => acc + (parseFloat(curr.credit) || 0), 0);
+
                             return (
                                 <div key={sem.id} className="space-y-4">
-                                    {/* Header Semestre */}
                                     <div className="flex items-center justify-between border-b border-gray-200 pb-2">
                                         <div className="flex items-center gap-3">
                                             <span className="px-3 py-1 bg-gray-800 text-white text-xs font-bold rounded-full shadow-sm">
                                                 Semestre {sem.numero}
                                             </span>
-                                            <span className="text-gray-400 text-sm hidden sm:block">| {filteredUEs.length} Unité(s)</span>
+                                            {/* INFO CREDITS AJOUTÉE ICI */}
+                                            <div className="flex items-center gap-3 text-gray-400 text-sm hidden sm:flex">
+                                                <span className="flex items-center gap-1">
+                                                    <FaLayerGroup className="text-xs"/> {sem.ues.length} Unité(s)
+                                                </span>
+                                                <span className="w-px h-4 bg-gray-300 mx-1"></span>
+                                                <span className="flex items-center gap-1 font-medium text-blue-600">
+                                                    <FaGraduationCap className="text-xs"/> {totalCreditsSemestre} Crédits
+                                                </span>
+                                            </div>
                                         </div>
-                                        
-                                        <button 
-                                            onClick={() => openModal(sem.id)} 
-                                            className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg shadow-sm font-bold flex items-center gap-2 transition-colors"
-                                        >
+                                        <button onClick={() => openModal(sem.id)} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg shadow-sm font-bold flex items-center gap-2 transition-colors">
                                             <FaPlus className="text-[10px]" /> Ajouter UE
                                         </button>
                                     </div>
                                     
-                                    {/* Grille / Liste des UE */}
+                                    {/* CONTENU LISTE / GRILLE */}
                                     {filteredUEs.length === 0 ? (
                                         <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50/50">
                                             <p className="text-gray-400 text-sm">Aucune UE pour ce semestre en {selectedYearLabel}.</p>
                                         </div>
                                     ) : view === "grid" ? (
-                                        // --- VUE GRILLE ---
                                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4">
                                             {filteredUEs.map(ue => (
-                                                <div key={ue.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-blue-300 transition-all relative group flex flex-col h-full min-h-[160px]">
-                                                    <div className="flex justify-between items-start mb-3">
-                                                        <div className="flex flex-col">
-                                                            <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 inline-block mb-1 w-fit">
-                                                                {ue.code}
-                                                            </span>
-                                                            <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center mb-1">
-                                                                <FaBook className="text-lg"/>
-                                                            </div>
-                                                        </div>
+                                                <div key={ue.id} className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:border-blue-300 transition-all relative group flex flex-col h-full min-h-[180px]">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <span className="text-[10px] font-mono font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200">
+                                                            {ue.code}
+                                                        </span>
                                                         <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-white/90 backdrop-blur-sm p-1 rounded-lg shadow-sm border border-gray-100 absolute top-3 right-3 z-10">
-                                                            <button onClick={() => openModal(sem.id, ue)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Modifier"><FaEdit /></button>
-                                                            <button onClick={() => {setUeToDelete(ue); setDeleteModalOpen(true);}} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Supprimer"><FaTrash /></button>
+                                                            <button onClick={() => openModal(sem.id, ue)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Modifier UE"><FaEdit /></button>
+                                                            <button onClick={() => {setUeToDelete(ue); setDeleteModalOpen(true);}} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors" title="Supprimer UE"><FaTrash /></button>
                                                         </div>
                                                     </div>
 
-                                                    <h3 className="font-bold text-gray-800 text-sm leading-tight mb-2 flex-grow" title={ue.intitule}>
+                                                    <h3 className="font-bold text-gray-800 text-sm leading-tight mb-3" title={ue.intitule}>
                                                         {ue.intitule}
                                                     </h3>
                                                     
-                                                    <div className="flex items-end justify-between mt-auto border-t border-gray-50 pt-3">
-                                                        <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                                                            <FaCube className="text-gray-300" /> 
-                                                            <span>{ue.ec_count} EC</span>
+                                                    {/* LISTE EC MINIATURE */}
+                                                    <div className="flex-grow mb-3">
+                                                        {ue.ecs && ue.ecs.length > 0 ? (
+                                                            <div className="bg-gray-50 rounded border border-gray-100 p-2 space-y-1">
+                                                                {ue.ecs.slice(0, 3).map(ec => (
+                                                                    <div key={ec.id} className="flex justify-between items-center text-[10px] text-gray-600">
+                                                                        <span className="truncate max-w-[120px] font-medium" title={ec.intitule}>• {ec.intitule}</span>
+                                                                        {/* Affichage des décimaux */}
+                                                                        <span className="text-gray-400 font-mono text-[9px]">x{parseFloat(ec.coefficient).toFixed(2).replace(/\.?0+$/, '')}</span>
+                                                                    </div>
+                                                                ))}
+                                                                {ue.ecs.length > 3 && (
+                                                                    <div className="text-[9px] text-blue-500 font-bold text-center pt-1 cursor-pointer" onClick={() => openEcModal(ue)}>
+                                                                        + {ue.ecs.length - 3} autres...
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
+                                                            <div className="text-[10px] text-gray-400 italic pl-1 flex items-center gap-1">
+                                                                <FaMinus className="text-[8px]"/> Aucun module associé
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* FOOTER UE CARD */}
+                                                    <div className="flex items-center justify-between mt-auto border-t border-gray-50 pt-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1" title="Nombre d'éléments constitutifs">
+                                                                <FaLayerGroup /> {ue.ecs?.length || 0}
+                                                            </span>
+                                                            <button 
+                                                                onClick={() => openEcModal(ue)}
+                                                                className="text-gray-400 hover:text-blue-600 bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-200 p-1.5 rounded-md transition-all shadow-sm"
+                                                                title="Gérer les modules (EC)"
+                                                            >
+                                                                <FaCog className="text-xs" />
+                                                            </button>
                                                         </div>
+
                                                         <div className="text-right">
-                                                            <span className="block text-2xl font-extrabold text-blue-600 leading-none">
+                                                            <span className="block text-xl font-extrabold text-gray-700 leading-none">
                                                                 {ue.credit}
                                                             </span>
-                                                            <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wide">Crédits</span>
+                                                            <span className="text-[8px] font-bold text-gray-400 uppercase tracking-wide">Crédits</span>
                                                         </div>
                                                     </div>
                                                 </div>
                                             ))}
                                         </div>
                                     ) : (
-                                        // --- VUE LISTE ---
-                                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                                            <table className="w-full text-left text-sm">
-                                                <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-semibold border-b border-gray-200">
-                                                    <tr>
-                                                        <th className="px-4 py-3 w-24">Code</th>
-                                                        <th className="px-4 py-3">Intitulé de l'UE</th>
-                                                        <th className="px-4 py-3 text-center w-20">Crédits</th>
-                                                        <th className="px-4 py-3 text-center w-20">EC</th>
-                                                        <th className="px-4 py-3 text-right w-24">Actions</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-gray-100">
-                                                    {filteredUEs.map(ue => (
-                                                        <tr key={ue.id} className="hover:bg-blue-50/30 transition-colors group">
-                                                            <td className="px-4 py-3 font-mono text-xs font-bold text-gray-600">{ue.code}</td>
-                                                            <td className="px-4 py-3 font-medium text-gray-800">{ue.intitule}</td>
-                                                            <td className="px-4 py-3 text-center">
-                                                                <span className="inline-flex items-center justify-center bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-md min-w-[30px]">
-                                                                    {ue.credit}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-4 py-3 text-center text-gray-500 text-xs">{ue.ec_count}</td>
-                                                            <td className="px-4 py-3 text-right">
-                                                                <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                                                                    <button className="text-gray-400 hover:text-blue-600 p-1" onClick={() => openModal(sem.id, ue)}><FaEdit /></button>
-                                                                    <button className="text-gray-400 hover:text-red-600 p-1" onClick={() => {setUeToDelete(ue); setDeleteModalOpen(true);}}><FaTrash /></button>
-                                                                </div>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
+                                        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm p-4">
+                                            {/* Liste View Placeholder */}
+                                            <p className="text-center text-sm text-gray-500">Vue liste non implémentée (exemple)</p>
                                         </div>
                                     )}
                                 </div>
@@ -561,18 +664,14 @@ const ParcoursDetail = () => {
                         })}
                     </motion.div>
                 ) : (
-                    // --- ETAT VIDE (EMPTY STATE) ---
                     !isStructureLoading && (
                         <div className="text-center py-16 flex flex-col items-center">
                             <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-blue-200 mb-4">
                                 <FaLayerGroup className="text-3xl" />
                             </div>
                             <h3 className="text-lg font-bold text-gray-700">Aucune structure définie</h3>
-                            <p className="text-sm text-gray-500 mt-2 max-w-md">
-                                Le parcours n'a pas encore de maquette pédagogique (UE) pour l'année universitaire <strong>{selectedYearLabel}</strong>.
-                            </p>
-                            <button onClick={() => openModal()} className="mt-6 bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:bg-blue-700 flex items-center gap-2 transition-transform hover:scale-105">
-                                <PlusIcon /> Initialiser la maquette {selectedYearLabel}
+                            <button onClick={() => openModal()} className="mt-6 bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:bg-blue-700 flex items-center gap-2">
+                                <PlusIcon /> Initialiser la maquette
                             </button>
                         </div>
                     )
@@ -583,62 +682,225 @@ const ParcoursDetail = () => {
 
       {/* --- MODALES --- */}
 
-      {/* 1. Modale Création/Edition UE */}
+      {/* 1. MODALE UE (Ajout/Modification) - Avec limite de crédits dynamique */}
       <DraggableModal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editUE ? "Modifier UE" : "Nouvelle UE"}>
           <form onSubmit={handleSubmit} className="space-y-4">
               <div className="bg-blue-50 p-2 rounded text-xs text-blue-800 border border-blue-100 mb-2">
-                 Cette UE sera rattachée à l'année : <strong>{selectedYearLabel}</strong>
+                 Rattachée à l'année : <strong>{selectedYearLabel}</strong>
               </div>
-
-              {errors.global && <div className="text-red-600 text-sm bg-red-50 p-2 rounded border border-red-100">{errors.global}</div>}
-              
-              <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">Identifiant (Auto)</label>
-                  <input type="text" value={generatedId} disabled className="w-full bg-gray-100 text-gray-500 border border-gray-300 rounded px-3 py-2 text-sm font-mono cursor-not-allowed"/>
-              </div>
-
+              {errors.global && <div className="text-red-600 text-sm p-2 bg-red-50 border border-red-100 rounded">{errors.global}</div>}
               <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Semestre <span className="text-red-500">*</span></label>
-                  <select name="semestre_id" value={form.semestre_id} onChange={e => setForm({...form, semestre_id: e.target.value})} className={AppStyles.input.formControl}>
+                  <select name="semestre_id" value={form.semestre_id} onChange={e => setForm({...form, semestre_id: e.target.value})} className={AppStyles.input.formControl} required>
                       <option value="">-- Sélectionner --</option>
-                      {semestresList.map(s => (
-                          <option key={s.Semestre_id} value={s.Semestre_id}>{s.Semestre_numero}</option>
-                      ))}
+                      {semestresList.map(s => <option key={s.Semestre_id} value={s.Semestre_id}>{s.Semestre_numero}</option>)}
                   </select>
               </div>
-
               <div className="grid grid-cols-3 gap-4">
                   <div className="col-span-1">
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">Code</label>
-                      <input name="code" value={form.code} onChange={e => setForm({...form, code: e.target.value})} className={AppStyles.input.formControl} placeholder="UE_..." />
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">Code <span className="text-red-500">*</span></label>
+                      <input name="code" value={form.code} onChange={e => setForm({...form, code: e.target.value})} className={AppStyles.input.formControl} placeholder="UE_..." required/>
                   </div>
                   <div className="col-span-2">
-                      <label className="block text-sm font-semibold text-gray-700 mb-1">Intitulé</label>
-                      <input name="intitule" value={form.intitule} onChange={e => setForm({...form, intitule: e.target.value})} className={AppStyles.input.formControl} />
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">Intitulé <span className="text-red-500">*</span></label>
+                      <input name="intitule" value={form.intitule} onChange={e => setForm({...form, intitule: e.target.value})} className={AppStyles.input.formControl} required/>
                   </div>
               </div>
-
+              
+              {/* SECTION CRÉDITS (DYNAMIQUE) */}
               <div>
-                  <div className="flex justify-between mb-1"><label className="text-sm font-semibold text-gray-700">Crédits</label><span className="text-sm font-bold text-blue-600">{form.credit}</span></div>
-                  <input type="range" min="1" max="30" value={form.credit} onChange={e => setForm({...form, credit: parseInt(e.target.value)})} className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
-                  <div className="flex justify-between text-[10px] text-gray-400 mt-1"><span>1</span><span>15</span><span>30</span></div>
+                  <div className="flex justify-between mb-1">
+                      <label className="text-sm font-semibold text-gray-700">
+                          Crédits <span className="text-xs font-normal text-gray-500">(Max pour cette UE: {maxRangeValue})</span>
+                      </label>
+                      <span className={`text-sm font-bold ${maxCreditsAllowed === 0 ? "text-red-500" : form.credit === maxCreditsAllowed ? "text-orange-500" : "text-blue-600"}`}>
+                          {form.credit} / 30
+                      </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                      <input 
+                        type="range" 
+                        min="1" 
+                        // La valeur max est la valeur max calculée (Max 30, min 1)
+                        max={maxRangeValue} 
+                        value={form.credit} 
+                        disabled={maxCreditsAllowed === 0}
+                        onChange={e => setForm({...form, credit: parseInt(e.target.value)})} 
+                        className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${maxCreditsAllowed === 0 ? "bg-gray-200" : "bg-gray-200 accent-blue-600"}`} 
+                      />
+                  </div>
+                  
+                  {maxCreditsAllowed === 0 && (
+                      <p className="text-xs text-red-500 mt-1">
+                          Ce semestre a atteint 30 crédits. Vous devez d'abord réduire une autre UE.
+                      </p>
+                  )}
               </div>
+              {/* FIN SECTION CRÉDITS */}
 
               <button type="submit" disabled={isSubmitting} className={`w-full ${AppStyles.button.primary} mt-2 justify-center`}>
-                  {isSubmitting ? <SpinnerIcon className="animate-spin inline mr-2"/> : <FaPlus className="inline mr-2"/>} Enregistrer
+                  {isSubmitting ? <SpinnerIcon className="animate-spin inline mr-2"/> : <FaSave className="inline mr-2"/>} Enregistrer
               </button>
           </form>
       </DraggableModal>
 
-      {/* 2. Modale Suppression */}
+      {/* 2. MODALE CONFIRMATION SUPPRESSION UE */}
       <ConfirmModal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} title="Supprimer UE">
           <p>Confirmer la suppression de l'UE <b>{ueToDelete?.code}</b> pour l'année {selectedYearLabel} ?</p>
-          <p className="text-xs text-red-500 mt-2">Attention : Cela supprimera également les notes associées pour cette année.</p>
           <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setDeleteModalOpen(false)} className={AppStyles.button.secondary}>Annuler</button>
               <button onClick={handleDelete} className={AppStyles.button.danger}>Supprimer</button>
           </div>
       </ConfirmModal>
+
+      {/* 3. MODALE : GESTION DES EC (MASTER-DETAIL AVEC EDITION) */}
+      <DraggableModal 
+          isOpen={ecModalOpen} 
+          onClose={() => setEcModalOpen(false)} 
+          title={selectedUEForEC ? `Modules de ${selectedUEForEC.code}` : "Gestion Modules"}
+          width="max-w-4xl" 
+      >
+          <div className="flex flex-col md:flex-row gap-6 h-[500px]">
+              
+              {/* Colonne Gauche : Liste des ECs */}
+              <div className="flex-1 flex flex-col border-r border-gray-100 pr-4">
+                  <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center justify-between">
+                      <span><FaListUl className="text-blue-500 inline mr-2"/> Éléments Constitutifs</span>
+                      {/* Affichage du total des coefficients (même si décimaux) */}
+                      <span className="text-xs font-normal text-gray-500">Coeff Total: <span className="text-blue-600 font-bold ml-1">{selectedUEForEC?.ecs?.reduce((acc, curr) => acc + (parseFloat(curr.coefficient) || 0), 0).toFixed(2).replace(/\.?0+$/, '') || 0}</span></span>
+                  </h4>
+                  
+                  <div className="flex-1 overflow-y-auto pr-2 space-y-2">
+                      {selectedUEForEC?.ecs && selectedUEForEC.ecs.length > 0 ? (
+                          selectedUEForEC.ecs.map((ec) => (
+                              <div key={ec.id} className={`bg-white border rounded-lg p-2 shadow-sm transition-all ${editingEcId === ec.id ? "border-blue-500 ring-1 ring-blue-200" : "border-gray-200 hover:border-blue-300 group"}`}>
+                                  
+                                  {/* --- MODE ÉDITION --- */}
+                                  {editingEcId === ec.id ? (
+                                      <div className="flex flex-col gap-2">
+                                          <div className="flex gap-2">
+                                              <input 
+                                                className="w-24 text-xs border border-gray-300 rounded px-2 py-1 font-mono focus:border-blue-500 outline-none" 
+                                                value={editEcData.code}
+                                                onChange={(e) => setEditEcData({...editEcData, code: e.target.value})}
+                                                placeholder="Code"
+                                              />
+                                              <input 
+                                                type="number" min="0" step="0.01" // Support décimal
+                                                className="w-16 text-xs border border-gray-300 rounded px-2 py-1 text-center font-bold text-blue-600 focus:border-blue-500 outline-none"
+                                                value={editEcData.coefficient}
+                                                // Utilisation de parseFloat
+                                                onChange={(e) => setEditEcData({...editEcData, coefficient: parseFloat(e.target.value) || 0})}
+                                                title="Coefficient"
+                                              />
+                                          </div>
+                                          <textarea 
+                                              className="w-full text-xs border border-gray-300 rounded px-2 py-1 focus:border-blue-500 outline-none resize-none"
+                                              rows="2"
+                                              value={editEcData.intitule}
+                                              onChange={(e) => setEditEcData({...editEcData, intitule: e.target.value})}
+                                              placeholder="Intitulé"
+                                          />
+                                          <div className="flex justify-end gap-2 mt-1">
+                                              <button onClick={cancelEditEC} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1"><FaTimes className="inline mr-1"/>Annuler</button>
+                                              <button onClick={handleUpdateEC} className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 font-bold"><FaCheck className="inline mr-1"/>Sauvegarder</button>
+                                          </div>
+                                      </div>
+                                  ) : (
+                                      /* --- MODE LECTURE --- */
+                                      <div className="flex justify-between items-center">
+                                          <div className="flex-1">
+                                              <div className="flex items-center gap-2 mb-1">
+                                                  <span className="text-[10px] font-mono bg-gray-100 px-1 rounded text-gray-600 font-bold">{ec.code}</span>
+                                                  {/* Affichage des décimaux */}
+                                                  <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 rounded">Coef. {parseFloat(ec.coefficient).toFixed(2).replace(/\.?0+$/, '')}</span>
+                                              </div>
+                                              <p className="text-sm font-medium text-gray-800 line-clamp-2">{ec.intitule}</p>
+                                          </div>
+                                          
+                                          {/* Actions (Visibles au survol du groupe) */}
+                                          <div className="flex flex-col gap-1 ml-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                              <button 
+                                                  onClick={() => startEditEC(ec)}
+                                                  className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                                                  title="Modifier"
+                                              >
+                                                  <FaEdit size={12}/>
+                                              </button>
+                                              <button 
+                                                  onClick={() => handleDeleteEC(ec.id)}
+                                                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                                                  title="Supprimer"
+                                              >
+                                                  <FaTrash size={12}/>
+                                              </button>
+                                          </div>
+                                      </div>
+                                  )}
+                              </div>
+                          ))
+                      ) : (
+                          <div className="text-center py-10 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                              <p className="text-gray-400 text-xs italic">Aucun module.</p>
+                          </div>
+                      )}
+                  </div>
+              </div>
+
+              {/* Colonne Droite : Formulaire Ajout EC */}
+              <div className={`w-full md:w-64 flex flex-col bg-gray-50 p-4 rounded-lg border border-gray-100 flex-shrink-0 ${editingEcId ? "opacity-50 pointer-events-none grayscale" : ""}`}>
+                  <h4 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+                      <FaPlus className="text-green-600"/> Nouveau Module
+                  </h4>
+                  
+                  <form onSubmit={handleAddEC} className="space-y-3 flex-1 flex flex-col">
+                       {errors.ec_form && <div className="text-red-600 text-xs p-2 bg-red-100 border border-red-200 rounded">{errors.ec_form}</div>}
+                       <div>
+                           <label className="block text-xs font-bold text-gray-500 mb-1">Code EC <span className="text-red-500">*</span></label>
+                           <input 
+                                required
+                                className={AppStyles.input.formControl} 
+                                value={ecForm.code}
+                                onChange={e => setEcForm({...ecForm, code: e.target.value})}
+                                placeholder="ex: MATH101"
+                           />
+                       </div>
+                       <div>
+                           <label className="block text-xs font-bold text-gray-500 mb-1">Intitulé <span className="text-red-500">*</span></label>
+                           <textarea 
+                                required
+                                className={`${AppStyles.input.formControl} min-h-[80px]`} 
+                                value={ecForm.intitule}
+                                onChange={e => setEcForm({...ecForm, intitule: e.target.value})}
+                                placeholder="Nom du module..."
+                           />
+                       </div>
+                       <div>
+                           <label className="block text-xs font-bold text-gray-500 mb-1">Coefficient</label>
+                           <input 
+                                type="number" min="0" step="0.01" // Support décimal
+                                className={AppStyles.input.formControl} 
+                                value={ecForm.coefficient}
+                                // Utilisation de parseFloat
+                                onChange={e => setEcForm({...ecForm, coefficient: parseFloat(e.target.value) || 0})}
+                           />
+                       </div>
+
+                       <div className="mt-auto pt-4">
+                           <button 
+                                type="submit" 
+                                disabled={isEcSubmitting}
+                                className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700 flex justify-center items-center gap-2"
+                           >
+                               {isEcSubmitting ? <SpinnerIcon className="animate-spin"/> : <FaPlus />} Ajouter
+                           </button>
+                       </div>
+                  </form>
+              </div>
+          </div>
+      </DraggableModal>
+
     </div>
   );
 };

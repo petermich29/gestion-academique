@@ -9,14 +9,16 @@ from app.database import get_db
 
 router = APIRouter(prefix="/ecs", tags=["Elements Constitutifs (Maquette)"])
 
-@router.post("/", response_model=schemas.MaquetteElementConstitutifSchema) # <-- CORRECTION
+@router.post("/", response_model=schemas.MaquetteElementConstitutifSchema)
 def add_ec_to_maquette(
-    maquette_ue_id: str = Form(...), # ID de la MaquetteUE parente
+    maquette_ue_id: str = Form(...), 
     code: str = Form(...),
     intitule: str = Form(...),
-    coefficient: int = Form(1),
+    # CHANGEMENT : int -> float
+    coefficient: float = Form(1.0), 
     db: Session = Depends(get_db)
 ):
+    # ... (Le reste de la logique reste identique)
     # 1. Gestion Catalogue EC
     code_clean = code.strip().upper()
     ec_catalog = db.query(models.ElementConstitutif).filter(models.ElementConstitutif.EC_code == code_clean).first()
@@ -49,6 +51,42 @@ def add_ec_to_maquette(
     except Exception as e:
         db.rollback()
         raise HTTPException(500, str(e))
+    
+@router.put("/{maquette_ec_id}", response_model=schemas.StructureEC)
+def update_ec_in_maquette(
+    maquette_ec_id: str,
+    code: str = Form(...),
+    intitule: str = Form(...),
+    # CHANGEMENT : int -> float
+    coefficient: float = Form(...),
+    db: Session = Depends(get_db)
+):
+    # ... (Le reste de la logique reste identique)
+    mec = db.query(models.MaquetteEC).filter(models.MaquetteEC.MaquetteEC_id == maquette_ec_id).first()
+    if not mec:
+        raise HTTPException(404, "Élément constitutif introuvable dans la maquette")
+
+    mec.MaquetteEC_coefficient = coefficient
+
+    if mec.ec_catalog:
+        mec.ec_catalog.EC_code = code.strip().upper()
+        mec.ec_catalog.EC_intitule = intitule.strip()
+
+    try:
+        db.commit()
+        db.refresh(mec)
+        
+        return schemas.StructureEC(
+            id=mec.MaquetteEC_id,
+            id_catalog=mec.ec_catalog.EC_id,
+            code=mec.ec_catalog.EC_code,
+            intitule=mec.ec_catalog.EC_intitule,
+            coefficient=mec.MaquetteEC_coefficient
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, str(e))
+    
 
 @router.delete("/{maquette_ec_id}", status_code=204)
 def delete_ec_from_maquette(maquette_ec_id: str, db: Session = Depends(get_db)):
