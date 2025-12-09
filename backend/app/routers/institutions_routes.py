@@ -11,6 +11,14 @@ from app.models import Institution, InstitutionHistorique, AnneeUniversitaire
 from app.schemas import HistoriqueDetailSchema, HistoriqueUpdateSchema, InstitutionSchema
 from app.database import get_db
 
+from app.models import (
+    Composante, ComposanteHistorique, 
+    Mention, MentionHistorique, 
+    Parcours, ParcoursHistorique, ParcoursNiveau,
+    MaquetteUE, MaquetteEC, VolumeHoraire # Ajout des modèles enfants pour la cascade
+) 
+import uuid # Pour la génération des IDs des nouvelles MaquetteUE et MaquetteEC
+
 router = APIRouter(
     prefix="/institutions",
     tags=["Institutions"],
@@ -364,3 +372,264 @@ def update_institution_history_line(id_institution: str, annee_id: str, payload:
     db.commit()
     return {"message": "Mis à jour"}
 
+# ------------------------------------
+#   FONCTION UTILITAIRE DE COPIE DES DONNÉES HISTORIQUES
+# ------------------------------------
+
+def _copy_history_data(source_entity, source_hist, entity_type):
+    """
+    Récupère les données à copier, soit depuis l'historique source, soit depuis l'entité de base.
+    """
+    mapping = {}
+    if entity_type == "institution":
+        mapping = {
+            "nom": ("Institution_nom", "Institution_nom_historique"),
+            "code": ("Institution_code", "Institution_code_historique"),
+            "description": ("Institution_description", "Institution_description_historique"),
+            "abbreviation": ("Institution_abbreviation", "Institution_abbreviation_historique")
+        }
+    elif entity_type == "composante":
+        mapping = {
+            "label": ("Composante_label", "Composante_label_historique"),
+            "code": ("Composante_code", "Composante_code_historique"),
+            "description": ("Composante_description", "Composante_description_historique"),
+            "abbreviation": ("Composante_abbreviation", "Composante_abbreviation_historique")
+        }
+    elif entity_type == "mention":
+        mapping = {
+            "label": ("Mention_label", "Mention_label_historique"),
+            "code": ("Mention_code", "Mention_code_historique"),
+            "description": ("Mention_description", "Mention_description_historique"),
+            "abbreviation": ("Mention_abbreviation", "Mention_abbreviation_historique")
+        }
+    elif entity_type == "parcours":
+        mapping = {
+            "label": ("Parcours_label", "Parcours_label_historique"),
+            "code": ("Parcours_code", "Parcours_code_historique"),
+            "description": ("Parcours_description", "Parcours_description_historique"),
+            "abbreviation": ("Parcours_abbreviation", "Parcours_abbreviation_historique")
+        }
+
+    data = {}
+    for _, (current_field, hist_field) in mapping.items():
+        # Priorité à l'historique source, sinon l'entité de base
+        data[hist_field] = getattr(source_hist, hist_field) if source_hist else getattr(source_entity, current_field, None)
+    
+    return data
+
+
+# ------------------------------------
+#   NOUVEL ENDPOINT DE DUPLICATION (CASCADE)
+# ------------------------------------
+
+@router.post("/{id_institution}/duplicate")
+def duplicate_institution_structure(
+    id_institution: str,
+    source_annee_id: str = Body(..., embed=True),
+    target_annee_id: str = Body(..., embed=True),
+    db: Session = Depends(get_db)
+):
+    """
+    Duplique toute la structure (Institution -> Maquettes -> Volumes Horaires)
+    """
+    
+    inst = db.query(Institution).filter(Institution.Institution_id == id_institution).first()
+    if not inst: raise HTTPException(404, "Institution introuvable")
+    
+    # Vérification des années
+    if source_annee_id == target_annee_id:
+        raise HTTPException(400, "L'année source et l'année cible doivent être différentes.")
+
+    results = {
+        "institution": "Ignoré",
+        "composantes_created": 0,
+        "mentions_created": 0,
+        "parcours_created": 0,
+        "parcours_niveaux_created": 0,
+        "maquettes_ue_created": 0,
+        "maquettes_ec_created": 0,
+        "volumes_horaires_created": 0 # Ajout tracking
+    }
+
+    try:
+        # 1. INSTITUTION
+        hist_inst_exists = db.query(InstitutionHistorique).filter(
+            InstitutionHistorique.Institution_id_fk == id_institution,
+            InstitutionHistorique.AnneeUniversitaire_id_fk == target_annee_id
+        ).first()
+        
+        source_hist_inst = db.query(InstitutionHistorique).filter(
+            InstitutionHistorique.Institution_id_fk == id_institution,
+            InstitutionHistorique.AnneeUniversitaire_id_fk == source_annee_id
+        ).first()
+
+        if not hist_inst_exists:
+            data = _copy_history_data(inst, source_hist_inst, "institution")
+            new_hist = InstitutionHistorique(
+                Institution_id_fk=id_institution,
+                AnneeUniversitaire_id_fk=target_annee_id,
+                **data
+            )
+            db.add(new_hist)
+            results["institution"] = "Dupliqué"
+
+        # 2. COMPOSANTES
+        composantes = db.query(Composante).filter(Composante.Institution_id_fk == id_institution).all()
+        for comp in composantes:
+            hist_comp_exists = db.query(ComposanteHistorique).filter(
+                ComposanteHistorique.Composante_id_fk == comp.Composante_id,
+                ComposanteHistorique.AnneeUniversitaire_id_fk == target_annee_id
+            ).first()
+            source_hist_comp = db.query(ComposanteHistorique).filter(
+                ComposanteHistorique.Composante_id_fk == comp.Composante_id,
+                ComposanteHistorique.AnneeUniversitaire_id_fk == source_annee_id
+            ).first()
+
+            if not hist_comp_exists:
+                data = _copy_history_data(comp, source_hist_comp, "composante")
+                new_hist = ComposanteHistorique(
+                    Composante_id_fk=comp.Composante_id,
+                    AnneeUniversitaire_id_fk=target_annee_id,
+                    **data
+                )
+                db.add(new_hist)
+                results["composantes_created"] += 1
+            
+            # 3. MENTIONS
+            mentions = db.query(Mention).filter(Mention.Composante_id_fk == comp.Composante_id).all()
+            for ment in mentions:
+                hist_ment_exists = db.query(MentionHistorique).filter(
+                    MentionHistorique.Mention_id_fk == ment.Mention_id,
+                    MentionHistorique.AnneeUniversitaire_id_fk == target_annee_id
+                ).first()
+                source_hist_ment = db.query(MentionHistorique).filter(
+                    MentionHistorique.Mention_id_fk == ment.Mention_id,
+                    MentionHistorique.AnneeUniversitaire_id_fk == source_annee_id
+                ).first()
+
+                if not hist_ment_exists:
+                    data = _copy_history_data(ment, source_hist_ment, "mention")
+                    new_hist = MentionHistorique(
+                        Mention_id_fk=ment.Mention_id,
+                        AnneeUniversitaire_id_fk=target_annee_id,
+                        **data
+                    )
+                    db.add(new_hist)
+                    results["mentions_created"] += 1
+
+                # 4. PARCOURS
+                parcours_list = db.query(Parcours).filter(Parcours.Mention_id_fk == ment.Mention_id).all()
+                for parc in parcours_list:
+                    hist_parc_exists = db.query(ParcoursHistorique).filter(
+                        ParcoursHistorique.Parcours_id_fk == parc.Parcours_id,
+                        ParcoursHistorique.AnneeUniversitaire_id_fk == target_annee_id
+                    ).first()
+                    source_hist_parc = db.query(ParcoursHistorique).filter(
+                        ParcoursHistorique.Parcours_id_fk == parc.Parcours_id,
+                        ParcoursHistorique.AnneeUniversitaire_id_fk == source_annee_id
+                    ).first()
+
+                    if not hist_parc_exists:
+                        data = _copy_history_data(parc, source_hist_parc, "parcours")
+                        new_hist = ParcoursHistorique(
+                            Parcours_id_fk=parc.Parcours_id,
+                            AnneeUniversitaire_id_fk=target_annee_id,
+                            **data
+                        )
+                        db.add(new_hist)
+                        results["parcours_created"] += 1
+
+                    # =========================================================
+                    # 4.5. FIX: DUPLICATION DES NIVEAUX (ParcoursNiveau)
+                    # CE SONT LES POINTS D'ENTRÉE POUR L'API DE STRUCTURE
+                    # =========================================================
+                    source_parcours_niveaux = db.query(ParcoursNiveau).filter(
+                        ParcoursNiveau.Parcours_id_fk == parc.Parcours_id,
+                        ParcoursNiveau.AnneeUniversitaire_id_fk == source_annee_id
+                    ).all()
+
+                    for src_pn in source_parcours_niveaux:
+                        # 4.5.1. Vérifier si l'entrée ParcoursNiveau existe déjà
+                        exists_pn = db.query(ParcoursNiveau).filter(
+                            ParcoursNiveau.Parcours_id_fk == parc.Parcours_id,
+                            ParcoursNiveau.Niveau_id_fk == src_pn.Niveau_id_fk, # Le Niveau (L1, L2, M1)
+                            ParcoursNiveau.AnneeUniversitaire_id_fk == target_annee_id
+                        ).first()
+
+                        if not exists_pn:
+                            new_pn_id = f"PN_{uuid.uuid4().hex[:12]}"
+                            new_pn = ParcoursNiveau(
+                                ParcoursNiveau_id=new_pn_id,
+                                Parcours_id_fk=parc.Parcours_id,
+                                Niveau_id_fk=src_pn.Niveau_id_fk,
+                                AnneeUniversitaire_id_fk=target_annee_id, # L'année cible
+                                # Copier l'ordre si la colonne existe (important pour l'affichage)
+                                ParcoursNiveau_ordre=getattr(src_pn, 'ParcoursNiveau_ordre', None) 
+                            )
+                            db.add(new_pn)
+                            results["parcours_niveaux_created"] += 1
+
+                    # 5. MAQUETTE UE
+                    source_maquettes_ue = db.query(MaquetteUE).filter(
+                        MaquetteUE.Parcours_id_fk == parc.Parcours_id,
+                        MaquetteUE.AnneeUniversitaire_id_fk == source_annee_id
+                    ).all()
+
+                    for source_m_ue in source_maquettes_ue:
+                        # Vérifier existence cible
+                        exists_m_ue = db.query(MaquetteUE).filter(
+                            MaquetteUE.Parcours_id_fk == parc.Parcours_id,
+                            MaquetteUE.AnneeUniversitaire_id_fk == target_annee_id,
+                            MaquetteUE.UE_id_fk == source_m_ue.UE_id_fk
+                        ).first()
+
+                        if not exists_m_ue:
+                            new_m_ue_id = f"MUE_{uuid.uuid4().hex[:12]}"
+                            new_m_ue = MaquetteUE(
+                                MaquetteUE_id=new_m_ue_id,
+                                Parcours_id_fk=parc.Parcours_id,
+                                AnneeUniversitaire_id_fk=target_annee_id,
+                                UE_id_fk=source_m_ue.UE_id_fk,
+                                Semestre_id_fk=source_m_ue.Semestre_id_fk,
+                                MaquetteUE_credit=source_m_ue.MaquetteUE_credit
+                            )
+                            db.add(new_m_ue)
+                            results["maquettes_ue_created"] += 1
+
+                            # 6. MAQUETTE EC
+                            source_maquettes_ec = db.query(MaquetteEC).filter(
+                                MaquetteEC.MaquetteUE_id_fk == source_m_ue.MaquetteUE_id
+                            ).all()
+                            
+                            for source_m_ec in source_maquettes_ec:
+                                new_m_ec_id = f"MEC_{uuid.uuid4().hex[:12]}"
+                                new_m_ec = MaquetteEC(
+                                    MaquetteEC_id=new_m_ec_id,
+                                    MaquetteUE_id_fk=new_m_ue_id,
+                                    EC_id_fk=source_m_ec.EC_id_fk,
+                                    MaquetteEC_coefficient=source_m_ec.MaquetteEC_coefficient
+                                )
+                                db.add(new_m_ec)
+                                results["maquettes_ec_created"] += 1
+
+                                # 7. VOLUMES HORAIRES (Crucial !)
+                                source_vols = db.query(VolumeHoraire).filter(
+                                    VolumeHoraire.MaquetteEC_id_fk == source_m_ec.MaquetteEC_id
+                                ).all()
+
+                                for vol in source_vols:
+                                    new_vol = VolumeHoraire(
+                                        Volume_id=f"VOL_{uuid.uuid4().hex[:12]}",
+                                        MaquetteEC_id_fk=new_m_ec_id,
+                                        TypeEnseignement_id_fk=vol.TypeEnseignement_id_fk,
+                                        Volume_heures=vol.Volume_heures
+                                    )
+                                    db.add(new_vol)
+                                    results["volumes_horaires_created"] += 1
+
+        db.commit()
+        return {"message": "Duplication terminée avec succès.", "details": results}
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Erreur lors de la duplication: {str(e)}")

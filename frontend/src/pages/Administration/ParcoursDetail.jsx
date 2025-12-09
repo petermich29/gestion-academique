@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   FaChevronLeft, FaLayerGroup, FaGraduationCap,
   FaTrash, FaEdit, FaPlus, FaSearch, FaCalendarAlt,
-  FaListUl, FaSave, FaMinus, FaTimes, FaCheck, FaCog
+  FaListUl, FaSave, FaMinus, FaTimes, FaCheck, FaCog, 
+  FaSync 
 } from "react-icons/fa";
 
 import { 
@@ -84,6 +85,7 @@ const ParcoursDetail = () => {
   // ==========================================
 
   useEffect(() => {
+    // Sélectionner l'année active par défaut si aucune sélectionnée
     if (yearsList && yearsList.length > 0 && !selectedYearId) {
         const active = yearsList.find(y => y.AnneeUniversitaire_is_active);
         if (active) setSelectedYearId(active.AnneeUniversitaire_id);
@@ -91,37 +93,53 @@ const ParcoursDetail = () => {
     }
   }, [yearsList, selectedYearId]);
 
+  // Fonction de chargement de la structure (UEs, Semestres)
   const fetchStructure = useCallback(async () => {
       if (!selectedYearId || !parcoursId) return;
       setIsStructureLoading(true);
       try {
-        const resStruct = await fetch(`${API_BASE_URL}/api/parcours/${parcoursId}/structure?annee_id=${selectedYearId}`);
+        // CORRECTION MAJEURE ICI :
+        // Ajout d'un timestamp (_t) pour forcer l'URL à être unique à chaque appel.
+        // Cela empêche le navigateur de renvoyer une version cachée "vide" après duplication.
+        const timestamp = new Date().getTime();
+        const url = `${API_BASE_URL}/api/parcours/${parcoursId}/structure?annee_id=${selectedYearId}&_t=${timestamp}`;
+
+        const resStruct = await fetch(url, {
+            headers: {
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        });
+
         if(resStruct.ok) {
             const data = await resStruct.json();
             setStructure(data);
             
+            // Logique pour conserver l'onglet actif si possible, sinon prendre le premier
             setActiveNiveauId(prev => {
-                if (data.length === 0) return null;
+                if (!data || data.length === 0) return null;
+                // Si l'onglet précédent existe toujours dans la nouvelle structure, on le garde
                 const exists = data.find(d => d.niveau_id === prev);
                 return exists ? prev : data[0].niveau_id;
             });
         } else {
-            const errorData = await resStruct.json();
-            console.error("Erreur API structure:", errorData);
+            console.error("Erreur API structure");
             setStructure([]);
         }
       } catch(e) { 
           console.error("Erreur réseau/parsing:", e); 
-          addToast("Erreur réseau lors du chargement de la structure", "error");
+          addToast("Erreur chargement structure", "error");
       } finally {
           setIsStructureLoading(false);
       }
   }, [parcoursId, selectedYearId]); 
 
-  // Sync Modal EC si la structure change (ex: après ajout/edit)
+  // Synchronisation de la modale EC quand la structure change
   useEffect(() => {
       if (ecModalOpen && selectedUEForEC && structure.length > 0) {
           let found = null;
+          // On cherche l'UE mise à jour dans la nouvelle structure
           for (const niv of structure) {
               for (const sem of niv.semestres) {
                   const match = sem.ues.find(u => u.id === selectedUEForEC.id);
@@ -129,11 +147,14 @@ const ParcoursDetail = () => {
               }
               if (found) break;
           }
+          // Si trouvée, on met à jour les données de la modale
           if (found) {
+              // Vérification simple pour éviter boucle infinie
               if (JSON.stringify(found) !== JSON.stringify(selectedUEForEC)) {
                   setSelectedUEForEC(found);
               }
           } else {
+              // Si l'UE n'existe plus, on ferme la modale
               setEcModalOpen(false);
           }
       }
@@ -143,19 +164,22 @@ const ParcoursDetail = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/ues/next-id`);
       if (res.ok) return await res.json();
-      return "Erreur ID";
+      return "UE_NEW";
     } catch (e) {
-      return "Erreur ID";
+      return "UE_ERR";
     }
   };
 
+  // Chargement initial des métadonnées (Parcours, Mention, Semestres...)
   useEffect(() => {
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
+    
     const fetchMeta = async () => {
       setIsLoading(true);
       try {
         let currentParcours = parcours;
+        // Charger Parcours si non présent
         if (!currentParcours || getVal(currentParcours, "Parcours_id", "id_parcours") !== parcoursId) {
             const res = await fetch(`${API_BASE_URL}/api/parcours/${parcoursId}`);
             if(res.ok) {
@@ -163,6 +187,7 @@ const ParcoursDetail = () => {
                 setParcours(currentParcours);
             }
         }
+        // Charger Mention et Établissement
         if (mentionId) {
             const resM = await fetch(`${API_BASE_URL}/api/mentions/${mentionId}`);
             if (resM.ok) {
@@ -175,23 +200,28 @@ const ParcoursDetail = () => {
                 }
             }
         }
+        // Charger Institution
         if (institutionId && !institution) {
             const resI = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
             if(resI.ok) setInstitution(await resI.json());
         }
+        // Charger liste semestres (S1, S2...)
         const resSem = await fetch(`${API_BASE_URL}/api/metadonnees/semestres`);
         if(resSem.ok) setSemestresList(await resSem.json());
+
       } catch (e) { console.error(e); } finally { setIsLoading(false); }
     };
     fetchMeta();
-  }, [parcoursId, mentionId, etablissementId, institutionId, parcours]);
+  }, [parcoursId, mentionId, etablissementId, institutionId, parcours, institution]);
   
+  // Déclencheur chargement structure
   useEffect(() => {
       if (parcoursId && selectedYearId && !isLoading) {
         fetchStructure();
       }
   }, [selectedYearId, isLoading, parcoursId, fetchStructure]); 
 
+  // Breadcrumb
   useEffect(() => {
       if (isLoading || !institution || !etablissement || !mention || !parcours) return;
       setBreadcrumb([
@@ -201,7 +231,7 @@ const ParcoursDetail = () => {
           { label: mention.Mention_label, path: `/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}`, state: { institution, etablissement, mention }, type: "mention" },
           { label: parcours.Parcours_label, path: "#", type: "parcours" }
       ]);
-  }, [institution, etablissement, mention, parcours, isLoading, institutionId, etablissementId, mentionId]);
+  }, [institution, etablissement, mention, parcours, isLoading, institutionId, etablissementId, mentionId, setBreadcrumb]);
 
 
   // ==========================================
@@ -245,7 +275,7 @@ const ParcoursDetail = () => {
              throw new Error(errorData.detail || "Erreur sauvegarde UE");
           }
           await fetchStructure();
-          addToast("UE Enregistrée avec succès");
+          addToast(editUE ? "UE Modifiée" : "UE Ajoutée");
           setModalOpen(false);
       } catch(e) {
           setErrors({ global: e.message });
@@ -264,12 +294,12 @@ const ParcoursDetail = () => {
         addToast("UE retirée de la maquette.");
         setDeleteModalOpen(false); 
     } catch(e) {
-        addToast("Erreur", "error");
+        addToast("Erreur lors de la suppression", "error");
     }
   };
 
   // ==========================================
-  // 3. GESTION EC (AJOUT, SUPPRESSION, EDITION)
+  // 3. GESTION EC 
   // ==========================================
 
   const openEcModal = (ue) => {
@@ -279,7 +309,6 @@ const ParcoursDetail = () => {
       setEcModalOpen(true);
   };
 
-  // --- AJOUT ---
   const handleAddEC = async (e) => {
       e.preventDefault();
       if (!selectedUEForEC) return;
@@ -290,7 +319,6 @@ const ParcoursDetail = () => {
       formData.append("maquette_ue_id", selectedUEForEC.id_maquette);
       formData.append("code", ecForm.code);
       formData.append("intitule", ecForm.intitule);
-      // Support décimaux
       formData.append("coefficient", ecForm.coefficient);
 
       try {
@@ -300,6 +328,7 @@ const ParcoursDetail = () => {
               throw new Error(errorData.detail || "Erreur ajout EC");
           }
           addToast("EC ajouté");
+          // Recharger la structure mettra à jour l'UE sélectionnée via le useEffect de synchro
           await fetchStructure(); 
           setEcForm({ code: "", intitule: "", coefficient: 1.0 }); 
       } catch (error) {
@@ -310,7 +339,6 @@ const ParcoursDetail = () => {
       }
   };
 
-  // --- SUPPRESSION ---
   const handleDeleteEC = async (maquetteEcId) => {
       if (!window.confirm("Supprimer cet élément ?")) return;
       try {
@@ -323,10 +351,8 @@ const ParcoursDetail = () => {
       }
   };
 
-  // --- EDITION (Mise en place) ---
   const startEditEC = (ec) => {
       setEditingEcId(ec.id);
-      // Support décimaux (parseFloat)
       setEditEcData({ 
           code: ec.code, 
           intitule: ec.intitule, 
@@ -339,7 +365,6 @@ const ParcoursDetail = () => {
       setEditEcData({ code: "", intitule: "", coefficient: 1.0 });
   };
 
-  // --- SAUVEGARDE EDITION ---
   const handleUpdateEC = async () => {
       if(!editingEcId) return;
       
@@ -369,18 +394,12 @@ const ParcoursDetail = () => {
   };
 
   // ==========================================
-  // 4. LOGIQUE DYNAMIQUE DES CRÉDITS (PLAFOND 30 ECTS)
+  // 4. LOGIQUE CREDITS
   // ==========================================
 
-  /**
-   * Calcule la valeur maximale que le crédit de l'UE peut prendre,
-   * en tenant compte du plafond de 30 ECTS du semestre et des autres UEs.
-   */
   const maxCreditsAllowed = useMemo(() => {
-    // Si aucun semestre n'est sélectionné, la limite est 30
     if (!form.semestre_id) return 30; 
 
-    // 1. Trouver le semestre ciblé
     let targetSemestre = null;
     for (const niv of structure) {
         const s = niv.semestres.find(sem => sem.id === form.semestre_id);
@@ -388,30 +407,20 @@ const ParcoursDetail = () => {
     }
     if (!targetSemestre) return 30;
 
-    // 2. Calculer les crédits TOTAUX des autres UEs dans ce semestre.
     let usedCreditsExcludingCurrentUE = targetSemestre.ues.reduce((acc, ue) => {
-        // Exclure l'UE actuellement éditée (si elle est dans ce semestre)
         if (editUE && editUE.id === ue.id) {
             return acc; 
         }
         return acc + (parseFloat(ue.credit) || 0);
     }, 0);
 
-    // 3. Le crédit maximal que cette UE peut prendre est : 30 - crédits des autres.
-    // C'est la valeur MAX du slider.
     return Math.max(0, 30 - usedCreditsExcludingCurrentUE);
   }, [form.semestre_id, structure, editUE]);
 
-  /**
-   * Effet pour corriger la valeur du formulaire si elle dépasse le nouveau maximum autorisé
-   * (ex: après un changement de semestre dans le formulaire)
-   */
   useEffect(() => {
-     // Si la valeur du formulaire dépasse la valeur max autorisée ET si le max autorisé est > 0
      if (form.credit > maxCreditsAllowed && maxCreditsAllowed > 0) {
          setForm(prev => ({ ...prev, credit: maxCreditsAllowed }));
      }
-     // Si la valeur du formulaire est 0 alors que le max est > 0, on la remet à 1 (le minimum)
      if (form.credit === 0 && maxCreditsAllowed > 0) {
         setForm(prev => ({ ...prev, credit: 1 }));
      }
@@ -433,7 +442,6 @@ const ParcoursDetail = () => {
   const selectedYearObj = yearsList.find(y => y.AnneeUniversitaire_id === selectedYearId);
   const selectedYearLabel = selectedYearObj ? selectedYearObj.AnneeUniversitaire_annee : "Année inconnue";
   
-  // La valeur max du range sera toujours au minimum 1 (sauf si maxCreditsAllowed est 0)
   const maxRangeValue = Math.max(1, maxCreditsAllowed);
 
   return (
@@ -445,11 +453,26 @@ const ParcoursDetail = () => {
          <div className="flex flex-col">
             <h2 className={AppStyles.mainTitle}>Détail du Parcours</h2>
             <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-               <FaCalendarAlt /> Année : <strong>{selectedYearLabel}</strong>
+               <FaCalendarAlt /> Année affichée : <strong>{selectedYearLabel}</strong>
             </p>
          </div>
          <div className="flex items-center gap-2 bg-white p-1 rounded-lg border border-gray-200 shadow-sm">
-            <select value={selectedYearId} onChange={(e) => setSelectedYearId(e.target.value)} className="bg-transparent text-sm font-bold text-blue-700 outline-none cursor-pointer py-1 pr-2">
+            {/* BOUTON RAFRAICHISSEMENT */}
+            <button 
+                onClick={fetchStructure} 
+                title="Rafraîchir les données (Force)" 
+                className="p-2 text-gray-500 hover:text-blue-600 transition-colors"
+            >
+                <FaSync className={isStructureLoading ? "animate-spin text-blue-600" : ""} />
+            </button>
+            
+            <div className="w-px h-6 bg-gray-200 mx-1"></div>
+            
+            <select 
+                value={selectedYearId} 
+                onChange={(e) => setSelectedYearId(e.target.value)} 
+                className="bg-transparent text-sm font-bold text-blue-700 outline-none cursor-pointer py-1 pr-2"
+            >
                 {yearsList.map(y => (
                     <option key={y.AnneeUniversitaire_id} value={y.AnneeUniversitaire_id}>
                         {y.AnneeUniversitaire_annee} {y.AnneeUniversitaire_is_active ? " (Active)" : ""}
@@ -555,7 +578,6 @@ const ParcoursDetail = () => {
 
                             if (searchTerm && filteredUEs.length === 0) return null;
 
-                            // CALCUL TOTAL CREDITS DU SEMESTRE (Pour l'affichage)
                             const totalCreditsSemestre = sem.ues.reduce((acc, curr) => acc + (parseFloat(curr.credit) || 0), 0);
 
                             return (
@@ -565,7 +587,6 @@ const ParcoursDetail = () => {
                                             <span className="px-3 py-1 bg-gray-800 text-white text-xs font-bold rounded-full shadow-sm">
                                                 Semestre {sem.numero}
                                             </span>
-                                            {/* INFO CREDITS AJOUTÉE ICI */}
                                             <div className="flex items-center gap-3 text-gray-400 text-sm hidden sm:flex">
                                                 <span className="flex items-center gap-1">
                                                     <FaLayerGroup className="text-xs"/> {sem.ues.length} Unité(s)
@@ -581,7 +602,6 @@ const ParcoursDetail = () => {
                                         </button>
                                     </div>
                                     
-                                    {/* CONTENU LISTE / GRILLE */}
                                     {filteredUEs.length === 0 ? (
                                         <div className="text-center py-6 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50/50">
                                             <p className="text-gray-400 text-sm">Aucune UE pour ce semestre en {selectedYearLabel}.</p>
@@ -604,14 +624,12 @@ const ParcoursDetail = () => {
                                                         {ue.intitule}
                                                     </h3>
                                                     
-                                                    {/* LISTE EC MINIATURE */}
                                                     <div className="flex-grow mb-3">
                                                         {ue.ecs && ue.ecs.length > 0 ? (
                                                             <div className="bg-gray-50 rounded border border-gray-100 p-2 space-y-1">
                                                                 {ue.ecs.slice(0, 3).map(ec => (
                                                                     <div key={ec.id} className="flex justify-between items-center text-[10px] text-gray-600">
                                                                         <span className="truncate max-w-[120px] font-medium" title={ec.intitule}>• {ec.intitule}</span>
-                                                                        {/* Affichage des décimaux */}
                                                                         <span className="text-gray-400 font-mono text-[9px]">x{parseFloat(ec.coefficient).toFixed(2).replace(/\.?0+$/, '')}</span>
                                                                     </div>
                                                                 ))}
@@ -628,7 +646,6 @@ const ParcoursDetail = () => {
                                                         )}
                                                     </div>
 
-                                                    {/* FOOTER UE CARD */}
                                                     <div className="flex items-center justify-between mt-auto border-t border-gray-50 pt-3">
                                                         <div className="flex items-center gap-2">
                                                             <span className="bg-gray-100 text-gray-600 text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1" title="Nombre d'éléments constitutifs">
@@ -655,7 +672,6 @@ const ParcoursDetail = () => {
                                         </div>
                                     ) : (
                                         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm p-4">
-                                            {/* Liste View Placeholder */}
                                             <p className="text-center text-sm text-gray-500">Vue liste non implémentée (exemple)</p>
                                         </div>
                                     )}
@@ -670,7 +686,10 @@ const ParcoursDetail = () => {
                                 <FaLayerGroup className="text-3xl" />
                             </div>
                             <h3 className="text-lg font-bold text-gray-700">Aucune structure définie</h3>
-                            <button onClick={() => openModal()} className="mt-6 bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:bg-blue-700 flex items-center gap-2">
+                            <p className="text-sm text-gray-500 mt-1 mb-6">
+                                Pour l'année universitaire <strong>{selectedYearLabel}</strong>
+                            </p>
+                            <button onClick={() => openModal()} className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold shadow-md hover:bg-blue-700 flex items-center gap-2">
                                 <PlusIcon /> Initialiser la maquette
                             </button>
                         </div>
@@ -682,7 +701,7 @@ const ParcoursDetail = () => {
 
       {/* --- MODALES --- */}
 
-      {/* 1. MODALE UE (Ajout/Modification) - Avec limite de crédits dynamique */}
+      {/* 1. MODALE UE */}
       <DraggableModal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editUE ? "Modifier UE" : "Nouvelle UE"}>
           <form onSubmit={handleSubmit} className="space-y-4">
               <div className="bg-blue-50 p-2 rounded text-xs text-blue-800 border border-blue-100 mb-2">
@@ -707,7 +726,6 @@ const ParcoursDetail = () => {
                   </div>
               </div>
               
-              {/* SECTION CRÉDITS (DYNAMIQUE) */}
               <div>
                   <div className="flex justify-between mb-1">
                       <label className="text-sm font-semibold text-gray-700">
@@ -722,7 +740,6 @@ const ParcoursDetail = () => {
                       <input 
                         type="range" 
                         min="1" 
-                        // La valeur max est la valeur max calculée (Max 30, min 1)
                         max={maxRangeValue} 
                         value={form.credit} 
                         disabled={maxCreditsAllowed === 0}
@@ -733,11 +750,10 @@ const ParcoursDetail = () => {
                   
                   {maxCreditsAllowed === 0 && (
                       <p className="text-xs text-red-500 mt-1">
-                          Ce semestre a atteint 30 crédits. Vous devez d'abord réduire une autre UE.
+                          Ce semestre a atteint 30 crédits.
                       </p>
                   )}
               </div>
-              {/* FIN SECTION CRÉDITS */}
 
               <button type="submit" disabled={isSubmitting} className={`w-full ${AppStyles.button.primary} mt-2 justify-center`}>
                   {isSubmitting ? <SpinnerIcon className="animate-spin inline mr-2"/> : <FaSave className="inline mr-2"/>} Enregistrer
@@ -754,7 +770,7 @@ const ParcoursDetail = () => {
           </div>
       </ConfirmModal>
 
-      {/* 3. MODALE : GESTION DES EC (MASTER-DETAIL AVEC EDITION) */}
+      {/* 3. MODALE : GESTION DES EC */}
       <DraggableModal 
           isOpen={ecModalOpen} 
           onClose={() => setEcModalOpen(false)} 
@@ -767,7 +783,6 @@ const ParcoursDetail = () => {
               <div className="flex-1 flex flex-col border-r border-gray-100 pr-4">
                   <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center justify-between">
                       <span><FaListUl className="text-blue-500 inline mr-2"/> Éléments Constitutifs</span>
-                      {/* Affichage du total des coefficients (même si décimaux) */}
                       <span className="text-xs font-normal text-gray-500">Coeff Total: <span className="text-blue-600 font-bold ml-1">{selectedUEForEC?.ecs?.reduce((acc, curr) => acc + (parseFloat(curr.coefficient) || 0), 0).toFixed(2).replace(/\.?0+$/, '') || 0}</span></span>
                   </h4>
                   
@@ -775,8 +790,6 @@ const ParcoursDetail = () => {
                       {selectedUEForEC?.ecs && selectedUEForEC.ecs.length > 0 ? (
                           selectedUEForEC.ecs.map((ec) => (
                               <div key={ec.id} className={`bg-white border rounded-lg p-2 shadow-sm transition-all ${editingEcId === ec.id ? "border-blue-500 ring-1 ring-blue-200" : "border-gray-200 hover:border-blue-300 group"}`}>
-                                  
-                                  {/* --- MODE ÉDITION --- */}
                                   {editingEcId === ec.id ? (
                                       <div className="flex flex-col gap-2">
                                           <div className="flex gap-2">
@@ -787,10 +800,9 @@ const ParcoursDetail = () => {
                                                 placeholder="Code"
                                               />
                                               <input 
-                                                type="number" min="0" step="0.01" // Support décimal
+                                                type="number" min="0" step="0.01" 
                                                 className="w-16 text-xs border border-gray-300 rounded px-2 py-1 text-center font-bold text-blue-600 focus:border-blue-500 outline-none"
                                                 value={editEcData.coefficient}
-                                                // Utilisation de parseFloat
                                                 onChange={(e) => setEditEcData({...editEcData, coefficient: parseFloat(e.target.value) || 0})}
                                                 title="Coefficient"
                                               />
@@ -808,18 +820,15 @@ const ParcoursDetail = () => {
                                           </div>
                                       </div>
                                   ) : (
-                                      /* --- MODE LECTURE --- */
                                       <div className="flex justify-between items-center">
                                           <div className="flex-1">
                                               <div className="flex items-center gap-2 mb-1">
                                                   <span className="text-[10px] font-mono bg-gray-100 px-1 rounded text-gray-600 font-bold">{ec.code}</span>
-                                                  {/* Affichage des décimaux */}
                                                   <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 rounded">Coef. {parseFloat(ec.coefficient).toFixed(2).replace(/\.?0+$/, '')}</span>
                                               </div>
                                               <p className="text-sm font-medium text-gray-800 line-clamp-2">{ec.intitule}</p>
                                           </div>
                                           
-                                          {/* Actions (Visibles au survol du groupe) */}
                                           <div className="flex flex-col gap-1 ml-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                                               <button 
                                                   onClick={() => startEditEC(ec)}
@@ -879,10 +888,9 @@ const ParcoursDetail = () => {
                        <div>
                            <label className="block text-xs font-bold text-gray-500 mb-1">Coefficient</label>
                            <input 
-                                type="number" min="0" step="0.01" // Support décimal
+                                type="number" min="0" step="0.01" 
                                 className={AppStyles.input.formControl} 
                                 value={ecForm.coefficient}
-                                // Utilisation de parseFloat
                                 onChange={e => setEcForm({...ecForm, coefficient: parseFloat(e.target.value) || 0})}
                            />
                        </div>

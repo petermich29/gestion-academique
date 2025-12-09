@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useOutletContext, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { FaUniversity, FaChevronLeft, FaHistory } from "react-icons/fa";
+import { FaUniversity, FaChevronLeft, FaHistory, FaCopy } from "react-icons/fa"; // Ajout FaCopy
 
 import {
   LibraryIcon, ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon
@@ -22,7 +22,7 @@ const API_BASE_URL = "http://127.0.0.1:8000";
 const InstitutionDetail = () => {
   const { id: institutionId } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();              // <-- AJOUT IMPORTANT
+  const location = useLocation();
   const { setBreadcrumb } = useBreadcrumb();
 
   const { selectedYearsIds, setSelectedYearsIds, yearsList } = useAdministration();
@@ -34,6 +34,9 @@ const InstitutionDetail = () => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const firstLoadRef = useRef(true);
+  
+  // Ajout pour forcer le rafraîchissement après duplication
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const [view, setView] = useState("grid");
   const [search, setSearch] = useState("");
@@ -43,6 +46,13 @@ const InstitutionDetail = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [historyManagerOpen, setHistoryManagerOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+
+  // --- NOUVEAUX STATES POUR LA DUPLICATION ---
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
+  const [duplicateTargetYear, setDuplicateTargetYear] = useState("");
+  const [duplicateSourceYear, setDuplicateSourceYear] = useState("");
+  const [isDuplicating, setIsDuplicating] = useState(false);
+  const [duplicateStatus, setDuplicateStatus] = useState(null);
 
   const [editComposante, setEditComposante] = useState(null);
   const [composanteToDelete, setComposanteToDelete] = useState(null);
@@ -111,23 +121,60 @@ const InstitutionDetail = () => {
     };
 
     fetchData();
-  }, [institutionId, selectedYearsIds]);
+  // Ajout de refreshKey dans les dépendances pour recharger après duplication
+  }, [institutionId, selectedYearsIds, refreshKey]);
 
   // --------------------------
-  // BREADCRUMB CORRIGÉ
+  // BREADCRUMB
   // --------------------------
   useEffect(() => {
     if (setBreadcrumb) {
-      // Si on n'a pas l'institution et que ça charge, on met "..." pour éviter d'afficher l'ID
       const labelStr = institution?.Institution_nom || (isLoading ? "..." : institutionId);
-
       setBreadcrumb([
         { label: "Administration", path: "/administration" },
         { label: labelStr, path: `/institution/${institutionId}` , type: "institution" },
       ]);
     }
-    // Ajout de isLoading dans les dépendances
   }, [institution, setBreadcrumb, institutionId, isLoading]);
+
+  // --------------------------
+  // LOGIQUE DUPLICATION
+  // --------------------------
+  const handleDuplicate = async (e) => {
+    e.preventDefault();
+    if (!duplicateSourceYear || !duplicateTargetYear) {
+      addToast("Sélectionnez les deux années.", "error");
+      return;
+    }
+    setIsDuplicating(true);
+    setDuplicateStatus(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}/duplicate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_annee_id: duplicateSourceYear,
+          target_annee_id: duplicateTargetYear
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Erreur duplication");
+
+      addToast("Structure dupliquée avec succès !");
+      setDuplicateStatus(data.details);
+      
+      // Rafraîchir si l'année cible est affichée
+      if (selectedYearsIds.includes(duplicateTargetYear)) {
+          setRefreshKey(k => k + 1);
+      }
+    } catch (err) {
+      addToast(err.message, "error");
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
 
   // --------------------------
   // FORMULAIRE
@@ -173,7 +220,6 @@ const InstitutionDetail = () => {
       const nextId = await fetchNextComposanteId();
       setForm(prev => ({ ...prev, id: nextId }));
     }
-
     setModalOpen(true);
   };
 
@@ -184,7 +230,6 @@ const InstitutionDetail = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     const newErrors = {};
     if (!form.code.trim()) newErrors.code = "Requis";
     if (!form.label.trim()) newErrors.label = "Requis";
@@ -221,24 +266,19 @@ const InstitutionDetail = () => {
         const err = await res.json();
         throw new Error(err.detail || "Erreur serveur");
       }
-
       const saved = await res.json();
-
       saved.Composante_type = form.type_id || null;
       if (form.type_id) {
         const selectedType = typesComposante.find(t => t.TypeComposante_id === form.type_id);
         if (selectedType) saved.type_composante = selectedType;
       }
-
       setComposantes(prev =>
         editComposante
           ? prev.map(c => c.Composante_id === saved.Composante_id ? saved : c)
           : [...prev, saved]
       );
-
       addToast(editComposante ? "Établissement modifié" : "Établissement créé");
       closeModal();
-
     } catch (e) {
       addToast(e.message, "error");
     }
@@ -246,12 +286,8 @@ const InstitutionDetail = () => {
 
   const handleDelete = async () => {
     if (deleteInput !== composanteToDelete?.Composante_code) return;
-
     try {
-      const res = await fetch(`${API_BASE_URL}/api/composantes/${composanteToDelete.Composante_id}`, {
-        method: "DELETE"
-      });
-
+      const res = await fetch(`${API_BASE_URL}/api/composantes/${composanteToDelete.Composante_id}`, { method: "DELETE" });
       if (res.ok) {
         setComposantes(prev => prev.filter(c => c.Composante_id !== composanteToDelete.Composante_id));
         addToast("Supprimé avec succès");
@@ -259,7 +295,6 @@ const InstitutionDetail = () => {
       } else {
         addToast("Impossible de supprimer", "error");
       }
-
     } catch (e) {
       addToast("Erreur connexion", "error");
     }
@@ -330,6 +365,22 @@ const InstitutionDetail = () => {
               selectedYearIds={selectedYearsIds}
               onChange={setSelectedYearsIds}
             />
+            
+            {/* BOUTON DUPLICATION */}
+            <button 
+                onClick={() => {
+                    const activeY = yearsList.find(y => y.AnneeUniversitaire_is_active);
+                    if(activeY) setDuplicateSourceYear(activeY.AnneeUniversitaire_id);
+                    setDuplicateTargetYear("");
+                    setDuplicateStatus(null);
+                    setDuplicateModalOpen(true);
+                }}
+                className={`${AppStyles.button.secondary} flex items-center gap-1 bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100`}
+                title="Dupliquer la structure vers une autre année"
+            >
+                <FaCopy />
+            </button>
+
             {isRefreshing && (
               <span className="absolute left-full ml-2 text-xs text-gray-500">MAJ…</span>
             )}
@@ -565,6 +616,52 @@ const InstitutionDetail = () => {
           title={`Historique : ${editComposante.Composante_label}`}
         />
       )}
+
+      {/* MODAL DUPLICATION */}
+      <DraggableModal isOpen={duplicateModalOpen} onClose={() => setDuplicateModalOpen(false)} title="Dupliquer la structure académique">
+         <form onSubmit={handleDuplicate} className="p-4 space-y-4">
+             <div className="bg-blue-50 text-blue-800 p-3 rounded text-sm border border-blue-200">
+                 Cela copiera l'historique de l'institution, les composantes, mentions, parcours, maquettes (UE/EC) et <strong>volumes horaires</strong> vers l'année cible.
+             </div>
+             
+             <div className="grid grid-cols-2 gap-4">
+                 <div>
+                     <label className={AppStyles.input.label}>Source</label>
+                     <select className={AppStyles.input.formControl} value={duplicateSourceYear} onChange={e => setDuplicateSourceYear(e.target.value)} required>
+                        <option value="">-- Année --</option>
+                        {yearsList.map(y => <option key={y.AnneeUniversitaire_id} value={y.AnneeUniversitaire_id}>{y.AnneeUniversitaire_annee}</option>)}
+                     </select>
+                 </div>
+                 <div>
+                     <label className={AppStyles.input.label}>Cible</label>
+                     <select className={AppStyles.input.formControl} value={duplicateTargetYear} onChange={e => setDuplicateTargetYear(e.target.value)} required>
+                        <option value="">-- Année --</option>
+                        {yearsList.map(y => <option key={y.AnneeUniversitaire_id} value={y.AnneeUniversitaire_id}>{y.AnneeUniversitaire_annee}</option>)}
+                     </select>
+                 </div>
+             </div>
+
+             {duplicateStatus && (
+                 <div className="bg-green-50 p-3 rounded text-sm border border-green-200 grid grid-cols-2 gap-2">
+                     <div className="col-span-2 font-bold text-green-800 mb-1">Succès :</div>
+                     <span>Institution : <b>{duplicateStatus.institution}</b></span>
+                     <span>Composantes : <b>{duplicateStatus.composantes_created}</b></span>
+                     <span>Mentions : <b>{duplicateStatus.mentions_created}</b></span>
+                     <span>Parcours : <b>{duplicateStatus.parcours_created}</b></span>
+                     <span>Maq. UE : <b>{duplicateStatus.maquettes_ue_created}</b></span>
+                     <span>Maq. EC : <b>{duplicateStatus.maquettes_ec_created}</b></span>
+                     <span className="col-span-2 text-indigo-700">Volumes Horaires : <b>{duplicateStatus.volumes_horaires_created}</b></span>
+                 </div>
+             )}
+
+             <div className="flex justify-end gap-2 pt-4 border-t">
+                 <button type="button" onClick={() => setDuplicateModalOpen(false)} className={AppStyles.button.secondary}>Fermer</button>
+                 <button type="submit" disabled={isDuplicating} className={AppStyles.button.primary}>
+                     {isDuplicating ? <SpinnerIcon className="animate-spin mr-2"/> : <FaCopy className="mr-2"/>} Dupliquer
+                 </button>
+             </div>
+         </form>
+      </DraggableModal>
 
       {/* DELETE */}
       <ConfirmModal
