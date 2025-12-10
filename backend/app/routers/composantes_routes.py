@@ -8,6 +8,7 @@ import os
 import shutil
 import re 
 import time
+import uuid
 from pydantic import ValidationError 
 
 # IMPORT DES MODÈLES NÉCESSAIRES À LA DUPLICATION
