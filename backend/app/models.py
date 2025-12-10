@@ -434,6 +434,77 @@ class Etudiant(Base):
     resultats_ue = relationship("ResultatUE", back_populates="etudiant")
     resultats_semestre = relationship("ResultatSemestre", back_populates="etudiant_resultat")
 
+    @property
+    def parcours(self):
+        """
+        Récupère le parcours de la dernière inscription (la plus récente).
+        Nécessaire pour que le schéma Pydantic 'EtudiantSchema' trouve le champ 'parcours'.
+        """
+        if not self.inscriptions:
+            return None
+        # On trie les inscriptions par date (descendant) et on prend la première
+        sorted_inscriptions = sorted(self.inscriptions, key=lambda i: i.Inscription_date, reverse=True)
+        return sorted_inscriptions[0].parcours
+    
+    # --- AJOUTEZ CETTE PROPRIÉTÉ ---
+    @property
+    def cursus_liste(self):
+        """
+        Génère une liste simplifiée des Mentions uniques auxquelles l'étudiant est inscrit, 
+        regroupant les inscriptions successives dans la même Mention.
+        """
+        if not self.inscriptions:
+            return []
+
+        # Dictionnaire pour regrouper les données par ID de Mention
+        mentions_grouped = {}
+
+        # Trier les inscriptions par année (descendant) pour avoir les plus récentes en haut
+        inscriptions_triees = sorted(
+            self.inscriptions, 
+            key=lambda i: i.annee_univ.AnneeUniversitaire_annee if i.annee_univ else "", 
+            reverse=True
+        )
+
+        for insc in inscriptions_triees:
+            p = insc.parcours
+            if not p: continue
+
+            m = p.mention
+            if not m: continue
+            
+            mention_key = m.Mention_id # Clé de regroupement
+            
+            c = m.composante
+            i = c.institution if c else None
+            annee = insc.annee_univ.AnneeUniversitaire_annee if insc.annee_univ else "?"
+            
+            # Données spécifiques au Parcours et à l'Année pour l'historique
+            parcours_info = {
+                "parcours_nom": p.Parcours_label,
+                "annee_universitaire": annee
+            }
+
+            if mention_key not in mentions_grouped:
+                # Nouvelle Mention rencontrée : initialisation
+                mentions_grouped[mention_key] = {
+                    "mention_nom": m.Mention_label,
+                    "institution_abbr": i.Institution_abbreviation or "UNIV" if i else "",
+                    "composante_abbr": c.Composante_abbreviation or c.Composante_code if c else "",
+                    "parcours_details": [parcours_info],
+                    "annee_universitaire_list": [annee]
+                }
+            else:
+                # Mention existante : ajout de l'année et du parcours
+                mentions_grouped[mention_key]["parcours_details"].append(parcours_info)
+                
+                # Ajout de l'année seulement si elle est nouvelle pour cette Mention
+                if annee not in mentions_grouped[mention_key]["annee_universitaire_list"]:
+                     mentions_grouped[mention_key]["annee_universitaire_list"].append(annee)
+        
+        # Retourne la liste des Mentions regroupées
+        return list(mentions_grouped.values())
+
 
 class Inscription(Base):
     __tablename__ = 'inscriptions'

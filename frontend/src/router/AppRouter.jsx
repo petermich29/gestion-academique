@@ -15,7 +15,7 @@ import MentionDetail from "../pages/Administration/MentionDetail";
 import ParcoursDetail from "../pages/Administration/ParcoursDetail"; // <--- Import
 
 // Ressources humaines
-
+import HumanResources from "../pages/Ressources/HumanResources";
 // Inscriptions
 
 // Notes
@@ -51,6 +51,9 @@ const AppRouter = () => (
           <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId" element={<MentionDetail />} />
           <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId/parcours/:parcoursId" element={<ParcoursDetail />} />
         </Route>
+
+        {/* Ressources humaines */}
+        <Route path="/ressources-humaines" element={<HumanResources />} />
 
         {/* Métadonnées */}
         <Route path="/metadonnees" element={<Metadonnees />} />
