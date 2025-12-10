@@ -448,7 +448,7 @@ def duplicate_institution_structure(
         "parcours_niveaux_created": 0,
         "maquettes_ue_created": 0,
         "maquettes_ec_created": 0,
-        "volumes_horaires_created": 0 # Ajout tracking
+        "volumes_horaires_created": 0 
     }
 
     try:
@@ -539,20 +539,16 @@ def duplicate_institution_structure(
                         db.add(new_hist)
                         results["parcours_created"] += 1
 
-                    # =========================================================
-                    # 4.5. FIX: DUPLICATION DES NIVEAUX (ParcoursNiveau)
-                    # CE SONT LES POINTS D'ENTRÉE POUR L'API DE STRUCTURE
-                    # =========================================================
+                    # 4.5. DUPLICATION DES NIVEAUX (ParcoursNiveau)
                     source_parcours_niveaux = db.query(ParcoursNiveau).filter(
                         ParcoursNiveau.Parcours_id_fk == parc.Parcours_id,
                         ParcoursNiveau.AnneeUniversitaire_id_fk == source_annee_id
                     ).all()
 
                     for src_pn in source_parcours_niveaux:
-                        # 4.5.1. Vérifier si l'entrée ParcoursNiveau existe déjà
                         exists_pn = db.query(ParcoursNiveau).filter(
                             ParcoursNiveau.Parcours_id_fk == parc.Parcours_id,
-                            ParcoursNiveau.Niveau_id_fk == src_pn.Niveau_id_fk, # Le Niveau (L1, L2, M1)
+                            ParcoursNiveau.Niveau_id_fk == src_pn.Niveau_id_fk,
                             ParcoursNiveau.AnneeUniversitaire_id_fk == target_annee_id
                         ).first()
 
@@ -562,8 +558,7 @@ def duplicate_institution_structure(
                                 ParcoursNiveau_id=new_pn_id,
                                 Parcours_id_fk=parc.Parcours_id,
                                 Niveau_id_fk=src_pn.Niveau_id_fk,
-                                AnneeUniversitaire_id_fk=target_annee_id, # L'année cible
-                                # Copier l'ordre si la colonne existe (important pour l'affichage)
+                                AnneeUniversitaire_id_fk=target_annee_id,
                                 ParcoursNiveau_ordre=getattr(src_pn, 'ParcoursNiveau_ordre', None) 
                             )
                             db.add(new_pn)
@@ -576,56 +571,59 @@ def duplicate_institution_structure(
                     ).all()
 
                     for source_m_ue in source_maquettes_ue:
-                        # Vérifier existence cible
+                        # >>> CORRECTION ICI : Vérifier existence cible pour ne PAS dupliquer si déjà présent <<<
                         exists_m_ue = db.query(MaquetteUE).filter(
                             MaquetteUE.Parcours_id_fk == parc.Parcours_id,
                             MaquetteUE.AnneeUniversitaire_id_fk == target_annee_id,
                             MaquetteUE.UE_id_fk == source_m_ue.UE_id_fk
                         ).first()
 
-                        if not exists_m_ue:
-                            new_m_ue_id = f"MUE_{uuid.uuid4().hex[:12]}"
-                            new_m_ue = MaquetteUE(
-                                MaquetteUE_id=new_m_ue_id,
-                                Parcours_id_fk=parc.Parcours_id,
-                                AnneeUniversitaire_id_fk=target_annee_id,
-                                UE_id_fk=source_m_ue.UE_id_fk,
-                                Semestre_id_fk=source_m_ue.Semestre_id_fk,
-                                MaquetteUE_credit=source_m_ue.MaquetteUE_credit
+                        if exists_m_ue:
+                            continue # On passe à la suivante si l'UE est déjà dans la maquette cible
+
+                        # Création nouvelle MaquetteUE
+                        new_m_ue_id = f"MUE_{uuid.uuid4().hex[:12]}"
+                        new_m_ue = MaquetteUE(
+                            MaquetteUE_id=new_m_ue_id,
+                            Parcours_id_fk=parc.Parcours_id,
+                            AnneeUniversitaire_id_fk=target_annee_id,
+                            UE_id_fk=source_m_ue.UE_id_fk,
+                            Semestre_id_fk=source_m_ue.Semestre_id_fk,
+                            MaquetteUE_credit=source_m_ue.MaquetteUE_credit
+                        )
+                        db.add(new_m_ue)
+                        results["maquettes_ue_created"] += 1
+
+                        # 6. MAQUETTE EC
+                        source_maquettes_ec = db.query(MaquetteEC).filter(
+                            MaquetteEC.MaquetteUE_id_fk == source_m_ue.MaquetteUE_id
+                        ).all()
+                        
+                        for source_m_ec in source_maquettes_ec:
+                            new_m_ec_id = f"MEC_{uuid.uuid4().hex[:12]}"
+                            new_m_ec = MaquetteEC(
+                                MaquetteEC_id=new_m_ec_id,
+                                MaquetteUE_id_fk=new_m_ue_id,
+                                EC_id_fk=source_m_ec.EC_id_fk,
+                                MaquetteEC_coefficient=source_m_ec.MaquetteEC_coefficient
                             )
-                            db.add(new_m_ue)
-                            results["maquettes_ue_created"] += 1
+                            db.add(new_m_ec)
+                            results["maquettes_ec_created"] += 1
 
-                            # 6. MAQUETTE EC
-                            source_maquettes_ec = db.query(MaquetteEC).filter(
-                                MaquetteEC.MaquetteUE_id_fk == source_m_ue.MaquetteUE_id
+                            # 7. VOLUMES HORAIRES
+                            source_vols = db.query(VolumeHoraire).filter(
+                                VolumeHoraire.MaquetteEC_id_fk == source_m_ec.MaquetteEC_id
                             ).all()
-                            
-                            for source_m_ec in source_maquettes_ec:
-                                new_m_ec_id = f"MEC_{uuid.uuid4().hex[:12]}"
-                                new_m_ec = MaquetteEC(
-                                    MaquetteEC_id=new_m_ec_id,
-                                    MaquetteUE_id_fk=new_m_ue_id,
-                                    EC_id_fk=source_m_ec.EC_id_fk,
-                                    MaquetteEC_coefficient=source_m_ec.MaquetteEC_coefficient
+
+                            for vol in source_vols:
+                                new_vol = VolumeHoraire(
+                                    Volume_id=f"VOL_{uuid.uuid4().hex[:12]}",
+                                    MaquetteEC_id_fk=new_m_ec_id,
+                                    TypeEnseignement_id_fk=vol.TypeEnseignement_id_fk,
+                                    Volume_heures=vol.Volume_heures
                                 )
-                                db.add(new_m_ec)
-                                results["maquettes_ec_created"] += 1
-
-                                # 7. VOLUMES HORAIRES (Crucial !)
-                                source_vols = db.query(VolumeHoraire).filter(
-                                    VolumeHoraire.MaquetteEC_id_fk == source_m_ec.MaquetteEC_id
-                                ).all()
-
-                                for vol in source_vols:
-                                    new_vol = VolumeHoraire(
-                                        Volume_id=f"VOL_{uuid.uuid4().hex[:12]}",
-                                        MaquetteEC_id_fk=new_m_ec_id,
-                                        TypeEnseignement_id_fk=vol.TypeEnseignement_id_fk,
-                                        Volume_heures=vol.Volume_heures
-                                    )
-                                    db.add(new_vol)
-                                    results["volumes_horaires_created"] += 1
+                                db.add(new_vol)
+                                results["volumes_horaires_created"] += 1
 
         db.commit()
         return {"message": "Duplication terminée avec succès.", "details": results}

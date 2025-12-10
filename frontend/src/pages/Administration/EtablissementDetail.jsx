@@ -1,7 +1,10 @@
 import React, { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate, useLocation, useOutletContext } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaGraduationCap, FaChevronLeft, FaChevronRight, FaLayerGroup, FaHistory } from "react-icons/fa";
+import { 
+    FaGraduationCap, FaChevronLeft, FaChevronRight, 
+    FaLayerGroup, FaHistory, FaCopy 
+} from "react-icons/fa";
 
 import { 
   ThIcon, ListIcon, PlusIcon, SpinnerIcon, SortIcon 
@@ -36,6 +39,10 @@ const EtablissementDetail = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Refresh key pour forcer le rechargement après duplication
+  const [refreshKey, setRefreshKey] = useState(0);
+
   const [view, setView] = useState("grid");
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState("label"); 
@@ -48,6 +55,13 @@ const EtablissementDetail = () => {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [historyManagerOpen, setHistoryManagerOpen] = useState(false);
   
+  // --- NOUVEAUX STATES POUR LA DUPLICATION ---
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
+  const [duplicateTargetYear, setDuplicateTargetYear] = useState("");
+  const [duplicateSourceYear, setDuplicateSourceYear] = useState("");
+  const [isDuplicating, setIsDuplicating] = useState(false);
+  const [duplicateStatus, setDuplicateStatus] = useState(null);
+
   const [editMention, setEditMention] = useState(null);
   const [mentionToDelete, setMentionToDelete] = useState(null);
   const [deleteInput, setDeleteInput] = useState("");
@@ -92,7 +106,7 @@ const EtablissementDetail = () => {
     fetchList();
   }, [institutionId]);
 
-  // 🟢 2. Main Fetch CORRIGÉ (Gestion ID vs Code)
+  // 2. Main Fetch
   useEffect(() => {
     const fetchData = async () => {
       if (firstLoadRef.current) setIsLoading(true); else setIsRefreshing(true);
@@ -101,11 +115,8 @@ const EtablissementDetail = () => {
         // A. Institution
         let curInst = institution;
         if (!curInst || curInst.Institution_id !== parseInt(institutionId)) {
-            const rI = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
-            if(rI.ok) { 
-                curInst = await rI.json(); 
-                setInstitution(curInst); 
-            }
+             const rI = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}`);
+             if(rI.ok) { curInst = await rI.json(); setInstitution(curInst); }
         }
 
         // B. Etablissement
@@ -113,29 +124,16 @@ const EtablissementDetail = () => {
         const isSameEtab = curEtab && (curEtab.Composante_code === etablissementId || curEtab.Composante_id == etablissementId);
 
         if (!curEtab || !isSameEtab) {
-          // ICI LA CORRECTION : 
-          // Au lieu de fetcher directement par ID (ce qui échoue si etablissementId est un Code),
-          // on fetch la liste de l'institution et on cherche le bon code.
           const rList = await fetch(`${API_BASE_URL}/api/composantes/institution?institution_id=${institutionId}`);
-          
-          if (!rList.ok) throw new Error("Erreur lors du chargement des composantes");
-          
+          if (!rList.ok) throw new Error("Erreur chargement composantes");
           const list = await rList.json();
-          // On cherche par Code OU par ID pour être robuste
           const found = list.find(c => c.Composante_code === etablissementId || c.Composante_id == etablissementId);
 
-          if (found) {
-            curEtab = found;
-            setEtablissement(found);
-          } else {
-            // Dernier recours : si ce n'est pas dans la liste (ex: param URL bizarre), on tente fetch direct
+          if (found) { curEtab = found; setEtablissement(found); } 
+          else {
             const rDirect = await fetch(`${API_BASE_URL}/api/composantes/${etablissementId}`);
-            if (rDirect.ok) {
-               curEtab = await rDirect.json();
-               setEtablissement(curEtab);
-            } else {
-               throw new Error("Établissement introuvable (Code invalide)");
-            }
+            if (rDirect.ok) { curEtab = await rDirect.json(); setEtablissement(curEtab); } 
+            else { throw new Error("Établissement introuvable"); }
           }
         }
 
@@ -147,17 +145,14 @@ const EtablissementDetail = () => {
 
         // D. Mentions
         if (curEtab && curEtab.Composante_id) {
-            setMentions([]); // Reset pour éviter mélange
+            setMentions([]); 
             const q = new URLSearchParams();
             (selectedYearsIds || []).forEach(id => q.append("annees", id));
             
             const rM = await fetch(`${API_BASE_URL}/api/mentions/composante/${curEtab.Composante_id}?${q.toString()}`);
-            if (rM.ok) {
-                setMentions(await rM.json());
-            }
+            if (rM.ok) { setMentions(await rM.json()); }
         }
       } catch (err) {
-        console.error(err);
         addToast(err.message, "error");
       } finally {
         setIsLoading(false);
@@ -167,28 +162,15 @@ const EtablissementDetail = () => {
     };
     
     fetchData();
+  }, [etablissementId, institutionId, selectedYearsIds, refreshKey]); 
 
-  }, [etablissementId, institutionId, selectedYearsIds]); 
-
-  // BREADCRUMB CORRIGÉ
+  // Breadcrumb
   useEffect(() => {
-      if (isLoading) return;
-      if (!institution || !etablissement) return; // sécurité
-
+      if (isLoading || !institution || !etablissement) return;
       setBreadcrumb([
           { label: "Administration", path: "/administration" },
-          {
-              label: institution.Institution_nom,
-              path: `/institution/${institutionId}`,
-              state: { institution },
-              type: "institution" 
-          },
-          {
-              label: etablissement.Composante_abbreviation || etablissement.Composante_label,
-              path: `/institution/${institutionId}/etablissement/${etablissementId}`,
-              state: { institution, composante: etablissement },
-              type: "etablissement" 
-          }
+          { label: institution.Institution_nom, path: `/institution/${institutionId}`, state: { institution }, type: "institution" },
+          { label: etablissement.Composante_abbreviation || etablissement.Composante_label, path: `/institution/${institutionId}/etablissement/${etablissementId}`, state: { institution, composante: etablissement }, type: "etablissement" }
       ]);
   }, [institution, etablissement, isLoading]);
 
@@ -201,7 +183,6 @@ const EtablissementDetail = () => {
       const target = etablissementsList[newIdx];
       setMentions([]);
       setIsLoading(true);
-      
       navigate(`/institution/${institutionId}/etablissement/${target.Composante_code}`, { state: { composante: target, institution }});
       setEtablissement(target);
       firstLoadRef.current = false; 
@@ -210,40 +191,86 @@ const EtablissementDetail = () => {
   const isFirst = etablissementsList.length > 0 && etablissement && etablissementsList[0].Composante_code === etablissement.Composante_code;
   const isLast = etablissementsList.length > 0 && etablissement && etablissementsList[etablissementsList.length - 1].Composante_code === etablissement.Composante_code;
 
-  // --- FORMULAIRE ---
-  const openModal = async (mentionToEdit = null) => {
-      setErrors({});
-      if (mentionToEdit) {
-          setEditMention(mentionToEdit);
-          setForm({
-              id: mentionToEdit.Mention_id,
-              nom: mentionToEdit.Mention_label, 
-              code: mentionToEdit.Mention_code,
-              domaine_id: mentionToEdit.Domaine_id_fk || "",
-              abbreviation: mentionToEdit.Mention_abbreviation || "",
-              description: mentionToEdit.Mention_description || "",
-              logo: null, logoPath: mentionToEdit.Mention_logo_path || ""
-          });
-      } else {
-          setEditMention(null);
-          let initialForm = { 
-              id: "Chargement...", 
-              nom: "", code: "", domaine_id: "", 
-              abbreviation: "", description: "", logo: null, logoPath: "" 
-          };
-          setForm(initialForm);
-          try {
-              const res = await fetch(`${API_BASE_URL}/api/mentions/next-id`);
-              if (res.ok) {
-                  const newId = await res.json();
-                  setForm(p => ({ ...p, id: newId }));
-              }
-          } catch (e) {
-              setForm(p => ({ ...p, id: "Erreur" }));
-          }
+  // --- LOGIQUE DUPLICATION (NOUVEAU) ---
+  const handleDuplicate = async (e) => {
+    e.preventDefault();
+    if (!duplicateSourceYear || !duplicateTargetYear) {
+      addToast("Sélectionnez les deux années.", "error");
+      return;
+    }
+    setIsDuplicating(true);
+    setDuplicateStatus(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/composantes/${etablissement.Composante_id}/duplicate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source_annee_id: duplicateSourceYear,
+          target_annee_id: duplicateTargetYear
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Erreur duplication");
+
+      addToast("Établissement dupliqué avec succès !");
+      setDuplicateStatus(data.details);
+      
+      // Rafraîchir si l'année cible est affichée
+      if (selectedYearsIds.includes(duplicateTargetYear)) {
+          setRefreshKey(k => k + 1);
       }
-      setModalOpen(true);
+    } catch (err) {
+      addToast(err.message, "error");
+    } finally {
+      setIsDuplicating(false);
+    }
   };
+
+  // --- FORMULAIRE ---
+  const openModal = (mention = null) => {
+    setErrors({});
+
+    if (mention) {
+      setEditMention(mention);
+      setForm({
+        id: mention.Mention_id,
+        nom: mention.Mention_label,
+        code: mention.Mention_code,
+        domaine_id: mention.Domaine_id_fk || "",
+        abbreviation: mention.Mention_abbreviation || "",
+        description: mention.Mention_description || "",
+        logo: null,
+        logoPath: mention.Mention_logo_path || ""
+      });
+    } else {
+      setEditMention(null);
+      setForm({
+        id: "Chargement...",
+        nom: "",
+        code: "",
+        domaine_id: "",
+        abbreviation: "",
+        description: "",
+        logo: null,
+        logoPath: ""
+      });
+
+      (async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/mentions/next-id`);
+          const nextId = res.ok ? await res.json() : "Erreur";
+          setForm(f => ({ ...f, id: nextId }));
+        } catch {
+          setForm(f => ({ ...f, id: "Erreur" }));
+        }
+      })();
+    }
+
+    setModalOpen(true);
+  };
+
 
   const closeModal = () => { setModalOpen(false); setEditMention(null); };
   
@@ -306,8 +333,7 @@ const EtablissementDetail = () => {
   };
 
   const handleDelete = async () => {
-      if(!mentionToDelete) return;
-      if(deleteInput !== mentionToDelete.Mention_label) return;
+      if(!mentionToDelete || deleteInput !== mentionToDelete.Mention_label) return;
       try {
         const res = await fetch(`${API_BASE_URL}/api/mentions/${mentionToDelete.Mention_id}`, { method: "DELETE" });
         if(res.ok) {
@@ -320,12 +346,7 @@ const EtablissementDetail = () => {
       } catch(e) { addToast("Erreur connexion", "error"); }
   };
 
-  const filtered = mentions
-    .filter(m => {
-        const label = m.Mention_label || "";
-        const code = m.Mention_code || "";
-        return (label + code).toLowerCase().includes(search.toLowerCase());
-    })
+  const filtered = mentions.filter(m => (m.Mention_label+m.Mention_code).toLowerCase().includes(search.toLowerCase()))
     .sort((a,b) => {
         const vA = (sortField==='label' ? a.Mention_label : a.Mention_code) || "";
         const vB = (sortField==='label' ? b.Mention_label : b.Mention_code) || "";
@@ -359,9 +380,7 @@ const EtablissementDetail = () => {
              <div className="flex gap-2 justify-center md:justify-start">
                  <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded font-mono font-bold text-sm">{etablissement.Composante_code}</span>
                  {etablissement.type_composante && (
-                     <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border">
-                         {etablissement.type_composante.TypeComposante_label}
-                     </span>
+                     <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border">{etablissement.type_composante.TypeComposante_label}</span>
                  )}
              </div>
            </div>
@@ -377,6 +396,22 @@ const EtablissementDetail = () => {
             
             <div className="flex items-center gap-2 relative">
               <YearMultiSelect years={yearsList} selectedYearIds={selectedYearsIds} onChange={setSelectedYearsIds} />
+              
+              {/* BOUTON DUPLICATION */}
+              <button 
+                onClick={() => {
+                    const activeY = yearsList.find(y => y.AnneeUniversitaire_is_active);
+                    if(activeY) setDuplicateSourceYear(activeY.AnneeUniversitaire_id);
+                    setDuplicateTargetYear("");
+                    setDuplicateStatus(null);
+                    setDuplicateModalOpen(true);
+                }}
+                className={`${AppStyles.button.secondary} flex items-center gap-1 bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100`}
+                title="Dupliquer la structure vers une autre année"
+              >
+                  <FaCopy />
+              </button>
+
               {isRefreshing && <span className="absolute left-full text-xs w-max text-gray-500 ml-2 animate-pulse">MAJ...</span>}
             </div>
 
@@ -416,6 +451,7 @@ const EtablissementDetail = () => {
           </AnimatePresence>
       </div>
 
+      {/* MODALE EDITION MENTION */}
       <DraggableModal isOpen={modalOpen} onClose={closeModal} title={editMention ? "Modifier Mention" : "Nouvelle Mention"}>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex gap-4">
@@ -447,21 +483,10 @@ const EtablissementDetail = () => {
               <div className="grid grid-cols-2 gap-4">
                   <div>
                       <span className={AppStyles.input.label}>Domaine <span className="text-red-500">*</span></span>
-                      <select 
-                        name="domaine_id" 
-                        value={form.domaine_id} 
-                        onChange={handleChange} 
-                        className={`${AppStyles.input.formControl} ${errors.domaine_id?"border-red-500":""}`}
-                        disabled={domaines.length === 0}
-                      >
+                      <select name="domaine_id" value={form.domaine_id} onChange={handleChange} className={`${AppStyles.input.formControl} ${errors.domaine_id?"border-red-500":""}`} disabled={domaines.length === 0}>
                           <option value="">-- Choix --</option>
-                          {domaines.map(d => 
-                            <option key={d.Domaine_id} value={d.Domaine_id}>
-                                {d.Domaine_label}
-                            </option>
-                          )}
+                          {domaines.map(d => <option key={d.Domaine_id} value={d.Domaine_id}>{d.Domaine_label}</option>)}
                       </select>
-                      {errors.domaine_id && <p className="text-red-500 text-xs mt-1">{errors.domaine_id}</p>}
                   </div>
                   <div>
                       <span className={AppStyles.input.label}>Abréviation</span>
@@ -509,6 +534,53 @@ const EtablissementDetail = () => {
              <button onClick={handleDelete} className={AppStyles.button.danger}>Supprimer</button>
           </div>
       </ConfirmModal>
+
+      {/* --- MODAL DUPLICATION (NOUVEAU) --- */}
+      <DraggableModal isOpen={duplicateModalOpen} onClose={() => setDuplicateModalOpen(false)} title="Dupliquer l'établissement">
+         <form onSubmit={handleDuplicate} className="p-4 space-y-4">
+             <div className="bg-blue-50 text-blue-800 p-3 rounded text-sm border border-blue-200">
+                 Cela copiera l'historique de l'établissement, les mentions, parcours, maquettes (UE/EC) et <strong>volumes horaires</strong> vers l'année cible. <br/>
+                 <span className="text-xs text-blue-600 italic">Note : Les UEs déjà présentes dans l'année cible seront conservées (pas de doublon).</span>
+             </div>
+             
+             <div className="grid grid-cols-2 gap-4">
+                 <div>
+                     <label className={AppStyles.input.label}>Source</label>
+                     <select className={AppStyles.input.formControl} value={duplicateSourceYear} onChange={e => setDuplicateSourceYear(e.target.value)} required>
+                        <option value="">-- Année --</option>
+                        {yearsList.map(y => <option key={y.AnneeUniversitaire_id} value={y.AnneeUniversitaire_id}>{y.AnneeUniversitaire_annee}</option>)}
+                     </select>
+                 </div>
+                 <div>
+                     <label className={AppStyles.input.label}>Cible</label>
+                     <select className={AppStyles.input.formControl} value={duplicateTargetYear} onChange={e => setDuplicateTargetYear(e.target.value)} required>
+                        <option value="">-- Année --</option>
+                        {yearsList.map(y => <option key={y.AnneeUniversitaire_id} value={y.AnneeUniversitaire_id}>{y.AnneeUniversitaire_annee}</option>)}
+                     </select>
+                 </div>
+             </div>
+
+             {duplicateStatus && (
+                 <div className="bg-green-50 p-3 rounded text-sm border border-green-200 grid grid-cols-2 gap-2">
+                     <div className="col-span-2 font-bold text-green-800 mb-1">Succès :</div>
+                     <span>Établissement : <b>{duplicateStatus.composante}</b></span>
+                     <span>Mentions : <b>{duplicateStatus.mentions_created}</b></span>
+                     <span>Parcours : <b>{duplicateStatus.parcours_created}</b></span>
+                     <span>Maq. UE : <b>{duplicateStatus.maquettes_ue_created}</b></span>
+                     <span>Maq. EC : <b>{duplicateStatus.maquettes_ec_created}</b></span>
+                     <span className="col-span-2 text-indigo-700">Volumes Horaires : <b>{duplicateStatus.volumes_horaires_created}</b></span>
+                 </div>
+             )}
+
+             <div className="flex justify-end gap-2 pt-4 border-t">
+                 <button type="button" onClick={() => setDuplicateModalOpen(false)} className={AppStyles.button.secondary}>Fermer</button>
+                 <button type="submit" disabled={isDuplicating} className={AppStyles.button.primary}>
+                     {isDuplicating ? <SpinnerIcon className="animate-spin mr-2"/> : <FaCopy className="mr-2"/>} Dupliquer
+                 </button>
+             </div>
+         </form>
+      </DraggableModal>
+
     </div>
   );
 };
