@@ -450,59 +450,52 @@ class Etudiant(Base):
     @property
     def cursus_liste(self):
         """
-        Génère une liste simplifiée des Mentions uniques auxquelles l'étudiant est inscrit, 
-        regroupant les inscriptions successives dans la même Mention.
+        Version améliorée du cursus pour l'affichage :
+        - Mention en ligne 1
+        - Ligne 2 : Institution_nom | Composante_abbr | années
         """
+
         if not self.inscriptions:
             return []
 
-        # Dictionnaire pour regrouper les données par ID de Mention
         mentions_grouped = {}
 
-        # Trier les inscriptions par année (descendant) pour avoir les plus récentes en haut
         inscriptions_triees = sorted(
-            self.inscriptions, 
-            key=lambda i: i.annee_univ.AnneeUniversitaire_annee if i.annee_univ else "", 
+            self.inscriptions,
+            key=lambda i: i.annee_univ.AnneeUniversitaire_ordre if i.annee_univ else 0,
             reverse=True
         )
 
         for insc in inscriptions_triees:
-            p = insc.parcours
-            if not p: continue
+            parcours = insc.parcours
+            if not parcours:
+                continue
 
-            m = p.mention
-            if not m: continue
-            
-            mention_key = m.Mention_id # Clé de regroupement
-            
-            c = m.composante
-            i = c.institution if c else None
+            mention = parcours.mention
+            composante = mention.composante if mention else None
+            institution = composante.institution if composante else None
+
+            mention_id = mention.Mention_id
             annee = insc.annee_univ.AnneeUniversitaire_annee if insc.annee_univ else "?"
-            
-            # Données spécifiques au Parcours et à l'Année pour l'historique
-            parcours_info = {
-                "parcours_nom": p.Parcours_label,
-                "annee_universitaire": annee
-            }
 
-            if mention_key not in mentions_grouped:
-                # Nouvelle Mention rencontrée : initialisation
-                mentions_grouped[mention_key] = {
-                    "mention_nom": m.Mention_label,
-                    "institution_abbr": i.Institution_abbreviation or "UNIV" if i else "",
-                    "composante_abbr": c.Composante_abbreviation or c.Composante_code if c else "",
-                    "parcours_details": [parcours_info],
-                    "annee_universitaire_list": [annee]
+            if mention_id not in mentions_grouped:
+                mentions_grouped[mention_id] = {
+                    "mention_nom": mention.Mention_label,
+                    "mention_abbr": mention.Mention_abbreviation or mention.Mention_code,
+
+                    # ✔️ NOM COMPLET
+                    "institution_nom": institution.Institution_nom if institution else "",
+
+                    # ✔️ Abréviation composante (ex: ESP)
+                    "composante_abbr": composante.Composante_abbreviation or composante.Composante_code if composante else "",
+
+                    # ✔️ Liste des années regroupées
+                    "annee_universitaire_list": [annee],
                 }
             else:
-                # Mention existante : ajout de l'année et du parcours
-                mentions_grouped[mention_key]["parcours_details"].append(parcours_info)
-                
-                # Ajout de l'année seulement si elle est nouvelle pour cette Mention
-                if annee not in mentions_grouped[mention_key]["annee_universitaire_list"]:
-                     mentions_grouped[mention_key]["annee_universitaire_list"].append(annee)
-        
-        # Retourne la liste des Mentions regroupées
+                if annee not in mentions_grouped[mention_id]["annee_universitaire_list"]:
+                    mentions_grouped[mention_id]["annee_universitaire_list"].append(annee)
+
         return list(mentions_grouped.values())
 
 
