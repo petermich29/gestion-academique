@@ -73,14 +73,16 @@ export const DraggableModal = ({ isOpen, onClose, title, children, widthClass = 
             style={{
               top: modalPos.top,
               left: modalPos.left,
-              cursor: dragging ? "grabbing" : "grab",
+              // SUPPRIMER LA LIGNE CURSOR ICI
             }}
             initial={{ y: -30, opacity: 0 }}
             animate={{ y: 0, opacity: 1, transition: { type: "spring", stiffness: 130 } }}
             exit={{ y: -30, opacity: 0 }}
           >
+            {/* Déplacer le style cursor ici, sur le header uniquement */}
             <div
-              className="modal-drag-handle flex items-center justify-between text-base font-semibold p-3 border-b bg-gray-50 text-gray-800 cursor-grab"
+              className="modal-drag-handle flex items-center justify-between text-base font-semibold p-3 border-b bg-gray-50 text-gray-800"
+              style={{ cursor: dragging ? "grabbing" : "grab" }} 
               onMouseDown={handleMouseDown}
             >
               <span>{title}</span>

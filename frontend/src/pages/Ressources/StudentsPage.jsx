@@ -1,3 +1,4 @@
+// \frontend\src\pages\Ressources\StudentsPage.jsx
 import React, { useState, useEffect } from "react";
 import {
     FaSearch, FaPlus, FaEdit, FaTrash, FaUser,
@@ -8,7 +9,7 @@ import { AppStyles } from "../../components/ui/AppStyles";
 import { SpinnerIcon } from "../../components/ui/Icons";
 import { ToastContainer } from "../../components/ui/Toast";
 import { ConfirmModal } from "../../components/ui/Modal";
-import { StudentFormModal } from "../Administration/components/HRForms";
+import { StudentFormModal } from "./components/StudentsForms";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -29,7 +30,6 @@ export default function StudentsPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [currentItem, setCurrentItem] = useState(null);
-    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const addToast = (msg, type = "success") => {
         const id = Date.now();
@@ -50,37 +50,23 @@ export default function StudentsPage() {
             });
             if (searchTerm) params.append("search", searchTerm);
 
-            const candidates = [
-                `${API_BASE_URL}/etudiants?${params.toString()}`,
-                `${API_BASE_URL}/api/etudiants?${params.toString()}`
-            ];
+            // 🔥 FIX : Utilisation de la bonne URL
+            const url = `${API_BASE_URL}/api/etudiants?${params.toString()}`;
+            const res = await fetch(url);
 
-            let result = null;
-
-            for (const url of candidates) {
-                try {
-                    const res = await fetch(url);
-                    if (res.status === 404) continue;
-                    if (!res.ok) continue;
-
-                    result = await res.json();
-                    break;
-
-                } catch { continue; }
-            }
-
-            if (!result) {
-                addToast("Erreur API /etudiants – route introuvable", "error");
+            if (!res.ok) {
+                addToast("Erreur API /api/etudiants", "error");
                 setDataList([]);
                 setPagination(prev => ({ ...prev, total: 0 }));
                 setIsLoading(false);
                 return;
             }
 
+            const result = await res.json();
             setDataList(result.items || []);
             setPagination(prev => ({ ...prev, total: result.total || 0 }));
 
-        } catch {
+        } catch (e) {
             addToast("Erreur lors du chargement", "error");
         }
 
@@ -92,42 +78,9 @@ export default function StudentsPage() {
         return () => clearTimeout(t);
     }, [pagination.page, pagination.limit, searchTerm]);
 
-    const handleChange = (e) => {
-        setCurrentItem(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-
-        try {
-            const id = currentItem?.Etudiant_id;
-            const method = id ? "PUT" : "POST";
-
-            const url = `${API_BASE_URL}/etudiants${id ? "/" + id : ""}`;
-
-            const res = await fetch(url, {
-                method,
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(currentItem),
-            });
-
-            if (!res.ok) throw new Error();
-
-            addToast("Enregistrement réussi");
-            setIsModalOpen(false);
-            fetchData();
-
-        } catch {
-            addToast("Erreur lors de l'enregistrement", "error");
-        }
-
-        setIsSubmitting(false);
-    };
-
     const handleDelete = async () => {
         try {
-            await fetch(`${API_BASE_URL}/etudiants/${currentItem.Etudiant_id}`, {
+            await fetch(`${API_BASE_URL}/api/etudiants/${currentItem.Etudiant_id}`, {
                 method: "DELETE"
             });
 
@@ -139,12 +92,10 @@ export default function StudentsPage() {
         }
     };
 
-    // Pagination helpers
     const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.limit));
     const startIndex = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
     const endIndex = Math.min(pagination.page * pagination.limit, pagination.total || 0);
 
-    // 🔵 NEW PAGINATION SYSTEM
     const renderPageNumbers = () => {
         const pages = [];
         const total = totalPages;
@@ -195,10 +146,6 @@ export default function StudentsPage() {
         );
     };
 
-    // --------------------------------------------------------------
-    //                      RENDER SECTION
-    // --------------------------------------------------------------
-
     return (
         <div className="mt-3">
 
@@ -228,7 +175,7 @@ export default function StudentsPage() {
                 </button>
             </div>
 
-            {/* MAIN TABLE CONTAINER */}
+            {/* MAIN TABLE */}
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden mt-4 flex flex-col min-h-[400px]">
 
                 {/* TOP PAGINATION */}
@@ -258,7 +205,6 @@ export default function StudentsPage() {
                             <option value={50}>50 / page</option>
                         </select>
 
-                        {/* PAGINATION NUMBERS */}
                         <div className="hidden md:flex items-center gap-1">
                             <button
                                 disabled={pagination.page === 1}
@@ -307,9 +253,20 @@ export default function StudentsPage() {
                                         {/* IDENTITÉ */}
                                         <td className="p-3 max-w-[200px]">
                                             <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
-                                                    <FaUser />
+
+                                                {/* PHOTO */}
+                                                <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                                                    {item.Etudiant_photo_profil_path ? (
+                                                        <img
+                                                            src={`http://127.0.0.1:8000/${item.Etudiant_photo_profil_path}`}
+                                                            className="w-full h-full object-cover"
+                                                            alt="Profil"
+                                                        />
+                                                    ) : (
+                                                        <FaUser className="text-gray-500" />
+                                                    )}
                                                 </div>
+
                                                 <div className="min-w-0">
                                                     <div className="font-semibold truncate">
                                                         {item.Etudiant_nom}
@@ -424,11 +381,8 @@ export default function StudentsPage() {
             <StudentFormModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                data={currentItem || {}}
-                onChange={handleChange}
-                onSubmit={handleSubmit}
-                isSubmitting={isSubmitting}
-                title={currentItem?.Etudiant_id ? "Modifier Étudiant" : "Nouveau Étudiant"}
+                data={currentItem}
+                reloadList={fetchData}
             />
 
             {/* CONFIRM DELETE */}

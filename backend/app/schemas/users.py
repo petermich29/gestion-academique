@@ -1,7 +1,7 @@
-# schemas/users.py
+# backend\app\schemas\users.py
 from typing import Optional, List, Dict
 from datetime import date
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, validator
 
 
 from ..schemas.academic import ParcoursSchema
@@ -40,6 +40,13 @@ class EtudiantBase(BaseSchema):
     cin: Optional[str] = Field(None, alias="Etudiant_cin")
     cin_date: Optional[date] = Field(None, alias="Etudiant_cin_date")
     cin_lieu: Optional[str] = Field(None, alias="Etudiant_cin_lieu")
+
+    photo_profil_path: Optional[str] = Field(
+        None,
+        alias="Etudiant_photo_profil_path"
+    )
+
+    
 
 # Pour la création (pas d'ID requis)
 class EtudiantCreate(EtudiantBase):

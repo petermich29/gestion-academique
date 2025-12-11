@@ -1,3 +1,4 @@
+//frontend\src\pages\Ressources\TeachersPage.jsx
 import React, { useState, useEffect } from "react";
 import {
     FaSearch, FaPlus, FaEdit, FaTrash, FaUser,
@@ -8,7 +9,7 @@ import { AppStyles } from "../../components/ui/AppStyles";
 import { SpinnerIcon } from "../../components/ui/Icons";
 import { ToastContainer } from "../../components/ui/Toast";
 import { ConfirmModal } from "../../components/ui/Modal";
-import { TeacherFormModal } from "../Administration/components/HRForms";
+import { TeacherFormModal } from "./components/TeachersForms";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
