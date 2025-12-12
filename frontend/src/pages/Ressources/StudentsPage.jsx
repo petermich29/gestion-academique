@@ -9,7 +9,7 @@ import { AppStyles } from "../../components/ui/AppStyles";
 import { SpinnerIcon } from "../../components/ui/Icons";
 import { ToastContainer } from "../../components/ui/Toast";
 import { ConfirmModal } from "../../components/ui/Modal";
-import { StudentFormModal } from "./components/StudentsForms";
+import StudentFormModal from "./components/StudentsForms";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
@@ -50,7 +50,7 @@ export default function StudentsPage() {
             });
             if (searchTerm) params.append("search", searchTerm);
 
-            // 🔥 FIX : Utilisation de la bonne URL
+            // 🔥 Utilisation de la bonne URL et compatibilité avec un backend non paginé
             const url = `${API_BASE_URL}/api/etudiants?${params.toString()}`;
             const res = await fetch(url);
 
@@ -63,10 +63,23 @@ export default function StudentsPage() {
             }
 
             const result = await res.json();
-            setDataList(result.items || []);
-            setPagination(prev => ({ ...prev, total: result.total || 0 }));
+
+            // Support dual format :
+            // - { items: [...], total: N }
+            // - or legacy: [...] (list directly)
+            if (Array.isArray(result)) {
+                setDataList(result);
+                setPagination(prev => ({ ...prev, total: result.length || 0 }));
+            } else if (result && typeof result === "object") {
+                setDataList(result.items || []);
+                setPagination(prev => ({ ...prev, total: result.total || (result.items ? result.items.length : 0) }));
+            } else {
+                setDataList([]);
+                setPagination(prev => ({ ...prev, total: 0 }));
+            }
 
         } catch (e) {
+            console.error(e);
             addToast("Erreur lors du chargement", "error");
         }
 
@@ -87,12 +100,13 @@ export default function StudentsPage() {
             addToast("Suppression réussie");
             setIsDeleteOpen(false);
             fetchData();
-        } catch {
+        } catch (err) {
+            console.error(err);
             addToast("Erreur suppression", "error");
         }
     };
 
-    const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.limit));
+    const totalPages = Math.max(1, Math.ceil((pagination.total || 0) / pagination.limit));
     const startIndex = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1;
     const endIndex = Math.min(pagination.page * pagination.limit, pagination.total || 0);
 

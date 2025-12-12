@@ -28,16 +28,17 @@ from .maquette import (
     MaquetteElementConstitutifSchema,  # <-- NOUVEL EXPORT
     StructureUE, StructureEC, StructureSemestre, StructureNiveau
 )
-from .users import (
+from .etudiants_schemas import (
+    # === CORRECTION MAJEURE: Garder seulement les schémas Etudiant ===
     EtudiantBase, EtudiantSchema,
-    EnseignantBase, EnseignantSchema
+    # Les schémas Enseignant ont été retirés
 )
 from .results import (
     InscriptionBase, InscriptionSchema,
     ResultatSemestreBase, ResultatSemestreSchema,
     ResultatUEBase, ResultatUESchema,
     NoteBase, NoteSchema,
-    SuiviCreditCycleBase, SuiviCreditCycleSchema,
+    SuiviCreditCycleBase, SuiviCreditCycleBase, SuiviCreditCycleSchema,
     VolumeHoraireECBase, VolumeHoraireECSchema,
     AffectationECBase, AffectationECSchema,
     JuryBase, JurySchema
@@ -71,7 +72,8 @@ try:
     # Relations Users/Results
     EtudiantSchema.model_rebuild()
     InscriptionSchema.model_rebuild()
-    
+    # PAS BESOIN DE REBUILD POUR ENSEIGNANT
+
 except AttributeError:
     # Fallback Pydantic v1 (si jamais vous ne mettez pas à jour tout de suite)
     DomaineSchema.update_forward_refs()
@@ -81,7 +83,9 @@ except AttributeError:
     CycleSchema.update_forward_refs()
     NiveauSchema.update_forward_refs()
     SemestreSchema.update_forward_refs()
+    # Maquette
     UniteEnseignementSchema.update_forward_refs()
     ElementConstitutifSchema.update_forward_refs()
+    # Users/Results
     EtudiantSchema.update_forward_refs()
     InscriptionSchema.update_forward_refs()

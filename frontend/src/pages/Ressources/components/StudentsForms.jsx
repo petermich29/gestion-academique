@@ -1,15 +1,23 @@
+// src/components/students/forms/StudentsForms.jsx
 import React, { useEffect, useState, useRef } from "react";
-import { DraggableModal } from "../../../components/ui/Modal"; // Assurez-vous que le chemin est bon
-import { AppStyles } from "../../../components/ui/AppStyles";
-import { SpinnerIcon } from "../../../components/ui/Icons";
+import { DraggableModal } from "../../../components/ui/Modal";
+import { useToast } from "../../../context/ToastContext";
 import {
-  FaSave, FaUser, FaGraduationCap, FaCamera,
-  FaIdCard, FaPhone, FaChevronDown
+  FaSave,
+  FaUser,
+  FaCamera,
+  FaIdCard,
+  FaGraduationCap,
+  FaChevronDown,
+  FaSpinner,
+  FaEnvelope,
+  FaPhone,
+  FaFingerprint,
+  FaVenusMars
 } from "react-icons/fa";
 
-// -----------------------------------------------
-//      CONSTANTES
-// -----------------------------------------------
+const API_BASE_URL = "http://127.0.0.1:8000";
+
 const COUNTRIES = [
   { code: "mg", name: "Madagascar" },
   { code: "fr", name: "France" },
@@ -18,22 +26,27 @@ const COUNTRIES = [
   { code: "yt", name: "La Réunion" },
   { code: "sc", name: "Seychelles" },
   { code: "za", name: "Afrique du Sud" },
-  { code: "ke", name: "Kenya" },
-  { code: "tz", name: "Tanzanie" },
-  { code: "rw", name: "Rwanda" }
+  { code: "cn", name: "Chine" },
+  { code: "us", name: "États-Unis" },
 ];
 
-const BACC_SERIES = ["A1", "A2", "C", "D", "L", "S", "OSE", "Technique", "Technologique"];
+const BACC_SERIES = ["A1", "A2", "C", "D", "L", "S", "OSE", "Tech.", "Techno."];
 
-// -----------------------------------------------
-//      SELECT PERSONNALISÉ (PAYS)
-// -----------------------------------------------
+// Styles ajustés (Polices agrandies)
+const styles = {
+  // text-xs -> text-sm pour meilleure lisibilité
+  input: "w-full text-sm bg-white border border-gray-200 rounded-md px-2.5 py-1.5 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 outline-none transition-all placeholder-gray-400 disabled:bg-gray-50 disabled:text-gray-500 disabled:border-gray-100",
+  // text-[10px] -> text-[11px]
+  label: "block text-[11px] uppercase tracking-wider text-gray-500 font-bold mb-1",
+  // text-xs -> text-sm
+  sectionTitle: "text-sm font-bold text-gray-800 flex items-center gap-1.5 pb-1 mb-2",
+  card: "bg-white p-3.5 rounded-lg shadow-sm border border-gray-100",
+};
+
 const CustomCountrySelect = ({ value, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef(null);
-
-  // Valeur par défaut si vide
-  const selectedCountry = COUNTRIES.find(c => c.name === value) || COUNTRIES[0];
+  const selectedCountry = COUNTRIES.find((c) => c.name === value) || COUNTRIES[0];
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -46,43 +59,35 @@ const CustomCountrySelect = ({ value, onChange }) => {
   }, []);
 
   return (
-    <div
-      className="relative"
-      ref={wrapperRef}
-      // Empêche le drag du modal quand on clique ici
-      onMouseDown={(e) => e.stopPropagation()}
-    >
+    <div className="relative" ref={wrapperRef}>
       <div
         onClick={() => setIsOpen(!isOpen)}
-        className={`${AppStyles.input.formControl} flex items-center justify-between cursor-pointer py-2`}
+        className={`${styles.input} flex items-center justify-between cursor-pointer group hover:border-blue-300 pr-2`}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <img
             src={`https://flagcdn.com/w40/${selectedCountry.code}.png`}
             alt={selectedCountry.code}
-            className="w-5 h-3 rounded-sm shadow-sm"
+            className="w-5 h-3.5 rounded-[2px] shadow-sm object-cover border border-gray-100"
           />
-          <span className="text-gray-700 text-sm">{selectedCountry.name}</span>
+          <span className="text-gray-700 font-medium truncate">{selectedCountry.name}</span>
         </div>
-        <FaChevronDown
-          className={`text-[10px] text-gray-400 transition ${isOpen ? "rotate-180" : ""}`}
-        />
+        <FaChevronDown className={`text-[10px] text-gray-400 group-hover:text-blue-500 transition-all ${isOpen ? "rotate-180" : ""}`} />
       </div>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-100 rounded-lg shadow-lg max-h-56 overflow-y-auto custom-scrollbar animate-fadeIn p-1">
           {COUNTRIES.map((c) => (
             <div
               key={c.code}
               onClick={() => {
-                // Simule un event standard pour le handler parent
                 onChange({ target: { name: "Etudiant_nationalite", value: c.name } });
                 setIsOpen(false);
               }}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-blue-50 cursor-pointer transition-colors"
+              className="flex items-center gap-2 px-2 py-2 hover:bg-blue-50 rounded-md cursor-pointer transition-colors"
             >
-              <img src={`https://flagcdn.com/w40/${c.code}.png`} alt={c.name} className="w-5 h-3" />
-              <span className="text-xs">{c.name}</span>
+              <img src={`https://flagcdn.com/w40/${c.code}.png`} alt={c.name} className="w-5 h-3.5 rounded-[2px] shadow-sm border border-gray-100" />
+              <span className="text-sm text-gray-700 font-medium">{c.name}</span>
             </div>
           ))}
         </div>
@@ -91,468 +96,387 @@ const CustomCountrySelect = ({ value, onChange }) => {
   );
 };
 
-// =============================================================
-//               MODAL FORMULAIRE ÉTUDIANT (MAIN)
-// =============================================================
-export const StudentFormModal = ({
-  isOpen,
-  onClose,
-  data = {},    // Données initiales passées par le parent
-  reloadList    // Fonction pour recharger la liste après succès
-}) => {
-
-  // --- LOCAL STATE (Crucial pour l'édition fluide) ---
+export default function StudentsForms({ isOpen, onClose, data = {}, reloadList }) {
+  const { addToast } = useToast();
   const [formData, setFormData] = useState({});
   const [photoPreview, setPhotoPreview] = useState(null);
-  const [generatedId, setGeneratedId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
+  const [isFetchingId, setIsFetchingId] = useState(false);
+  const [generatedId, setGeneratedId] = useState("");
+  const [activeTab, setActiveTab] = useState('identity');
 
   const fileInputRef = useRef(null);
+  const isEditMode = !!data?.Etudiant_id;
 
-  // --- INITIALISATION À L'OUVERTURE ---
   useEffect(() => {
-    if (isOpen) {
-      const hasId = !!data?.Etudiant_id;
-      setIsEditMode(hasId);
-      setFormData(data || {}); // On copie les props dans le state local
-      
-      // Gestion photo existante
-      if (data?.Etudiant_photo_profil_path) {
-        // Ajustez l'URL selon votre backend static files
-        setPhotoPreview(`http://127.0.0.1:8000/${data.Etudiant_photo_profil_path}`);
-      } else {
-        setPhotoPreview(null);
-      }
-
-      // Gestion ID
-      if (!hasId) {
-        fetchNextId();
-      } else {
-        setGeneratedId(data.Etudiant_numero_inscription || "");
-      }
+    if (!isOpen) return;
+    setActiveTab('identity');
+    if (isEditMode) {
+      setFormData(data);
+      setGeneratedId("");
+      setPhotoPreview(data.Etudiant_photo_profil_path ? `${API_BASE_URL}/${data.Etudiant_photo_profil_path}` : null);
     } else {
-        // Reset à la fermeture
-        setFormData({});
-        setPhotoPreview(null);
-        setIsSubmitting(false);
+      setFormData({
+        Etudiant_nationalite: "Madagascar",
+        Etudiant_sexe: "M",
+        Etudiant_bacc_serie: "",
+        Etudiant_nom: "",
+        Etudiant_prenoms: "",
+        Etudiant_naissance_lieu: "",
+        Etudiant_cin: "",
+        Etudiant_cin_lieu: "",
+        Etudiant_telephone: "",
+        Etudiant_mail: "",
+        Etudiant_adresse: "",
+        Etudiant_bacc_annee: "",
+        Etudiant_bacc_numero: "",
+      });
+      setPhotoPreview(null);
+      fetchNewId();
     }
-  }, [isOpen, data]);
+  }, [isOpen, isEditMode, data]);
 
-  // --- GÉNÉRATION ID AUTO ---
-  const fetchNextId = async () => {
-    setGeneratedId("Chargement...");
+  const fetchNewId = async () => {
+    setIsFetchingId(true);
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/etudiants/next-id");
-      if(response.ok){
-          const payload = await response.json();
-          setGeneratedId(payload.next_id);
-          setFormData(prev => ({ ...prev, Etudiant_numero_inscription: payload.next_id }));
+      const res = await fetch(`${API_BASE_URL}/api/etudiants/init-new`);
+      if (res.ok) {
+        const payload = await res.json();
+        setGeneratedId(payload.Etudiant_id);
       } else {
-          throw new Error("Erreur API");
+        throw new Error("Erreur de réponse API");
       }
     } catch (err) {
-      // Fallback local si l'API échoue
-      const fallback = `ETU${new Date().getFullYear()}_000000`;
-      setGeneratedId(fallback);
-      setFormData(prev => ({ ...prev, Etudiant_numero_inscription: fallback }));
+      console.error("Erreur de génération d'ID:", err);
+      addToast("Impossible de générer un ID", "error");
+    } finally {
+      setIsFetchingId(false);
     }
   };
 
-  // --- HANDLERS ---
-
-  // Pour les champs textes classiques
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name } = e.target;
+    let { value } = e.target;
+    if (name === "Etudiant_nom") value = (value || "").toUpperCase();
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Formatage auto CIN (XXX-XXX-XXX-XXX)
   const handleCinChange = (e) => {
-    let val = e.target.value.replace(/\D/g, "").substring(0, 12);
-    let formatted = val;
-    if (val.length > 3) formatted = val.slice(0, 3) + "-" + val.slice(3);
-    if (val.length > 6) formatted = formatted.slice(0, 7) + "-" + val.slice(6);
-    if (val.length > 9) formatted = formatted.slice(0, 11) + "-" + val.slice(9);
-    setFormData(prev => ({ ...prev, Etudiant_cin: formatted }));
+    let val = e.target.value.replace(/\D/g, "").slice(0, 12);
+    if (val.length > 9) val = `${val.slice(0, 3)}-${val.slice(3, 6)}-${val.slice(6, 9)}-${val.slice(9)}`;
+    else if (val.length > 6) val = `${val.slice(0, 3)}-${val.slice(3, 6)}-${val.slice(6)}`;
+    else if (val.length > 3) val = `${val.slice(0, 3)}-${val.slice(3)}`;
+    setFormData((prev) => ({ ...prev, Etudiant_cin: val }));
   };
 
-  // Formatage auto Téléphone
   const handlePhoneChange = (e) => {
-    let val = e.target.value.replace(/\D/g, "").substring(0, 10);
-    let formatted = val;
-    if (val.length > 3) formatted = val.slice(0, 3) + " " + val.slice(3);
-    if (val.length > 6) formatted = formatted.slice(0, 6) + " " + val.slice(5);
-    if (val.length > 8) formatted = formatted.slice(0, 10) + " " + val.slice(8);
-    setFormData(prev => ({ ...prev, Etudiant_telephone: formatted }));
+    let val = e.target.value.replace(/\D/g, "").slice(0, 10);
+    if (val.length > 8) val = `${val.slice(0, 3)} ${val.slice(3, 5)} ${val.slice(5, 8)} ${val.slice(8)}`;
+    else if (val.length > 5) val = `${val.slice(0, 3)} ${val.slice(3, 5)} ${val.slice(5)}`;
+    else if (val.length > 3) val = `${val.slice(0, 3)} ${val.slice(3)}`;
+    setFormData((prev) => ({ ...prev, Etudiant_telephone: val }));
   };
 
-  // Gestion Photo
-  const handlePhotoClick = () => fileInputRef.current.click();
-  
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setPhotoPreview(URL.createObjectURL(file));
-      setFormData(prev => ({ ...prev, photo_profil: file }));
-    }
+  const handlePhoto = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    setPhotoPreview(URL.createObjectURL(f));
+    setFormData((p) => ({ ...p, photo_file: f }));
   };
 
-  // --- SOUMISSION DU FORMULAIRE ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    const dataToSend = new FormData();
-
-    // Ajouter tous les champs textes
-    Object.keys(formData).forEach(key => {
-      // On exclut photo_profil ici car on l'ajoute manuellement si c'est un fichier
-      // On exclut les valeurs nulles pour éviter d'envoyer "null" en string
-      if (key !== "photo_profil" && formData[key] !== null && formData[key] !== undefined) {
-        dataToSend.append(key, formData[key]);
-      }
-    });
-
-    // Ajouter la photo seulement si c'est un nouveau fichier (objet File)
-    if (formData.photo_profil instanceof File) {
-      dataToSend.append("photo_profil", formData.photo_profil);
-    }
-
-    const url = isEditMode
-      ? `http://127.0.0.1:8000/api/etudiants/${formData.Etudiant_id}` // Assurez-vous d'avoir l'ID ici
-      : `http://127.0.0.1:8000/api/etudiants`;
-
-    const method = isEditMode ? "PUT" : "POST";
-
     try {
-      const res = await fetch(url, {
-        method: method,
-        body: dataToSend, 
-        // Ne pas mettre de header Content-Type, le navigateur le mettra en multipart/form-data
+      const form = new FormData();
+      if (isEditMode) {
+        form.append("Etudiant_id", formData.Etudiant_id);
+      }
+      Object.keys(formData).forEach((k) => {
+        if (k !== "photo_file" && k !== "Etudiant_id" && formData[k] != null && formData[k] !== "") {
+          form.append(k, formData[k]);
+        }
       });
+      if (formData.photo_file) {
+        form.append("photo_profil", formData.photo_file);
+      }
+
+      const url = isEditMode
+        ? `${API_BASE_URL}/api/etudiants/${formData.Etudiant_id}`
+        : `${API_BASE_URL}/api/etudiants`;
+
+      const method = isEditMode ? "PUT" : "POST";
+      const res = await fetch(url, { method: method, body: form });
 
       if (!res.ok) {
-        const errData = await res.json();
-        alert(`Erreur: ${errData.detail || "Impossible d'enregistrer"}`);
-      } else {
-        // Succès
-        if(reloadList) reloadList();
-        onClose();
+        const errorData = await res.json();
+        const message = errorData.detail || (errorData.title ? `${errorData.title}: ${JSON.stringify(errorData.errors)}` : "Erreur API");
+        throw new Error(message);
       }
-    } catch (error) {
-      console.error(error);
-      alert("Erreur de connexion au serveur");
+
+      addToast(isEditMode ? "Mis à jour avec succès" : "Étudiant créé avec succès", "success");
+      if (reloadList) reloadList();
+      onClose();
+    } catch (err) {
+      console.error(err);
+      addToast(err.message || "Erreur d'enregistrement", "error");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- RENDER ---
-  return (
-    <DraggableModal 
-        isOpen={isOpen} 
-        onClose={onClose} 
-        title={null} 
-        widthClass="max-w-3xl"
-    >
-      {/* HEADER PERSONNALISÉ */}
-      <div 
-        className="bg-gradient-to-r from-blue-900 to-blue-700 px-5 py-3 rounded-t-lg flex justify-between items-center text-white shadow-md cursor-grab active:cursor-grabbing modal-drag-handle"
-      >
-        <h2 className="text-lg font-bold flex items-center gap-2">
-          <FaUser className="text-blue-300" />
-          {isEditMode ? "Modifier Étudiant" : "Nouveau Dossier Étudiant"}
-        </h2>
-
-        <div className="flex flex-col items-end pointer-events-none">
-          <span className="text-[10px] text-blue-300 uppercase tracking-wide">
-            ID Système
-          </span>
-          <div className="bg-blue-800/50 px-2 py-0.5 rounded border border-blue-600">
-            <span className="font-mono text-sm font-bold">{generatedId}</span>
-          </div>
-        </div>
+  const modalTitle = (
+    <div className="flex items-center gap-2">
+      <div className={`p-1.5 rounded-md shadow-sm ${isEditMode ? "bg-amber-50 text-amber-600" : "bg-blue-50 text-blue-600"}`}>
+        <FaUser className="text-sm" />
       </div>
+      <div className="flex flex-col min-w-0">
+        <span className="text-base font-bold text-gray-900 leading-tight truncate">
+          {isEditMode ? "Modifier l'Étudiant" : "Nouveau Dossier"}
+        </span>
+        <span className="text-[11px] text-gray-500 font-medium flex items-center gap-1">
+          {isEditMode ? (
+            <><span className="bg-amber-100 text-amber-700 px-1.5 py-0 rounded text-[10px] font-mono">{formData.Etudiant_id}</span> Édition</>
+          ) : (
+            "Création de profil étudiant"
+          )}
+        </span>
+      </div>
+    </div>
+  );
 
-      {/* FORMULAIRE 
-          Notez le onMouseDown={e => e.stopPropagation()} :
-          C'est VITAL pour pouvoir cliquer dans les inputs sans déclencher le drag
-      */}
-      <form
-        onSubmit={handleSubmit}
-        className="bg-gray-50 max-h-[80vh] overflow-y-auto custom-scrollbar"
-        onMouseDown={(e) => e.stopPropagation()} 
-      >
-        <div className="p-5 space-y-5">
-
-          {/* SECTION 1: PHOTO & IDENTITÉ DE BASE */}
-          <div className="bg-white p-4 rounded-lg shadow-sm border flex flex-col sm:flex-row gap-5">
-            
-            {/* Zone Photo */}
-            <div className="flex flex-col items-center sm:w-1/4 border-r border-gray-100 pr-2">
-              <div 
-                className="relative group cursor-pointer" 
-                onClick={handlePhotoClick}
-                title="Changer la photo"
+  return (
+    <DraggableModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={modalTitle}
+      widthClass="w-[740px] max-w-[96vw]" // Un peu plus large pour accommoder la police
+    >
+      <form onSubmit={handleSubmit} className="bg-transparent flex flex-col max-h-[85vh] rounded-lg overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
+        
+        {/* Header Centré */}
+        <div className="bg-white pt-5 pb-0 border-b border-gray-100 flex flex-col items-center">
+          
+          <div className="flex flex-col items-center gap-3 mb-4 px-5">
+            {/* Photo Agrandie (130px) */}
+            <div className="shrink-0 relative group">
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="relative w-[130px] h-[130px] rounded-full ring-4 ring-white shadow-lg bg-gray-100 cursor-pointer overflow-hidden hover:scale-[1.02] transition-all duration-300 mx-auto"
               >
-                <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full overflow-hidden border-4 border-white shadow bg-gray-100 object-cover">
-                  {photoPreview ? (
-                    <img src={photoPreview} className="w-full h-full object-cover" alt="Profil" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-300">
-                      <FaUser size={50} />
+                {photoPreview ? (
+                  <img src={photoPreview} alt="preview" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 bg-gray-50">
+                    <FaCamera className="text-2xl text-gray-300" />
+                    <span className="text-[10px] uppercase font-bold text-gray-400 mt-1">Photo</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[1px] opacity-0 hover:opacity-100 transition-all duration-300">
+                  <FaCamera className="text-white text-lg drop-shadow-md" />
+                </div>
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+              <div className="absolute bottom-1 right-1 bg-blue-500 text-white p-1.5 rounded-full shadow-sm opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                 <FaCamera className="text-xs" />
+              </div>
+            </div>
+
+            {/* Nom et Matricule Centrés */}
+            <div className="text-center w-full">
+              <h3 className="text-lg font-bold text-gray-800 truncate uppercase mb-1">
+                {formData.Etudiant_nom || "NOM"} <span className="text-gray-600 font-semibold capitalize">{formData.Etudiant_prenoms || "Prénoms"}</span>
+              </h3>
+              <div className="inline-flex items-center gap-2 text-xs font-mono text-blue-700 bg-blue-50/50 px-3 py-0.5 rounded-full border border-blue-100/50">
+                <FaFingerprint className="text-blue-400 text-xs" />
+                {isEditMode ? formData.Etudiant_id : (generatedId || <FaSpinner className="animate-spin text-xs" />)}
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs Centrés - Police text-xs */}
+          <div className="w-full px-5">
+            <nav className="-mb-px flex justify-center space-x-8">
+              {[{ id: 'identity', label: 'Identité', icon: FaIdCard }, { id: 'contact', label: 'Contact & Bacc', icon: FaGraduationCap }].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`
+                    ${tab.id === activeTab ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
+                    group inline-flex items-center gap-2 px-1 py-2 border-b-2 font-bold text-xs transition-colors
+                  `}
+                >
+                  <tab.icon className={`text-sm ${tab.id === activeTab ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-500'}`} />
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
+
+        {/* Corps du formulaire scrollable */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 bg-gray-50">
+          {activeTab === 'identity' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                
+                {/* Colonne Gauche Identité */}
+                <div className="space-y-3">
+                  <div className="w-full">
+                    <label className={styles.label}>Nom de Famille *</label>
+                    <input required name="Etudiant_nom" value={formData.Etudiant_nom || ""} onChange={handleChange} className={`${styles.input} font-bold uppercase tracking-wide`} placeholder="Ex: RAKOTO" />
+                  </div>
+                  <div className="w-full">
+                    <label className={styles.label}>Prénoms</label>
+                    <input name="Etudiant_prenoms" value={formData.Etudiant_prenoms || ""} onChange={handleChange} className={styles.input} placeholder="Prénoms usuels" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className={styles.label}><FaVenusMars className="inline mr-1 text-gray-400" /> Genre</label>
+                        <div className="flex bg-gray-200/50 p-0.5 rounded-md shadow-inner h-[34px]">
+                        {["M", "F"].map((s) => {
+                            const isActive = formData.Etudiant_sexe === s;
+                            return (
+                            <label
+                                key={s}
+                                className={`flex-1 cursor-pointer flex items-center justify-center gap-1.5 rounded-[4px] text-xs font-bold transition-all relative ${isActive ? "bg-white text-blue-600 shadow-sm border border-gray-100" : "text-gray-500 hover:text-gray-700"}`}
+                            >
+                                <input type="radio" name="Etudiant_sexe" value={s} checked={isActive} onChange={handleChange} className="hidden" />
+                                {s === "M" ? "H" : "F"}
+                            </label>
+                            );
+                        })}
+                        </div>
                     </div>
-                  )}
+                    <div>
+                        <label className={styles.label}>Nationalité</label>
+                        <CustomCountrySelect value={formData.Etudiant_nationalite} onChange={handleChange} />
+                    </div>
+                  </div>
                 </div>
-                {/* Icône Overlay */}
-                <div className="absolute bottom-1 right-1 bg-blue-600 text-white p-2 rounded-full shadow hover:bg-blue-700 transition">
-                  <FaCamera size={12} />
+
+                {/* Colonne Droite Identité */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className={styles.label}>Né(e) le</label>
+                      <input type="date" name="Etudiant_naissance_date" value={formData.Etudiant_naissance_date || ""} onChange={handleChange} className={styles.input} />
+                    </div>
+                    <div>
+                      <label className={styles.label}>Lieu Naissance</label>
+                      <input name="Etudiant_naissance_lieu" value={formData.Etudiant_naissance_lieu || ""} onChange={handleChange} className={styles.input} placeholder="Commune" />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-gray-200/60 mt-3">
+                    <h4 className="text-[11px] uppercase font-bold text-gray-400 mb-2">Carte d'Identité Nationale</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <label className={styles.label}>N° CIN (12 chiffres)</label>
+                        <input name="Etudiant_cin" value={formData.Etudiant_cin || ""} onChange={handleCinChange} className={`${styles.input} font-mono tracking-wide text-gray-700`} placeholder="XXX-XXX-XXX-XXX" maxLength={15} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className={styles.label}>Du</label>
+                          <input type="date" name="Etudiant_cin_date" value={formData.Etudiant_cin_date || ""} onChange={handleChange} className={styles.input} />
+                        </div>
+                        <div>
+                          <label className={styles.label}>À</label>
+                          <input name="Etudiant_cin_lieu" value={formData.Etudiant_cin_lieu || ""} onChange={handleChange} className={styles.input} placeholder="Lieu CIN" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                />
-              </div>
-              <span className="text-[9px] text-gray-400 mt-2">Cliquez pour modifier</span>
-            </div>
-
-            {/* Inputs Principaux */}
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2">
-                <label className={AppStyles.input.label}>Nom *</label>
-                <input
-                  required
-                  name="Etudiant_nom"
-                  value={formData.Etudiant_nom || ""}
-                  onChange={(e) => setFormData({...formData, Etudiant_nom: e.target.value.toUpperCase()})}
-                  className={`${AppStyles.input.formControl} font-bold uppercase text-sm`}
-                  placeholder="ex: RAKOTO"
-                />
-              </div>
-
-              <div>
-                <label className={AppStyles.input.label}>Prénoms</label>
-                <input
-                  name="Etudiant_prenoms"
-                  value={formData.Etudiant_prenoms || ""}
-                  onChange={handleChange}
-                  className={AppStyles.input.formControl}
-                  placeholder="ex: Jean Pierre"
-                />
-              </div>
-
-              <div>
-                <label className={AppStyles.input.label}>Sexe</label>
-                <div className="flex gap-3 mt-1">
-                  <label className="inline-flex items-center cursor-pointer bg-white border px-3 py-1.5 rounded text-sm hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="Etudiant_sexe"
-                      value="M"
-                      checked={formData.Etudiant_sexe === "M"}
-                      onChange={handleChange}
-                      className="mr-2"
-                    />
-                    Masculin
-                  </label>
-                  <label className="inline-flex items-center cursor-pointer bg-white border px-3 py-1.5 rounded text-sm hover:bg-gray-50">
-                    <input
-                      type="radio"
-                      name="Etudiant_sexe"
-                      value="F"
-                      checked={formData.Etudiant_sexe === "F"}
-                      onChange={handleChange}
-                      className="mr-2"
-                    />
-                    Féminin
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className={AppStyles.input.label}>Date de naissance</label>
-                <input
-                  type="date"
-                  name="Etudiant_naissance_date"
-                  value={formData.Etudiant_naissance_date || ""}
-                  onChange={handleChange}
-                  className={AppStyles.input.formControl}
-                />
-              </div>
-
-              <div>
-                <label className={AppStyles.input.label}>Nationalité</label>
-                <CustomCountrySelect
-                  value={formData.Etudiant_nationalite}
-                  onChange={handleChange}
-                />
               </div>
             </div>
-          </div>
+          )}
 
-          {/* SECTION 2: ÉTAT CIVIL & CONTACT + CURSUS */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            
-            {/* Col Gauche : Contact */}
-            <div className="bg-white p-4 rounded-lg border shadow-sm space-y-3">
-              <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-2 mb-2">
-                <FaIdCard className="text-blue-400 inline mr-1" /> État civil & Contact
-              </h4>
-
-              <div>
-                <label className={AppStyles.input.label}>CIN</label>
-                <input
-                  value={formData.Etudiant_cin || ""}
-                  onChange={handleCinChange}
-                  className={`${AppStyles.input.formControl} font-mono tracking-wide`}
-                  placeholder="XXX-XXX-XXX-XXX"
-                  maxLength={15}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+          {activeTab === 'contact' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Carte Contact */}
+              <div className={`${styles.card} space-y-3`}>
+                <h4 className={styles.sectionTitle}>
+                  <FaPhone className="text-blue-500 text-sm" /> Coordonnées
+                </h4>
                 <div>
-                  <label className={AppStyles.input.label}>Fait le</label>
-                  <input
-                    type="date"
-                    name="Etudiant_cin_date"
-                    value={formData.Etudiant_cin_date || ""}
-                    onChange={handleChange}
-                    className={AppStyles.input.formControl}
-                  />
+                  <label className={styles.label}>Mobile</label>
+                  <div className="relative group">
+                    <FaPhone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-blue-500 transition-colors text-xs" />
+                    <input name="Etudiant_telephone" value={formData.Etudiant_telephone || ""} onChange={handlePhoneChange} className={`${styles.input} pl-8`} placeholder="03x xx xxx xx" />
+                  </div>
                 </div>
                 <div>
-                  <label className={AppStyles.input.label}>Lieu</label>
-                  <input
-                    name="Etudiant_cin_lieu"
-                    value={formData.Etudiant_cin_lieu || ""}
-                    onChange={handleChange}
-                    className={AppStyles.input.formControl}
-                    placeholder="ex: Antananarivo"
-                  />
+                  <label className={styles.label}>Email</label>
+                  <div className="relative group">
+                    <FaEnvelope className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-blue-500 transition-colors text-xs" />
+                    <input type="email" name="Etudiant_mail" value={formData.Etudiant_mail || ""} onChange={handleChange} className={`${styles.input} pl-8`} placeholder="email@exemple.com" />
+                  </div>
+                </div>
+                <div>
+                  <label className={styles.label}>Adresse</label>
+                  <textarea name="Etudiant_adresse" value={formData.Etudiant_adresse || ""} onChange={handleChange} rows={2} className={`${styles.input} resize-none py-2 leading-tight`} placeholder="Lot, Rue, Ville..." />
                 </div>
               </div>
 
-              <div>
-                <label className={AppStyles.input.label}>Téléphone</label>
-                <div className="relative">
-                  <input
-                    value={formData.Etudiant_telephone || ""}
-                    onChange={handlePhoneChange}
-                    className={`${AppStyles.input.formControl} pl-8`}
-                    placeholder="03X XX XXX XX"
-                  />
-                  <FaPhone className="absolute left-2.5 top-2.5 text-gray-400 text-xs" />
+              {/* Carte Bacc */}
+              <div className={`${styles.card} space-y-3`}>
+                <h4 className={styles.sectionTitle}>
+                  <FaGraduationCap className="text-purple-500 text-sm" /> Baccalauréat
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                    <label className={styles.label}>Série</label>
+                    <div className="relative cursor-pointer group">
+                        <select name="Etudiant_bacc_serie" value={formData.Etudiant_bacc_serie || ""} onChange={handleChange} className={`${styles.input} appearance-none font-bold text-blue-800 cursor-pointer pl-3 pr-8 hover:border-blue-300`}>
+                        <option value="">-</option>
+                        {BACC_SERIES.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                        <FaChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none" />
+                    </div>
+                    </div>
+                    <div>
+                    <label className={styles.label}>Année</label>
+                    <input type="number" min="1990" max={new Date().getFullYear()} name="Etudiant_bacc_annee" value={formData.Etudiant_bacc_annee || ""} onChange={handleChange} className={`${styles.input} text-center font-semibold`} placeholder="YYYY" />
+                    </div>
                 </div>
-              </div>
-
-              <div>
-                <label className={AppStyles.input.label}>Email</label>
-                <input
-                  type="email"
-                  name="Etudiant_mail"
-                  value={formData.Etudiant_mail || ""}
-                  onChange={handleChange}
-                  className={AppStyles.input.formControl}
-                  placeholder="etudiant@example.com"
-                />
+                <div>
+                    <label className={styles.label}>N° Matricule Bacc</label>
+                    <input name="Etudiant_bacc_numero" value={formData.Etudiant_bacc_numero || ""} onChange={handleChange} className={`${styles.input} font-mono`} placeholder="ex: 123456-A" />
+                </div>
               </div>
             </div>
-
-            {/* Col Droite : Bacc & Adresse */}
-            <div className="bg-white p-4 rounded-lg border shadow-sm space-y-3">
-              <h4 className="text-xs font-bold text-gray-500 uppercase border-b pb-2 mb-2">
-                <FaGraduationCap className="text-green-400 inline mr-1" /> Baccalauréat & Adresse
-              </h4>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className={AppStyles.input.label}>Série Bacc</label>
-                  <select
-                    name="Etudiant_bacc_serie"
-                    value={formData.Etudiant_bacc_serie || ""}
-                    onChange={handleChange}
-                    className={AppStyles.input.formControl}
-                  >
-                    <option value="">-- Choix --</option>
-                    {BACC_SERIES.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className={AppStyles.input.label}>Année</label>
-                  <input
-                    type="number"
-                    name="Etudiant_bacc_annee"
-                    value={formData.Etudiant_bacc_annee || ""}
-                    onChange={handleChange}
-                    className={AppStyles.input.formControl}
-                    placeholder="YYYY"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className={AppStyles.input.label}>N° Inscription Bacc</label>
-                <input
-                  name="Etudiant_bacc_numero"
-                  value={formData.Etudiant_bacc_numero || ""}
-                  onChange={handleChange}
-                  className={AppStyles.input.formControl}
-                  placeholder="Numéro matricule bacc"
-                />
-              </div>
-
-              <div>
-                <label className={AppStyles.input.label}>Adresse actuelle</label>
-                <textarea
-                  name="Etudiant_adresse"
-                  value={formData.Etudiant_adresse || ""}
-                  onChange={handleChange}
-                  rows={2}
-                  className={AppStyles.input.formControl}
-                  placeholder="Lot, Ville, Code Postal..."
-                />
-              </div>
-            </div>
-
-          </div>
+          )}
         </div>
 
-        {/* FOOTER ACTIONS */}
-        <div className="bg-gray-100 px-5 py-3 flex justify-end gap-3 border-t rounded-b-lg">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 rounded text-gray-600 hover:bg-gray-200 text-sm font-medium transition"
-          >
-            Annuler
-          </button>
-
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="bg-blue-700 hover:bg-blue-800 text-white px-6 py-2 rounded shadow text-sm font-bold flex items-center transition disabled:opacity-50"
-          >
-            {isSubmitting ? (
-              <>
-                <SpinnerIcon className="animate-spin mr-2" /> Traitement...
-              </>
-            ) : (
-              <>
-                <FaSave className="mr-2" /> {isEditMode ? "Mettre à jour" : "Enregistrer"}
-              </>
-            )}
-          </button>
+        {/* Footer */}
+        <div className="bg-white px-5 py-3 border-t border-gray-100 flex justify-between items-center shrink-0">
+          <div className="text-[11px] text-gray-400 flex items-center gap-1.5 bg-gray-50 px-2.5 py-1 rounded-full font-medium">
+            <FaFingerprint className="text-gray-300" />
+            {isEditMode ? "Mode Édition" : "Génération auto."}
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              type="button"
+              className="px-4 py-2 rounded-md border border-gray-200 text-gray-600 text-xs font-bold uppercase tracking-wide hover:bg-gray-50 transition-all"
+            >
+              Annuler
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || isFetchingId}
+              className="px-5 py-2 rounded-md bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2 shadow-sm transform active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? <FaSpinner className="animate-spin text-sm" /> : <FaSave className="text-sm" />}
+              <span>{isSubmitting ? "..." : "Enregistrer"}</span>
+            </button>
+          </div>
         </div>
-
       </form>
     </DraggableModal>
   );
-};
+}

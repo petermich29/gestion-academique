@@ -2,7 +2,7 @@ from typing import Optional
 from datetime import date
 from pydantic import Field
 from .base import BaseSchema
-from .users import EtudiantBase
+from .etudiants_schemas import EtudiantBase
 from .academic import ParcoursBase, SemestreBase
 from .metadonnees import AnneeUniversitaireBase, ModeInscriptionBase, AnneeUniversitaireSchema
 from .maquette import UniteEnseignementBase

@@ -2,12 +2,16 @@
 import React, { useState } from "react";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
-import { Outlet, useLocation } from "react-router-dom"; // <- IMPORTANT
-import { BreadcrumbProvider, useBreadcrumb } from "../context/BreadcrumbContext"; // <- TON CONTEXTE
+import { Outlet, useLocation } from "react-router-dom";
+import { BreadcrumbProvider, useBreadcrumb } from "../context/BreadcrumbContext";
+
+// 🔥 IMPORT TOAST GLOBAL
+import { ToastProvider } from "../context/ToastContext";
+import { ToastContainer } from "../components/ui/Toast";
 
 const LayoutContent = ({ sidebarOpen, setSidebarOpen, menuTitle, setMenuTitle }) => {
   const location = useLocation();
-  const { breadcrumb, setBreadcrumb } = useBreadcrumb(); // <- RÉCUPÈRE LE CONTEXTE GLOBAL
+  const { breadcrumb, setBreadcrumb } = useBreadcrumb();
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -21,14 +25,16 @@ const LayoutContent = ({ sidebarOpen, setSidebarOpen, menuTitle, setMenuTitle })
         <Navbar
           toggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           menuTitle={menuTitle}
-          breadcrumb={breadcrumb}          // <- TRÈS IMPORTANT
+          breadcrumb={breadcrumb}
         />
 
         <main className="flex-1 p-6 overflow-auto">
-          {/* ENVOIE setBreadcrumb AUX PAGES */}
           <Outlet context={{ setBreadcrumb }} />
         </main>
       </div>
+
+      {/* 🔥 TOASTS TOUJOURS VISIBLES */}
+      <ToastContainer />
     </div>
   );
 };
@@ -38,14 +44,16 @@ const Layout = () => {
   const [menuTitle, setMenuTitle] = useState("Tableau de bord");
 
   return (
-    <BreadcrumbProvider>
-      <LayoutContent
-        sidebarOpen={sidebarOpen}
-        setSidebarOpen={setSidebarOpen}
-        menuTitle={menuTitle}
-        setMenuTitle={setMenuTitle}
-      />
-    </BreadcrumbProvider>
+    <ToastProvider>          {/* 🟦 CONTEXTE GLOBAL TOAST */}
+      <BreadcrumbProvider>   {/* 🟦 CONTEXTE BREADCRUMB */}
+        <LayoutContent
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          menuTitle={menuTitle}
+          setMenuTitle={setMenuTitle}
+        />
+      </BreadcrumbProvider>
+    </ToastProvider>
   );
 };
 
