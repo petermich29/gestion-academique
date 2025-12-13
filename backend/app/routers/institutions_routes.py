@@ -631,3 +631,4 @@ def duplicate_institution_structure(
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"Erreur lors de la duplication: {str(e)}")
+    

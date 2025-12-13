@@ -650,3 +650,20 @@ def duplicate_composante_structure(
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"Erreur lors de la duplication: {str(e)}")
+    
+@router.get("/options", response_model=List[dict]) 
+def get_composantes_options_standalone(db: Session = Depends(get_db)):
+    """
+    Endpoint pour charger la liste simplifiée de toutes les composantes
+    utilisée par les listes déroulantes de l'application.
+    URL finale : /api/composantes/options
+    """
+    composantes = db.query(Composante).all()
+    
+    # Assurez-vous que les clés 'id', 'nom', 'institution_id' correspondent 
+    # à ce que votre frontend attend pour les options
+    return [{
+        "id": c.Composante_id, 
+        "nom": c.Composante_label, 
+        "institution_id": c.Institution_id_fk
+    } for c in composantes]

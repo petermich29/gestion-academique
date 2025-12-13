@@ -21,7 +21,7 @@ router = APIRouter(tags=["Ressources Humaines et Étudiants"])
 # ---------------------------------------------------------
 # Assumer que etudiants_routes.py est dans app/routers. On remonte de 2 niveaux.
 BASE_DIR = Path(__file__).resolve().parents[2] 
-UPLOAD_DIR = BASE_DIR / "static" / "etudiant"
+UPLOAD_DIR = BASE_DIR / "app" / "static" / "etudiant"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------

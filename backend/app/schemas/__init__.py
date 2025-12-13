@@ -33,6 +33,11 @@ from .etudiants_schemas import (
     EtudiantBase, EtudiantSchema,
     # Les schémas Enseignant ont été retirés
 )
+
+from .enseignants_schemas import (
+    EnseignantBase, EnseignantCreate, EnseignantSchema, EnseignantPaginatedResponse
+)
+
 from .results import (
     InscriptionBase, InscriptionSchema,
     ResultatSemestreBase, ResultatSemestreSchema,
