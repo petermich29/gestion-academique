@@ -188,11 +188,28 @@ def update_ue_in_maquette(
         db.commit()
         db.refresh(maquette)
         
-        # IMPORTANT : On récupère l'UE fraîchement liée pour construire la réponse
-        # (Nécessaire car si on a fork, maquette.ue_catalog peut être obsolète dans la session sans refresh profond)
+        # Récupération de l'UE fraîchement liée
         current_ue = db.query(models.UniteEnseignement).get(maquette.UE_id_fk)
 
-        # 5. Construction explicite de l'objet de retour (C'est ici que l'erreur se produisait)
+        # --- CORRECTION ICI : Récupérer les EC existants pour ne pas les effacer de l'affichage ---
+        ecs_data = []
+        # On doit recharger les ECs attachés à cette maquette
+        detailed_maquette = db.query(models.MaquetteUE).options(
+            joinedload(models.MaquetteUE.maquette_ecs).joinedload(models.MaquetteEC.ec_catalog)
+        ).filter(models.MaquetteUE.MaquetteUE_id == maquette.MaquetteUE_id).first()
+
+        if detailed_maquette:
+            for mec in detailed_maquette.maquette_ecs:
+                if mec.ec_catalog:
+                    ecs_data.append(schemas.StructureEC(
+                        id=mec.MaquetteEC_id,
+                        id_catalog=mec.ec_catalog.EC_id,
+                        code=mec.ec_catalog.EC_code,
+                        intitule=mec.ec_catalog.EC_intitule,
+                        coefficient=float(mec.MaquetteEC_coefficient)
+                    ))
+            ecs_data.sort(key=lambda x: x.code)
+
         return schemas.StructureUE(
             id=maquette.MaquetteUE_id,
             id_maquette=maquette.MaquetteUE_id,
@@ -200,9 +217,8 @@ def update_ue_in_maquette(
             code=current_ue.UE_code,
             intitule=current_ue.UE_intitule,
             credit=maquette.MaquetteUE_credit,
-            # On renvoie des valeurs par défaut pour les ECs car on vient de faire une mise à jour d'entête UE
-            ec_count=0, 
-            ecs=[]
+            ec_count=len(ecs_data),
+            ecs=ecs_data # On renvoie la liste réelle, pas vide !
         )
     except Exception as e:
         db.rollback()

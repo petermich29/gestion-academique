@@ -86,7 +86,7 @@ class CursusDisplaySchema(BaseSchema):
 class EtudiantSchema(BaseSchema):
     Etudiant_id: str
     Etudiant_nom: str
-    Etudiant_numero_inscription: Optional[str] = None 
+    # Etudiant_numero_inscription SUPPRIMÉ
 
     Etudiant_prenoms: Optional[str] = None
     Etudiant_sexe: Optional[str] = None
@@ -94,7 +94,13 @@ class EtudiantSchema(BaseSchema):
     Etudiant_naissance_lieu: Optional[str] = None
     Etudiant_nationalite: Optional[str] = None
 
+    # === CORRECTION POUR L'AFFICHAGE "VERS YYYY" ===
+    Etudiant_naissance_annee: Optional[int] = None
+    Etudiant_naissance_date_Exact: Optional[bool] = None
+    # ===============================================
+
     Etudiant_bacc_annee: Optional[int] = None
+    Etudiant_bacc_serie: Optional[str] = None # Ajouté pour la colonne BACC
     Etudiant_adresse: Optional[str] = None
     Etudiant_telephone: Optional[str] = None
     Etudiant_mail: Optional[str] = None
@@ -118,5 +124,3 @@ class PaginatedResponse(BaseSchema):
 
 class EtudiantPaginatedResponse(PaginatedResponse):
     items: List[EtudiantSchema]
-
-

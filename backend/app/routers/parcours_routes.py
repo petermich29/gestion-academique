@@ -118,10 +118,10 @@ def get_parcours(parcours_id: str, db: Session = Depends(get_db)):
 @router.get("/{parcours_id}/structure", response_model=List[schemas.StructureNiveau])
 def get_parcours_structure(
     parcours_id: str, 
-    annee_id: Optional[str] = Query(None, description="Année universitaire cible"),
+    annee_id: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    # 1. Déterminer l'année
+    # 1. Déterminer l'année cible
     if not annee_id:
         active_year = db.query(models.AnneeUniversitaire).filter(models.AnneeUniversitaire.AnneeUniversitaire_is_active == True).first()
         if not active_year:
@@ -130,8 +130,7 @@ def get_parcours_structure(
     else:
         annee_target = annee_id
 
-    # 2. Récupérer la structure Niveaux -> Semestres via ParcoursNiveau
-    # On vérifie quels niveaux sont ouverts pour ce parcours cette année-là
+    # 2. Récupérer la structure (Niveaux -> Semestres)
     liens_niveaux = (
         db.query(models.ParcoursNiveau)
         .filter(
@@ -139,56 +138,69 @@ def get_parcours_structure(
             models.ParcoursNiveau.AnneeUniversitaire_id_fk == annee_target
         )
         .options(
-            joinedload(models.ParcoursNiveau.niveau_lie)
+            joinedload(models.ParcoursNiveau.niveau)
             .joinedload(models.Niveau.semestres)
         )
         .order_by(models.ParcoursNiveau.ParcoursNiveau_ordre)
         .all()
     )
     
+    # 3. Récupérer TOUTES les Maquettes pour ce parcours/année en une seule requête (Optimisation)
+    # On charge profondément : Maquette -> UE Catalog ET Maquette -> MaquetteEC -> EC Catalog
+    all_maquettes = (
+        db.query(models.MaquetteUE)
+        .filter(
+            models.MaquetteUE.Parcours_id_fk == parcours_id,
+            models.MaquetteUE.AnneeUniversitaire_id_fk == annee_target
+        )
+        .options(
+            joinedload(models.MaquetteUE.ue_catalog),
+            joinedload(models.MaquetteUE.maquette_ecs).joinedload(models.MaquetteEC.ec_catalog)
+        )
+        .all()
+    )
+
+    # 4. Organiser les maquettes par Semestre ID pour un accès rapide
+    maquettes_by_semestre = {}
+    for mq in all_maquettes:
+        if mq.Semestre_id_fk not in maquettes_by_semestre:
+            maquettes_by_semestre[mq.Semestre_id_fk] = []
+        maquettes_by_semestre[mq.Semestre_id_fk].append(mq)
+
     structure_response = []
     
     for lien in liens_niveaux:
-        niveau = lien.niveau_lie
+        niveau = lien.niveau
         if not niveau: continue
         
         semestres_data = []
-        # Pour chaque semestre du niveau
-        for sem in sorted(niveau.semestres, key=lambda x: x.Semestre_numero):
+        # Tri des semestres (gestion robuste du tri string/int)
+        sorted_semestres = sorted(
+            niveau.semestres, 
+            key=lambda x: int(x.Semestre_numero) if x.Semestre_numero.isdigit() else x.Semestre_numero
+        )
+
+        for sem in sorted_semestres:
             ues_data = []
             
-            # 3. CRITIQUE : Récupérer les MaquetteUE (Liaison) et non les UE catalogue directes
-            # On cherche : Les Maquettes pour ce Parcours + Cette Année + Ce Semestre
-            maquettes = (
-                db.query(models.MaquetteUE)
-                .join(models.UniteEnseignement, models.MaquetteUE.UE_id_fk == models.UniteEnseignement.UE_id)
-                .filter(
-                    models.MaquetteUE.Parcours_id_fk == parcours_id,
-                    models.MaquetteUE.AnneeUniversitaire_id_fk == annee_target,
-                    models.MaquetteUE.Semestre_id_fk == sem.Semestre_id
-                )
-                .options(
-                    joinedload(models.MaquetteUE.ue_catalog),
-                    joinedload(models.MaquetteUE.maquette_ecs)
-                )
-                .all()
-            )
+            # Récupération des UEs depuis notre dictionnaire pré-chargé
+            maquettes_du_semestre = maquettes_by_semestre.get(sem.Semestre_id, [])
             
-            # Transformation vers le schéma frontend
-            for mq in maquettes:
-                # 🟢 CORRECTION : Construction de la liste des ECs
+            for mq in maquettes_du_semestre:
+                if not mq.ue_catalog: continue # Sécurité intégrité
+
+                # Construction des ECs
                 ecs_data = []
                 for mec in mq.maquette_ecs:
-                    if mec.ec_catalog: # Sécurité
+                    if mec.ec_catalog:
                         ecs_data.append(schemas.StructureEC(
                             id=mec.MaquetteEC_id,
                             id_catalog=mec.ec_catalog.EC_id,
                             code=mec.ec_catalog.EC_code,
                             intitule=mec.ec_catalog.EC_intitule,
-                            coefficient=mec.MaquetteEC_coefficient
+                            coefficient=float(mec.MaquetteEC_coefficient)
                         ))
                 
-                # Tri des EC par code pour un affichage propre
                 ecs_data.sort(key=lambda x: x.code)
 
                 ues_data.append(schemas.StructureUE(
@@ -199,16 +211,15 @@ def get_parcours_structure(
                     intitule=mq.ue_catalog.UE_intitule,
                     credit=mq.MaquetteUE_credit,
                     ec_count=len(ecs_data),
-                    ecs=ecs_data # <--- Injection ici
+                    ecs=ecs_data
                 ))
             
-            # Tri par code UE
             ues_data.sort(key=lambda x: x.code)
 
             semestres_data.append(schemas.StructureSemestre(
-                id=sem.Semestre_id,            # Mappage correct vers 'id'
-                numero=str(sem.Semestre_numero), # Mappage vers 'numero' (converti en str si besoin)
-                code=sem.Semestre_code,        # Mappage vers 'code'
+                id=sem.Semestre_id,
+                numero=str(sem.Semestre_numero),
+                code=sem.Semestre_code,
                 ues=ues_data
             ))
             

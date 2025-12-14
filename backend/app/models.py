@@ -113,7 +113,11 @@ class Parcours(Base):
     )
 
     type_formation_defaut = relationship("TypeFormation", back_populates="parcours")
-    niveaux_couverts = relationship("ParcoursNiveau", back_populates="parcours_lie")
+    niveaux_couverts = relationship(
+        "ParcoursNiveau",
+        back_populates="parcours",
+        cascade="all, delete-orphan"
+    )
     parcours_historiques = relationship("ParcoursHistorique", back_populates="parcours")
 
 
@@ -193,19 +197,33 @@ class NiveauHistorique(Base):
 # =========================================================
 
 class ParcoursNiveau(Base):
-    __tablename__ = 'parcours_niveaux'
-    __table_args__ = (
-        UniqueConstraint('Parcours_id_fk', 'Niveau_id_fk', 'AnneeUniversitaire_id_fk', name='uq_parcours_niveau_annee'),
-        {'extend_existing': True}
+    __tablename__ = "parcours_niveaux"
+
+    Parcours_id_fk = Column(
+        String(50),
+        ForeignKey("parcours.Parcours_id"),
+        primary_key=True
     )
-    ParcoursNiveau_id = Column(String(50), primary_key=True)
-    Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), nullable=False)
-    Niveau_id_fk = Column(String(10), ForeignKey('niveaux.Niveau_id'), nullable=False)
-    AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
+
+    Niveau_id_fk = Column(
+        String(20),
+        ForeignKey("niveaux.Niveau_id"),
+        primary_key=True
+    )
+
+    AnneeUniversitaire_id_fk = Column(
+        String(20),
+        ForeignKey("annees_universitaires.AnneeUniversitaire_id"),
+        primary_key=True   # 🔥 IMPORTANT
+    )
+
     ParcoursNiveau_ordre = Column(Integer, nullable=True)
-    parcours_lie = relationship("Parcours", back_populates="niveaux_couverts")
-    niveau_lie = relationship("Niveau", back_populates="parcours_associes")
-    annee_univ = relationship("AnneeUniversitaire")
+
+    parcours = relationship("Parcours", back_populates="niveaux_couverts")
+    niveau = relationship("Niveau", back_populates="parcours_associes")
+
+
+
 
 
 class Cycle(Base):
@@ -227,7 +245,11 @@ class Niveau(Base):
     Cycle_id_fk = Column(String(10), ForeignKey('cycles.Cycle_id'), nullable=False)
     cycle = relationship("Cycle", back_populates="niveaux")
     semestres = relationship("Semestre", back_populates="niveau")
-    parcours_associes = relationship("ParcoursNiveau", back_populates="niveau_lie")
+    parcours_associes = relationship(
+        "ParcoursNiveau",
+        back_populates="niveau",
+        cascade="all, delete-orphan"
+    )
 
 
 class Semestre(Base):
@@ -241,7 +263,11 @@ class Semestre(Base):
     Semestre_numero = Column(String(10), nullable=False)
     Niveau_id_fk = Column(String(10), ForeignKey('niveaux.Niveau_id'), nullable=False)
     niveau = relationship("Niveau", back_populates="semestres")
-    inscriptions = relationship("Inscription", back_populates="semestre")
+    inscriptions = relationship(
+        "InscriptionSemestre", 
+        back_populates="semestre",
+        primaryjoin="Semestre.Semestre_id == InscriptionSemestre.Semestre_id_fk"
+    )
 
 
 # ===================================================================
@@ -406,11 +432,16 @@ class Etudiant(Base):
     __table_args__ = ({'extend_existing': True})
 
     Etudiant_id = Column(String(50), primary_key=True)
-    Etudiant_numero_inscription = Column(String(100))
     Etudiant_nom = Column(String(100), nullable=False)
     Etudiant_prenoms = Column(String(150))
     Etudiant_sexe = Column(String(20))
-    Etudiant_naissance_date = Column(Date, nullable=True)
+
+    Etudiant_naissance_date = Column(Date, nullable=True) # La colonne principale
+    Etudiant_naissance_date_Exact = Column(Boolean, nullable=True) # Nouvelle colonne
+    Etudiant_naissance_annee = Column(Integer, nullable=True) # Nouvelle colonne
+    Etudiant_naissance_mois = Column(Integer, nullable=True) # Nouvelle colonne
+    Etudiant_naissance_jour = Column(Integer, nullable=True) # Nouvelle colonne
+
     Etudiant_naissance_lieu = Column(String(100))
     Etudiant_nationalite = Column(String(50))
     Etudiant_bacc_annee = Column(Integer, nullable=True)
@@ -428,11 +459,26 @@ class Etudiant(Base):
     Etudiant_scan_cin_path = Column(String(255), nullable=True)
     Etudiant_scan_releves_notes_bacc_path = Column(String(255), nullable=True)
 
-    inscriptions = relationship("Inscription", back_populates="etudiant")
     notes_obtenues = relationship("Note", back_populates="etudiant")
     credits_cycles = relationship("SuiviCreditCycle", back_populates="etudiant")
     resultats_ue = relationship("ResultatUE", back_populates="etudiant")
     resultats_semestre = relationship("ResultatSemestre", back_populates="etudiant_resultat")
+
+    dossiers_inscription = relationship("DossierInscription", back_populates="etudiant")
+
+    # --- AJOUT CRUCIAL POUR RÉPARER L'ERREUR ---
+    @property
+    def inscriptions(self):
+        """
+        Récupère toutes les inscriptions à travers les dossiers d'inscription.
+        Permet de garder la compatibilité avec le reste du code (schemas, etc.)
+        """
+        all_inscriptions = []
+        if self.dossiers_inscription:
+            for dossier in self.dossiers_inscription:
+                if dossier.inscriptions:
+                    all_inscriptions.extend(dossier.inscriptions)
+        return all_inscriptions
 
     @property
     def parcours(self):
@@ -497,34 +543,137 @@ class Etudiant(Base):
                     mentions_grouped[mention_id]["annee_universitaire_list"].append(annee)
 
         return list(mentions_grouped.values())
+    
+
+class DossierInscription(Base):
+    __tablename__ = 'dossiers_inscription'
+    __table_args__ = (
+        UniqueConstraint(
+            'Etudiant_id_fk',
+            'Mention_id_fk',
+            name='uq_etudiant_mention_dossier'
+        ),
+    )
+
+    DossierInscription_id = Column(String(120), primary_key=True)
+    DossierInscription_numero = Column(String(50), nullable=True)
+
+    Etudiant_id_fk = Column(
+        String(50), 
+        ForeignKey('etudiants.Etudiant_id'), 
+        nullable=False
+    )
+
+    Mention_id_fk = Column(
+        String(12),
+        ForeignKey('mentions.Mention_id'),
+        nullable=False
+    )
+
+    DossierInscription_date_creation = Column(Date, nullable=False)
+
+    mention = relationship("Mention")
+
+    etudiant = relationship("Etudiant", back_populates="dossiers_inscription")
+    inscriptions = relationship("Inscription", back_populates="dossier_inscription")
+
 
 
 class Inscription(Base):
     __tablename__ = 'inscriptions'
     __table_args__ = (
         UniqueConstraint(
-            'Etudiant_id_fk', 'AnneeUniversitaire_id_fk', 'Parcours_id_fk', 'Semestre_id_fk',
-            name='uq_etudiant_annee_parcours_semestre'
+            'DossierInscription_id_fk',
+            'AnneeUniversitaire_id_fk',
+            'Parcours_id_fk',
+            'Niveau_id_fk',
+            name='uq_dossier_annee_parcours_niveau'
         ),
-        {'extend_existing': True}
     )
 
-    Inscription_id = Column(String(100), primary_key=True)
-    Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
-    AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
-    Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), nullable=False)
-    Semestre_id_fk = Column(String(10), ForeignKey('semestres.Semestre_id'), nullable=False)
-    ModeInscription_id_fk = Column(String(10), ForeignKey('modes_inscription.ModeInscription_id'), nullable=True)
+    Inscription_id = Column(String(120), primary_key=True)
+
+    DossierInscription_id_fk = Column(
+        String(120),
+        ForeignKey('dossiers_inscription.DossierInscription_id'),
+        nullable=False
+    )
+
+    AnneeUniversitaire_id_fk = Column(
+        String(9),
+        ForeignKey('annees_universitaires.AnneeUniversitaire_id'),
+        nullable=False
+    )
+
+    Parcours_id_fk = Column(
+        String(15),
+        ForeignKey('parcours.Parcours_id'),
+        nullable=False
+    )
+
+    Niveau_id_fk = Column(
+        String(10),
+        ForeignKey('niveaux.Niveau_id'),
+        nullable=False
+    )
+
+    ModeInscription_id_fk = Column(
+        String(10),
+        ForeignKey('modes_inscription.ModeInscription_id'),
+        nullable=True
+    )
 
     Inscription_date = Column(Date, nullable=False)
-    Inscription_credit_acquis_semestre = Column(Integer, default=0)
-    Inscription_is_semestre_valide = Column(Boolean, default=False)
 
-    etudiant = relationship("Etudiant", back_populates="inscriptions")
-    annee_univ = relationship("AnneeUniversitaire", back_populates="inscriptions")
-    parcours = relationship("Parcours", backref="inscriptions")
-    semestre = relationship("Semestre", back_populates="inscriptions")
-    mode_inscription = relationship("ModeInscription", back_populates="inscriptions")
+    dossier_inscription = relationship("DossierInscription", back_populates="inscriptions")
+    annee_univ = relationship("AnneeUniversitaire")
+    parcours = relationship("Parcours")
+    niveau = relationship("Niveau")
+    mode_inscription = relationship("ModeInscription")
+    semestres = relationship(
+        "InscriptionSemestre",
+        back_populates="inscription",
+        cascade="all, delete-orphan"
+    )
+
+
+class InscriptionSemestre(Base):
+    __tablename__ = 'inscriptions_semestres'
+    __table_args__ = (
+        UniqueConstraint(
+            'Inscription_id_fk',
+            'Semestre_id_fk',
+            name='uq_inscription_semestre'
+        ),
+    )
+
+    InscriptionSemestre_id = Column(String(120), primary_key=True)
+
+    Inscription_id_fk = Column(
+        String(120),
+        ForeignKey('inscriptions.Inscription_id'),
+        nullable=False
+    )
+
+    Semestre_id_fk = Column(
+        String(10),
+        ForeignKey('semestres.Semestre_id'),
+        nullable=False
+    )
+
+    InscriptionSemestre_statut = Column(
+        String(10),
+        # FIX : Les guillemets doubles sont CRUCIAUX pour PostgreSQL
+        CheckConstraint(
+            "\"InscriptionSemestre_statut\" IN ('INSCRIT', 'VALIDE', 'AJ')",
+            name='ck_statut_inscription_semestre'
+        ),
+        default='INSCRIT', 
+        server_default='INSCRIT',
+        nullable=False
+    )
+    inscription = relationship("Inscription", back_populates="semestres")
+    semestre = relationship("Semestre")
 
 
 class ResultatSemestre(Base):

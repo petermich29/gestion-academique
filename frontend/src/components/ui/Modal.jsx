@@ -95,7 +95,7 @@ export const DraggableModal = ({ isOpen, onClose, title, children, widthClass = 
         >
           <motion.div
             ref={modalRef}
-            className={`absolute bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden ${widthClass} w-full`}
+            className={`absolute bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden ${widthClass}`}
             style={{ top: pos.top, left: pos.left, touchAction: "none" }}
             initial={{ opacity: 0, y: -12, scale: 0.995 }}
             animate={{

@@ -117,12 +117,14 @@ def list_etudiants(
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    # CHARGEMENT PROFOND DES CURSUS (Repris de hr.py)
+    # CORRECTION : On passe par dossiers_inscription pour atteindre les inscriptions
     query = db.query(models.Etudiant).options(
-        joinedload(models.Etudiant.inscriptions)
+        joinedload(models.Etudiant.dossiers_inscription)
+        .joinedload(models.DossierInscription.inscriptions)
         .joinedload(models.Inscription.annee_univ),
 
-        joinedload(models.Etudiant.inscriptions)
+        joinedload(models.Etudiant.dossiers_inscription)
+        .joinedload(models.DossierInscription.inscriptions)
         .joinedload(models.Inscription.parcours)
         .joinedload(models.Parcours.mention)
         .joinedload(models.Mention.composante)
@@ -135,7 +137,6 @@ def list_etudiants(
             or_(
                 models.Etudiant.Etudiant_nom.ilike(pattern),
                 models.Etudiant.Etudiant_prenoms.ilike(pattern),
-                models.Etudiant.Etudiant_numero_inscription.ilike(pattern),
                 models.Etudiant.Etudiant_mail.ilike(pattern)
             )
         )
@@ -148,12 +149,13 @@ def list_etudiants(
 
 @router.get("/etudiants/{etudiant_id}", response_model=schemas.EtudiantSchema)
 def get_etudiant(etudiant_id: str, db: Session = Depends(get_db)):
-    # Utilisation du même chargement profond pour l'affichage du détail
     etu = db.query(models.Etudiant).options(
-        joinedload(models.Etudiant.inscriptions)
+        joinedload(models.Etudiant.dossiers_inscription)
+        .joinedload(models.DossierInscription.inscriptions)
         .joinedload(models.Inscription.annee_univ),
 
-        joinedload(models.Etudiant.inscriptions)
+        joinedload(models.Etudiant.dossiers_inscription)
+        .joinedload(models.DossierInscription.inscriptions)
         .joinedload(models.Inscription.parcours)
         .joinedload(models.Parcours.mention)
         .joinedload(models.Mention.composante)
@@ -167,13 +169,17 @@ def get_etudiant(etudiant_id: str, db: Session = Depends(get_db)):
 
 @router.post("/etudiants", response_model=schemas.EtudiantSchema, status_code=status.HTTP_201_CREATED)
 async def create_etudiant(
-    # Etudiant_numero_inscription est maintenant optionnel et non rempli par défaut
     Etudiant_id: Optional[str] = Form(None), 
-    Etudiant_numero_inscription: Optional[str] = Form(None),
     Etudiant_nom: str = Form(...),
     Etudiant_prenoms: Optional[str] = Form(None),
     Etudiant_sexe: Optional[str] = Form(None),
+    
+    # --- MODIFICATIONS DATE NAISSANCE ---
+    Etudiant_naissance_date_Exact: bool = Form(True), # Nouveau champ
     Etudiant_naissance_date: Optional[str] = Form(None),
+    Etudiant_naissance_annee: Optional[int] = Form(None),
+    # ------------------------------------
+
     Etudiant_naissance_lieu: Optional[str] = Form(None),
     Etudiant_nationalite: Optional[str] = Form(None),
     Etudiant_cin: Optional[str] = Form(None),
@@ -190,24 +196,47 @@ async def create_etudiant(
     photo_profil: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-    # Génération de l'ID technique (le matricule officiel Etudiant_numero_inscription est laissé vide)
     final_id = compute_minimal_available_id(db)
 
-    # Gestion Photo
     photo_path_rel = None
     if photo_profil:
         photo_path_rel = save_profile_file(final_id, photo_profil)
 
+    # --- LOGIQUE DATE DE NAISSANCE ---
+    date_naissance = None
+    annee_naissance = None
+    mois_naissance = None
+    jour_naissance = None
+
+    if Etudiant_naissance_date_Exact:
+        # Cas Exact : On utilise le champ date standard
+        if Etudiant_naissance_date:
+            d = parse_date(Etudiant_naissance_date)
+            if d:
+                date_naissance = d
+                annee_naissance = d.year
+                mois_naissance = d.month
+                jour_naissance = d.day
+    else:
+        # Cas Incertain : On utilise uniquement l'année saisie manuellement
+        # On laisse date_naissance à None pour signifier "inconnu précisément"
+        if Etudiant_naissance_annee:
+            annee_naissance = Etudiant_naissance_annee
+    # ---------------------------------
+
     etu = models.Etudiant(
         Etudiant_id=final_id,
-        
-        # Le numéro d'inscription est laissé vide (None)
-        Etudiant_numero_inscription=None, 
-        
         Etudiant_nom=Etudiant_nom.upper(),
         Etudiant_prenoms=Etudiant_prenoms,
         Etudiant_sexe=Etudiant_sexe,
-        Etudiant_naissance_date=parse_date(Etudiant_naissance_date),
+        
+        # Mapping des nouveaux champs
+        Etudiant_naissance_date_Exact=Etudiant_naissance_date_Exact,
+        Etudiant_naissance_date=date_naissance,
+        Etudiant_naissance_annee=annee_naissance,
+        Etudiant_naissance_mois=mois_naissance,
+        Etudiant_naissance_jour=jour_naissance,
+        
         Etudiant_naissance_lieu=Etudiant_naissance_lieu,
         Etudiant_nationalite=Etudiant_nationalite,
         Etudiant_cin=Etudiant_cin,
@@ -237,10 +266,18 @@ async def create_etudiant(
 @router.put("/etudiants/{etudiant_id}", response_model=schemas.EtudiantSchema)
 async def update_etudiant(
     etudiant_id: str,
+    # ... autres champs inchangés ...
     Etudiant_nom: Optional[str] = Form(None),
     Etudiant_prenoms: Optional[str] = Form(None),
-    Etudiant_sexe: Optional[str] = Form(None),
+    
+    # --- MODIFICATIONS DATE ---
+    Etudiant_naissance_date_Exact: bool = Form(True), 
     Etudiant_naissance_date: Optional[str] = Form(None),
+    Etudiant_naissance_annee: Optional[int] = Form(None),
+    # --------------------------
+
+    # ... suite des champs (copier depuis create ou l'existant) ...
+    Etudiant_sexe: Optional[str] = Form(None),
     Etudiant_naissance_lieu: Optional[str] = Form(None),
     Etudiant_nationalite: Optional[str] = Form(None),
     Etudiant_cin: Optional[str] = Form(None),
@@ -254,7 +291,6 @@ async def update_etudiant(
     Etudiant_bacc_centre: Optional[str] = Form(None),
     Etudiant_bacc_mention: Optional[str] = Form(None),
     Etudiant_adresse: Optional[str] = Form(None),
-    Etudiant_numero_inscription: Optional[str] = Form(None), # Permet de mettre à jour le numéro d'inscription
     photo_profil: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
@@ -263,15 +299,14 @@ async def update_etudiant(
         raise HTTPException(status_code=404, detail="Étudiant introuvable")
 
     try:
-        # LOGIQUE DE MISE À JOUR (Repris de hr.py)
         if photo_profil:
             photo_path_rel = save_profile_file(etudiant_id, photo_profil)
             etu.Etudiant_photo_profil_path = photo_path_rel
 
+        # Mise à jour standard
         if Etudiant_nom is not None: etu.Etudiant_nom = Etudiant_nom.upper()
         if Etudiant_prenoms is not None: etu.Etudiant_prenoms = Etudiant_prenoms
         if Etudiant_sexe is not None: etu.Etudiant_sexe = Etudiant_sexe
-        if Etudiant_naissance_date is not None: etu.Etudiant_naissance_date = parse_date(Etudiant_naissance_date)
         if Etudiant_naissance_lieu is not None: etu.Etudiant_naissance_lieu = Etudiant_naissance_lieu
         if Etudiant_nationalite is not None: etu.Etudiant_nationalite = Etudiant_nationalite
         if Etudiant_cin is not None: etu.Etudiant_cin = Etudiant_cin
@@ -285,8 +320,28 @@ async def update_etudiant(
         if Etudiant_bacc_centre is not None: etu.Etudiant_bacc_centre = Etudiant_bacc_centre
         if Etudiant_bacc_mention is not None: etu.Etudiant_bacc_mention = Etudiant_bacc_mention
         if Etudiant_adresse is not None: etu.Etudiant_adresse = Etudiant_adresse
-        # Mise à jour du numéro d'inscription si fourni
-        if Etudiant_numero_inscription is not None: etu.Etudiant_numero_inscription = Etudiant_numero_inscription
+
+        # --- LOGIQUE DATE UPDATE ---
+        # On met à jour le flag
+        etu.Etudiant_naissance_date_Exact = Etudiant_naissance_date_Exact
+        
+        if Etudiant_naissance_date_Exact:
+            # Si on repasse en exact, on prend la date fournie
+            if Etudiant_naissance_date:
+                d = parse_date(Etudiant_naissance_date)
+                if d:
+                    etu.Etudiant_naissance_date = d
+                    etu.Etudiant_naissance_annee = d.year
+                    etu.Etudiant_naissance_mois = d.month
+                    etu.Etudiant_naissance_jour = d.day
+        else:
+            # Si incertain, on vide la date précise et on stocke l'année manuelle
+            etu.Etudiant_naissance_date = None
+            etu.Etudiant_naissance_mois = None
+            etu.Etudiant_naissance_jour = None
+            if Etudiant_naissance_annee is not None:
+                etu.Etudiant_naissance_annee = Etudiant_naissance_annee
+        # ---------------------------
 
         db.commit()
         db.refresh(etu)
@@ -294,7 +349,6 @@ async def update_etudiant(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"Erreur update: {str(e)}")
-
 
 @router.delete("/etudiants/{etudiant_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_etudiant(etudiant_id: str, db: Session = Depends(get_db)):

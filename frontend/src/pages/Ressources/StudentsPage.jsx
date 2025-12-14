@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from "react";
 import {
     FaSearch, FaPlus, FaEdit, FaTrash, FaUser,
-    FaPhone, FaEnvelope, FaChevronLeft, FaChevronRight
+    FaPhone, FaEnvelope, FaChevronLeft, FaChevronRight,
+    FaBirthdayCake, FaGraduationCap, FaMapMarkerAlt
 } from "react-icons/fa";
 
 import { AppStyles } from "../../components/ui/AppStyles";
@@ -38,7 +39,43 @@ export default function StudentsPage() {
     };
     const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
-    // Fetch data
+    // Fonction utilitaire pour formater la date
+    const formatDate = (dateString) => {
+        if (!dateString) return "-";
+        const date = new Date(dateString);
+        return date.toLocaleDateString("fr-FR");
+    };
+
+    // --- LOGIQUE D'AFFICHAGE DATE DE NAISSANCE ---
+    const renderBirthDate = (item) => {
+        const isExact = item.Etudiant_naissance_date_Exact;
+        const lieu = item.Etudiant_naissance_lieu ? ` (${item.Etudiant_naissance_lieu})` : "";
+
+        // Cas 1 : Date incertaine mais Année renseignée
+        if (isExact === false && item.Etudiant_naissance_annee) {
+            return (
+                <>
+                    <span className="font-medium">Vers {item.Etudiant_naissance_annee}</span>
+                    <span className="text-gray-400 ml-1">{lieu}</span>
+                </>
+            );
+        }
+
+        // Cas 2 : Date exacte (ou null par défaut considéré comme exact si data legacy)
+        if (item.Etudiant_naissance_date) {
+            return (
+                <>
+                    {formatDate(item.Etudiant_naissance_date)}
+                    <span className="text-gray-400 ml-1">{lieu}</span>
+                </>
+            );
+        }
+
+        // Cas 3 : Rien
+        return <span className="text-gray-400 italic">Non renseigné</span>;
+    };
+
+
     const fetchData = async () => {
         setIsLoading(true);
 
@@ -50,7 +87,6 @@ export default function StudentsPage() {
             });
             if (searchTerm) params.append("search", searchTerm);
 
-            // 🔥 Utilisation de la bonne URL et compatibilité avec un backend non paginé
             const url = `${API_BASE_URL}/api/etudiants?${params.toString()}`;
             const res = await fetch(url);
 
@@ -64,9 +100,6 @@ export default function StudentsPage() {
 
             const result = await res.json();
 
-            // Support dual format :
-            // - { items: [...], total: N }
-            // - or legacy: [...] (list directly)
             if (Array.isArray(result)) {
                 setDataList(result);
                 setPagination(prev => ({ ...prev, total: result.length || 0 }));
@@ -116,13 +149,7 @@ export default function StudentsPage() {
         const current = pagination.page;
 
         const visiblePages = new Set([
-            1,
-            total,
-            current,
-            current - 1,
-            current - 2,
-            current + 1,
-            current + 2,
+            1, total, current, current - 1, current - 2, current + 1, current + 2,
         ]);
 
         for (let i = 1; i <= total; i++) {
@@ -132,7 +159,6 @@ export default function StudentsPage() {
         }
 
         const sorted = [...pages].sort((a, b) => a - b);
-
         const final = [];
         for (let i = 0; i < sorted.length; i++) {
             if (i > 0 && sorted[i] !== sorted[i - 1] + 1) {
@@ -194,7 +220,6 @@ export default function StudentsPage() {
 
                 {/* TOP PAGINATION */}
                 <div className="px-4 py-3 border-b flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-50">
-
                     <div className="text-sm text-gray-600">
                         {pagination.total > 0 ? (
                             <>Affichage <b>{startIndex}</b> – <b>{endIndex}</b> / <b>{pagination.total}</b></>
@@ -204,13 +229,10 @@ export default function StudentsPage() {
                     </div>
 
                     <div className="flex items-center gap-3">
-
                         <select
                             value={pagination.limit}
                             onChange={(e) => setPagination(p => ({
-                                ...p,
-                                limit: Number(e.target.value),
-                                page: 1
+                                ...p, limit: Number(e.target.value), page: 1
                             }))}
                             className="border border-gray-300 rounded-lg py-1 px-2 text-sm bg-white"
                         >
@@ -227,9 +249,7 @@ export default function StudentsPage() {
                             >
                                 <FaChevronLeft />
                             </button>
-
                             {renderPageNumbers()}
-
                             <button
                                 disabled={pagination.page >= totalPages}
                                 onClick={() => setPagination(p => ({ ...p, page: p.page + 1 }))}
@@ -252,10 +272,10 @@ export default function StudentsPage() {
 
                             <thead className="bg-gray-50 border-b text-xs font-semibold text-gray-500 uppercase">
                                 <tr>
-                                    <th className="p-3 w-[200px] max-w-[200px]">Identité</th>
-                                    <th className="p-3 w-20">N° Inscription</th>
-                                    <th className="p-3 w-[45%]">Cursus</th>
-                                    <th className="p-3 w-60">Contact</th>
+                                    <th className="p-3 w-[250px]">Identité</th>
+                                    <th className="p-3 w-[220px]">Infos Personnelles</th> 
+                                    <th className="p-3 w-[30%]">Cursus</th>
+                                    <th className="p-3 w-[20%]">Contact</th>
                                     <th className="p-3 text-right w-24">Actions</th>
                                 </tr>
                             </thead>
@@ -264,12 +284,10 @@ export default function StudentsPage() {
                                 {dataList.length > 0 ? dataList.map(item => (
                                     <tr key={item.Etudiant_id} className="hover:bg-blue-50/30 group">
 
-                                        {/* IDENTITÉ */}
-                                        <td className="p-3 max-w-[200px]">
-                                            <div className="flex items-center gap-2">
-
-                                                {/* PHOTO */}
-                                                <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                                        {/* 1. IDENTITÉ */}
+                                        <td className="p-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center border border-gray-100 shadow-sm">
                                                     {item.Etudiant_photo_profil_path ? (
                                                         <img
                                                             src={`http://127.0.0.1:8000/${item.Etudiant_photo_profil_path}`}
@@ -277,55 +295,69 @@ export default function StudentsPage() {
                                                             alt="Profil"
                                                         />
                                                     ) : (
-                                                        <FaUser className="text-gray-500" />
+                                                        <FaUser className="text-gray-400" />
                                                     )}
                                                 </div>
 
                                                 <div className="min-w-0">
-                                                    <div className="font-semibold truncate">
+                                                    <div className="font-semibold text-gray-900 truncate">
                                                         {item.Etudiant_nom}
                                                     </div>
-                                                    <div className="text-xs truncate text-gray-600">
+                                                    <div className="text-xs text-gray-500 truncate uppercase">
                                                         {item.Etudiant_prenoms}
+                                                    </div>
+                                                    <div className="text-[10px] text-gray-400 font-mono mt-0.5">
+                                                        {item.Etudiant_id}
                                                     </div>
                                                 </div>
                                             </div>
                                         </td>
 
-                                        {/* MATRICULE */}
-                                        <td className="p-3 w-20">
-                                            <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs border">
-                                                {item.Etudiant_numero_inscription || "N/A"}
-                                            </span>
+                                        {/* 2. INFOS PERSONNELLES (MODIFIÉ ICI) */}
+                                        <td className="p-3 align-middle">
+                                            <div className="flex flex-col gap-1.5">
+                                                {/* Date de naissance avec logique Vers... */}
+                                                <div className="flex items-center gap-2 text-gray-700">
+                                                    <FaBirthdayCake className="text-gray-400 text-xs flex-shrink-0" />
+                                                    <span className="text-xs">
+                                                        {renderBirthDate(item)}
+                                                    </span>
+                                                </div>
+
+                                                {/* Bacc */}
+                                                {(item.Etudiant_bacc_annee || item.Etudiant_bacc_serie) && (
+                                                    <div className="flex items-center gap-2 text-gray-700">
+                                                        <FaGraduationCap className="text-gray-400 text-xs flex-shrink-0" />
+                                                        <span className="text-xs">
+                                                            BAC {item.Etudiant_bacc_serie ? `Série ${item.Etudiant_bacc_serie}` : ""} 
+                                                            {item.Etudiant_bacc_annee ? ` (${item.Etudiant_bacc_annee})` : ""}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </td>
 
-                                        {/* CURSUS */}
+                                        {/* 3. CURSUS */}
                                         <td className="p-3 align-top">
                                             {item.cursus_liste?.length > 0 ? (
                                                 <div className="flex flex-col gap-3">
-
                                                     {item.cursus_liste.map((c, idx) => (
                                                         <div key={idx} className="leading-snug">
-
-                                                            <div className="font-semibold text-gray-900">
+                                                            <div className="font-semibold text-blue-700 text-xs">
                                                                 {c.mention_nom}
                                                             </div>
-
                                                             <div className="text-xs text-gray-600 flex flex-wrap gap-1 mt-0.5">
-
                                                                 <span>{c.institution_nom}</span>
-
                                                                 {c.composante_abbr && (
                                                                     <>
-                                                                        <span>|</span>
+                                                                        <span className="text-gray-300">|</span>
                                                                         <span>{c.composante_abbr}</span>
                                                                     </>
                                                                 )}
-
                                                                 {c.annee_universitaire_list?.length > 0 && (
                                                                     <>
-                                                                        <span>|</span>
-                                                                        <span className="font-semibold">
+                                                                        <span className="text-gray-300">|</span>
+                                                                        <span className="bg-gray-100 px-1 rounded text-gray-700 font-mono text-[10px] border">
                                                                             {c.annee_universitaire_list.join(", ")}
                                                                         </span>
                                                                     </>
@@ -333,43 +365,54 @@ export default function StudentsPage() {
                                                             </div>
                                                         </div>
                                                     ))}
-
                                                 </div>
                                             ) : (
-                                                <span className="text-gray-400 text-xs italic">Aucun cursus</span>
+                                                <span className="text-gray-400 text-xs italic">Aucun cursus actif</span>
                                             )}
                                         </td>
 
-                                        {/* CONTACT */}
-                                        <td className="p-3">
-                                            <div className="flex flex-col gap-1">
-                                                {item.Etudiant_mail && (
-                                                    <div className="flex items-center gap-2">
-                                                        <FaEnvelope className="text-gray-400 text-xs" />
-                                                        <span className="text-sm">{item.Etudiant_mail}</span>
+                                        {/* 4. CONTACT */}
+                                        <td className="p-3 align-middle">
+                                            <div className="flex flex-col gap-1.5">
+                                                {item.Etudiant_mail ? (
+                                                    <div className="flex items-center gap-2 overflow-hidden">
+                                                        <FaEnvelope className="text-gray-400 text-xs flex-shrink-0" />
+                                                        <span className="text-xs truncate" title={item.Etudiant_mail}>
+                                                            {item.Etudiant_mail}
+                                                        </span>
                                                     </div>
-                                                )}
-                                                {item.Etudiant_telephone && (
+                                                ) : null}
+                                                {item.Etudiant_telephone ? (
                                                     <div className="flex items-center gap-2">
-                                                        <FaPhone className="text-gray-400 text-xs" />
-                                                        <span className="text-sm">{item.Etudiant_telephone}</span>
+                                                        <FaPhone className="text-gray-400 text-xs flex-shrink-0" />
+                                                        <span className="text-xs">{item.Etudiant_telephone}</span>
                                                     </div>
-                                                )}
+                                                ) : null}
+                                                {item.Etudiant_adresse ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <FaMapMarkerAlt className="text-gray-400 text-xs flex-shrink-0" />
+                                                        <span className="text-xs truncate max-w-[150px]" title={item.Etudiant_adresse}>
+                                                            {item.Etudiant_adresse}
+                                                        </span>
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         </td>
 
-                                        {/* ACTIONS */}
-                                        <td className="p-3 text-right">
-                                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition">
+                                        {/* 5. ACTIONS */}
+                                        <td className="p-3 text-right align-middle">
+                                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition">
                                                 <button
                                                     onClick={() => { setCurrentItem(item); setIsModalOpen(true); }}
-                                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                                                    className="p-1.5 text-blue-600 hover:bg-blue-50 rounded border border-transparent hover:border-blue-200"
+                                                    title="Modifier"
                                                 >
                                                     <FaEdit />
                                                 </button>
                                                 <button
                                                     onClick={() => { setCurrentItem(item); setIsDeleteOpen(true); }}
-                                                    className="p-2 text-red-600 hover:bg-red-50 rounded"
+                                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-transparent hover:border-red-200"
+                                                    title="Supprimer"
                                                 >
                                                     <FaTrash />
                                                 </button>
@@ -385,13 +428,11 @@ export default function StudentsPage() {
                                     </tr>
                                 )}
                             </tbody>
-
                         </table>
                     </div>
                 )}
             </div>
 
-            {/* MODAL FORM */}
             <StudentFormModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
@@ -399,7 +440,6 @@ export default function StudentsPage() {
                 reloadList={fetchData}
             />
 
-            {/* CONFIRM DELETE */}
             <ConfirmModal
                 isOpen={isDeleteOpen}
                 onClose={() => setIsDeleteOpen(false)}
@@ -408,7 +448,6 @@ export default function StudentsPage() {
                 <p>
                     Supprimer <b>{currentItem?.Etudiant_nom}</b> ?
                 </p>
-
                 <div className="flex justify-end gap-2 mt-4">
                     <button onClick={() => setIsDeleteOpen(false)} className={AppStyles.button.secondary}>
                         Annuler
