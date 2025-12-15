@@ -2,9 +2,9 @@ from typing import Optional, List
 from datetime import date
 from pydantic import Field, BaseModel
 from .base import BaseSchema, base_config
-from .metadonnees import DomaineBase
-from .institution import ComposanteNestedSchema
-from .maquette import UniteEnseignementSchema
+from .metadonnees_schemas import DomaineBase
+from .institutions_schemas import ComposanteNestedSchema
+from .maquette_schemas import UniteEnseignementSchema
 
 # --- PARCOURS ---
 class ParcoursBase(BaseSchema):

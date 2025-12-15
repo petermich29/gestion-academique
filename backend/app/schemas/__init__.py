@@ -1,7 +1,7 @@
 # Import et exposition des schémas pour simplifier les imports ailleurs
 from .base import base_config
 from .shared import HistoriqueDetailSchema, HistoriqueUpdateSchema
-from .metadonnees import (
+from .metadonnees_schemas import (
     DomaineBase, DomaineCreate, DomaineSchema,
     TypeComposanteBase, TypeComposanteCreate, TypeComposanteUpdate, TypeComposanteSchema, ComposanteAbbrSchema,
     TypeFormationBase, TypeFormationSchema,
@@ -10,11 +10,11 @@ from .metadonnees import (
     SessionExamenBase, SessionExamenSchema,
     TypeEnseignementBase, TypeEnseignementSchema
 )
-from .institution import (
+from .institutions_schemas import (
     InstitutionCreate, InstitutionUpdate, InstitutionSchema,
     ComposanteBase, ComposanteCreate, ComposanteUpdate, ComposanteNestedSchema, ComposanteSchema
 )
-from .academic import (
+from .academic_schemas import (
     ParcoursBase, ParcoursSchema, ParcoursCreate, ParcoursUpdate,
     MentionBase, MentionSchema,
     CycleBase, CycleSchema,
@@ -22,7 +22,7 @@ from .academic import (
     SemestreBase, SemestreSchema,
     ParcoursNiveauBase, ParcoursNiveauSchema
 )
-from .maquette import (
+from .maquette_schemas import (
     UniteEnseignementBase, UniteEnseignementSchema,
     ElementConstitutifBase, ElementConstitutifSchema,
     MaquetteElementConstitutifSchema,  # <-- NOUVEL EXPORT
@@ -38,7 +38,7 @@ from .enseignants_schemas import (
     EnseignantBase, EnseignantCreate, EnseignantSchema, EnseignantPaginatedResponse
 )
 
-from .results import (
+from .results_schemas import (
     InscriptionBase, InscriptionSchema,
     ResultatSemestreBase, ResultatSemestreSchema,
     ResultatUEBase, ResultatUESchema,

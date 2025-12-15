@@ -117,7 +117,6 @@ def list_etudiants(
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
-    # CORRECTION : On passe par dossiers_inscription pour atteindre les inscriptions
     query = db.query(models.Etudiant).options(
         joinedload(models.Etudiant.dossiers_inscription)
         .joinedload(models.DossierInscription.inscriptions)
@@ -132,19 +131,122 @@ def list_etudiants(
     )
 
     if search:
-        pattern = f"%{search}%"
+        # ----------------------------
+        # Normalisation recherche
+        # ----------------------------
+        search_clean = search.strip().lower()
+        search_nospace = search_clean.replace(" ", "")
+        search_digits = (
+            search_clean
+            .replace(" ", "")
+            .replace("-", "")
+            .replace("_", "")
+            .replace("+", "")
+        )
+
+        pattern = f"%{search_clean}%"
+
+        # ----------------------------
+        # NOM + PRENOMS
+        # ----------------------------
+        full_name_space = func.lower(
+            func.concat(
+                models.Etudiant.Etudiant_nom, " ",
+                models.Etudiant.Etudiant_prenoms
+            )
+        )
+
+        full_name_nospace = func.lower(
+            func.replace(
+                func.concat(
+                    models.Etudiant.Etudiant_nom,
+                    models.Etudiant.Etudiant_prenoms
+                ),
+                " ",
+                ""
+            )
+        )
+
+        # ----------------------------
+        # CIN normalisé
+        # ----------------------------
+        cin_normalized = func.replace(
+            func.replace(
+                func.replace(func.lower(models.Etudiant.Etudiant_cin), "-", ""),
+                " ",
+                ""
+            ),
+            "_",
+            ""
+        )
+
+        # ----------------------------
+        # TELEPHONE normalisé
+        # ----------------------------
+        phone_normalized = func.replace(
+            func.replace(
+                func.replace(
+                    func.replace(func.lower(models.Etudiant.Etudiant_telephone), " ", ""),
+                    "-", ""
+                ),
+                "+",
+                ""
+            ),
+            "_",
+            ""
+        )
+
+        # ----------------------------
+        # ID ETUDIANT normalisé
+        # ----------------------------
+        id_normalized = func.replace(
+            func.replace(
+                func.replace(func.lower(models.Etudiant.Etudiant_id), "_", ""),
+                "-",
+                ""
+            ),
+            " ",
+            ""
+        )
+
         query = query.filter(
             or_(
-                models.Etudiant.Etudiant_nom.ilike(pattern),
-                models.Etudiant.Etudiant_prenoms.ilike(pattern),
-                models.Etudiant.Etudiant_mail.ilike(pattern)
+                # Nom / prénoms simples
+                func.lower(models.Etudiant.Etudiant_nom).ilike(pattern),
+                func.lower(models.Etudiant.Etudiant_prenoms).ilike(pattern),
+
+                # Nom + prénoms combinés
+                full_name_space.ilike(pattern),
+                full_name_nospace.ilike(f"%{search_nospace}%"),
+
+                # CIN (avec ou sans tirets)
+                cin_normalized.ilike(f"%{search_digits}%"),
+
+                # Téléphone (tous formats)
+                phone_normalized.ilike(f"%{search_digits}%"),
+
+                # ID étudiant (avec ou sans _)
+                id_normalized.ilike(f"%{search_digits}%"),
+
+                # Email (classique)
+                func.lower(models.Etudiant.Etudiant_mail).ilike(pattern),
             )
         )
 
     total = query.count()
-    items = query.order_by(models.Etudiant.Etudiant_nom.asc()).offset(skip).limit(limit).all()
+    items = (
+        query
+        .order_by(models.Etudiant.Etudiant_nom.asc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
-    return {"items": items, "total": total}
+    return {
+        "items": items,
+        "total": total
+    }
+
 
 
 @router.get("/etudiants/{etudiant_id}", response_model=schemas.EtudiantSchema)

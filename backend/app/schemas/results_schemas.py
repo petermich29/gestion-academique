@@ -3,9 +3,9 @@ from datetime import date
 from pydantic import Field
 from .base import BaseSchema
 from .etudiants_schemas import EtudiantBase
-from .academic import ParcoursBase, SemestreBase
-from .metadonnees import AnneeUniversitaireBase, ModeInscriptionBase, AnneeUniversitaireSchema
-from .maquette import UniteEnseignementBase
+from .academic_schemas import ParcoursBase, SemestreBase
+from .metadonnees_schemas import AnneeUniversitaireBase, ModeInscriptionBase, AnneeUniversitaireSchema
+from .maquette_schemas import UniteEnseignementBase
 
 # --- INSCRIPTION ---
 class InscriptionBase(BaseSchema):

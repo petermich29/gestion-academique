@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { FaUserGraduate, FaChalkboardTeacher } from "react-icons/fa";
+import { FaUserGraduate, FaFileSignature } from "react-icons/fa";
 import { AppStyles } from "../../components/ui/AppStyles";
 import { useBreadcrumb } from "../../context/BreadcrumbContext";
 
 import StudentsPage from "./StudentsPage";
-import TeachersPage from "./TeachersPage";
+import InscriptionsMain from "./InscriptionsMain"; // Nouveau composant
 
 export default function EtudiantsInscriptions() {
 
@@ -13,8 +13,8 @@ export default function EtudiantsInscriptions() {
 
     useEffect(() => {
         setBreadcrumb([
-            { label: "Etudiants et Inscriptions", path: "/etudiants-inscriptions" },
-            { label: activeTab === "etudiants" ? "Gestion Étudiants" : "Gestion Enseignants", path: "#" }
+            { label: "Scolarité", path: "/etudiants-inscriptions" },
+            { label: activeTab === "etudiants" ? "Base Étudiants" : "Inscriptions", path: "#" }
         ]);
     }, [activeTab]);
 
@@ -22,38 +22,42 @@ export default function EtudiantsInscriptions() {
         <div className={AppStyles.pageContainer}>
 
             <div>
-                <h2 className={AppStyles.mainTitle}>Gestion des Étudiants et leurs Inscriptions</h2>
-                <p className="text-gray-500 text-sm mt-1">Gestion administrative et académique.</p>
+                <h2 className={AppStyles.mainTitle}>Scolarité & Inscriptions</h2>
+                <p className="text-gray-500 text-sm mt-1">Gérez la base de données étudiants et leurs parcours académiques.</p>
             </div>
 
-            {/* Onglets */}
-            <div className="flex gap-4 border-b border-gray-200 mt-4">
+            {/* Onglets Principaux */}
+            <div className="flex gap-6 border-b border-gray-200 mt-6 px-1">
                 <button
                     onClick={() => setActiveTab("etudiants")}
-                    className={`pb-3 px-2 flex items-center gap-2 font-bold text-sm border-b-2 transition-all ${
+                    className={`pb-3 px-1 flex items-center gap-2 font-bold text-sm border-b-2 transition-all ${
                         activeTab === "etudiants"
                             ? "text-blue-600 border-blue-600"
                             : "text-gray-500 border-transparent hover:text-gray-700"
                     }`}
                 >
-                    <FaUserGraduate className="text-lg" /> Étudiants
+                    <FaUserGraduate className="text-lg" /> Base Étudiants
                 </button>
 
                 <button
-                    onClick={() => setActiveTab("enseignants")}
-                    className={`pb-3 px-2 flex items-center gap-2 font-bold text-sm border-b-2 transition-all ${
-                        activeTab === "enseignants"
+                    onClick={() => setActiveTab("inscriptions")}
+                    className={`pb-3 px-1 flex items-center gap-2 font-bold text-sm border-b-2 transition-all ${
+                        activeTab === "inscriptions"
                             ? "text-blue-600 border-blue-600"
                             : "text-gray-500 border-transparent hover:text-gray-700"
                     }`}
                 >
-                    <FaChalkboardTeacher className="text-lg" /> Enseignants
+                    <FaFileSignature className="text-lg" /> Gestion des Inscriptions
                 </button>
             </div>
 
-            {/* Sous-pages */}
+            {/* Contenu */}
             <div className="mt-4">
-                {activeTab === "etudiants" ? <StudentsPage /> : <TeachersPage />}
+                {activeTab === "etudiants" ? (
+                    <StudentsPage /> 
+                ) : (
+                    <InscriptionsMain />
+                )}
             </div>
         </div>
     );

@@ -1,7 +1,7 @@
 from typing import Optional, List
 from pydantic import Field, BaseModel
 from .base import BaseSchema, base_config
-from .metadonnees import TypeComposanteSchema
+from .metadonnees_schemas import TypeComposanteSchema
 
 # --- INSTITUTIONS ---
 class InstitutionCreate(BaseSchema):
