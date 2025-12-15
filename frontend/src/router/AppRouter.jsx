@@ -14,9 +14,11 @@ import EtablissementDetail from "../pages/Administration/EtablissementDetail";
 import MentionDetail from "../pages/Administration/MentionDetail";
 import ParcoursDetail from "../pages/Administration/ParcoursDetail"; // <--- Import
 
-// Ressources humaines
-import HumanResources from "../pages/Ressources/HumanResources";
-// Inscriptions
+// Etudiants et Inscriptions
+import EtudiantsInscriptions from "../pages/Etudiants-Inscriptions/EtudiantsInscriptions";
+
+// Enseignants Attributions
+import EnseingnantsAttributions from "../pages/Enseignants-Attributions/EnseignantsAttributions";
 
 // Notes
 
@@ -52,8 +54,11 @@ const AppRouter = () => (
           <Route path="/institution/:id/etablissement/:etablissementId/mention/:mentionId/parcours/:parcoursId" element={<ParcoursDetail />} />
         </Route>
 
-        {/* Ressources humaines */}
-        <Route path="/ressources-humaines" element={<HumanResources />} />
+        {/* Etudiants et inscriptions */}
+        <Route path="/etudiants-inscriptions" element={<EtudiantsInscriptions />} />
+
+        {/* Enseignants et attriutions */}
+        <Route path="/enseignants-attributions" element={<EnseingnantsAttributions />} />
 
         {/* Métadonnées */}
         <Route path="/metadonnees" element={<Metadonnees />} />

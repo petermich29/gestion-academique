@@ -1,51 +1,78 @@
 // src/components/Sidebar.jsx
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
+
 // Icônes
-import { FaTachometerAlt, FaUniversity, FaUsers, FaFileAlt } from "react-icons/fa";
+import { FaTachometerAlt, FaUniversity, FaUsers, FaChalkboardTeacher, FaFileAlt } from "react-icons/fa";
 import { MdAppRegistration, MdSettings } from "react-icons/md";
 import { BiCategory } from "react-icons/bi";
-import { SiDatabricks } from "react-icons/si"; 
+import { SiDatabricks } from "react-icons/si";
 
-// 1. IMPORT DU CONTEXTE BREADCRUMB
-import { useBreadcrumb } from "../context/BreadcrumbContext"; 
+// Breadcrumb
+import { useBreadcrumb } from "../context/BreadcrumbContext";
 
 const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
   const location = useLocation();
-  
-  // 2. RÉCUPÉRATION DU SETTER
-  const { setBreadcrumb } = useBreadcrumb(); 
+  const { setBreadcrumb } = useBreadcrumb();
 
   const menuItems = [
-    { path: "/", label: "Tableau de bord", icon: <FaTachometerAlt className="text-lg" /> },
-    { path: "/administration", label: "Administration", icon: <FaUniversity className="text-lg" /> },
-    { path: "/ressources-humaines", label: "Ressources Humaines", icon: <FaUsers className="text-lg" /> },
-    { path: "/inscriptions", label: "Inscriptions", icon: <MdAppRegistration className="text-xl" /> },
-    { path: "/notes", label: "Notes", icon: <FaFileAlt className="text-lg" /> },
-    { path: "/services", label: "Services", icon: <BiCategory className="text-xl" /> },
-    { path: "/metadonnees", label: "Métadonnées", icon: <SiDatabricks className="text-xl" /> },
-    { path: "/parametres", label: "Paramètres", icon: <MdSettings className="text-xl" /> },
+    {
+      path: "/",
+      label: "Tableau de bord - Statistiques",
+      icon: <FaTachometerAlt className="text-lg" />,
+    },
+    {
+      path: "/administration",
+      label: "Administration",
+      icon: <FaUniversity className="text-lg" />,
+    },
+    {
+      path: "/etudiants-inscriptions",
+      label: "Étudiants & Inscriptions",
+      icon: <MdAppRegistration className="text-xl" />,
+    },
+    {
+      path: "/enseignants-attributions",
+      label: "Enseignants & Attributions",
+      icon: <FaChalkboardTeacher className="text-lg" />,
+    },
+    {
+      path: "/gestion-notes",
+      label: "Gestion des notes",
+      icon: <FaFileAlt className="text-lg" />,
+    },
+    {
+      path: "/services",
+      label: "Services",
+      icon: <BiCategory className="text-xl" />,
+    },
+    {
+      path: "/metadonnees",
+      label: "Métadonnées",
+      icon: <SiDatabricks className="text-xl" />,
+    },
+    {
+      path: "/parametres",
+      label: "Paramètres",
+      icon: <MdSettings className="text-xl" />,
+    },
   ];
 
-  // 3. LOGIQUE MISE À JOUR LORS DU CLIC
   const handleClick = (item) => {
-    // Mise à jour du titre (Header)
     if (onMenuChange) {
       onMenuChange(item.label);
     }
 
-    // Mise à jour du Breadcrumb (Réinitialisation à la racine)
     setBreadcrumb([
       { label: item.label, path: item.path }
     ]);
 
-    // Fermeture du menu sur mobile
     if (toggle) toggle();
   };
 
   return (
     <>
-      {/* Overlay sombre sur mobile quand le menu est ouvert */}
+      {/* Overlay mobile */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black bg-opacity-40 z-30 md:hidden"
@@ -65,8 +92,6 @@ const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
       >
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">Menu</h2>
-
-          {/* Bouton fermer sur mobile */}
           <button
             className="md:hidden text-gray-300 hover:text-white"
             onClick={toggle}
@@ -83,7 +108,6 @@ const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
               <Link
                 key={item.path}
                 to={item.path}
-                // 4. PASSAGE DE L'OBJET ITEM ENTIER
                 onClick={() => handleClick(item)}
                 className={`
                   flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium

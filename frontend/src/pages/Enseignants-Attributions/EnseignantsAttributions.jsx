@@ -6,14 +6,14 @@ import { useBreadcrumb } from "../../context/BreadcrumbContext";
 import StudentsPage from "./StudentsPage";
 import TeachersPage from "./TeachersPage";
 
-export default function HumanResources() {
+export default function EnseignantsAttributions() {
 
     const { setBreadcrumb } = useBreadcrumb();
     const [activeTab, setActiveTab] = useState("etudiants");
 
     useEffect(() => {
         setBreadcrumb([
-            { label: "Ressources Humaines", path: "/ressources-humaines" },
+            { label: "Enseignants et Attributions", path: "/enseignants-attributions" },
             { label: activeTab === "etudiants" ? "Gestion Étudiants" : "Gestion Enseignants", path: "#" }
         ]);
     }, [activeTab]);
@@ -22,7 +22,7 @@ export default function HumanResources() {
         <div className={AppStyles.pageContainer}>
 
             <div>
-                <h2 className={AppStyles.mainTitle}>Ressources Humaines</h2>
+                <h2 className={AppStyles.mainTitle}>Gestion des Étudiants et leurs Inscriptions</h2>
                 <p className="text-gray-500 text-sm mt-1">Gestion administrative et académique.</p>
             </div>
 
