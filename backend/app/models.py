@@ -85,6 +85,7 @@ class Mention(Base):
 
     parcours = relationship("Parcours", backref="mention")
     mention_historiques = relationship("MentionHistorique", back_populates="mention")
+    dossiers_inscription = relationship("DossierInscription", back_populates="mention") #
 
 
 class Parcours(Base):
@@ -572,9 +573,8 @@ class DossierInscription(Base):
 
     DossierInscription_date_creation = Column(Date, nullable=False)
 
-    mention = relationship("Mention")
-
     etudiant = relationship("Etudiant", back_populates="dossiers_inscription")
+    mention = relationship("Mention", back_populates="dossiers_inscription")
     inscriptions = relationship("Inscription", back_populates="dossier_inscription")
 
 

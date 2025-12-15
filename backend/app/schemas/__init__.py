@@ -49,6 +49,8 @@ from .results_schemas import (
     JuryBase, JurySchema
 )
 
+from .inscriptions_schemas import InscriptionCreatePayload, InscriptionResponse
+
 # ==========================================
 # RÉSOLUTION DES DÉPENDANCES CIRCULAIRES
 # ==========================================

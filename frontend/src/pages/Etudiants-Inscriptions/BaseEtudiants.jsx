@@ -10,7 +10,7 @@ import { AppStyles } from "../../components/ui/AppStyles";
 import { SpinnerIcon } from "../../components/ui/Icons";
 import { ToastContainer } from "../../components/ui/Toast";
 import { ConfirmModal } from "../../components/ui/Modal";
-import StudentFormModal from "./components/StudentsForms";
+import StudentFormModal from "./components/FormEtudiantsAjout";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
