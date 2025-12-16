@@ -231,6 +231,24 @@ def get_parcours_structure(
 
     return structure_response
 
+@router.get("/{parcours_id}/niveaux", response_model=List[schemas.NiveauSchema])
+def get_parcours_niveaux(parcours_id: str, db: Session = Depends(get_db)):
+    """
+    Retourne tous les niveaux rattachés à un parcours
+    indépendamment de l'année universitaire.
+    """
+
+    niveaux = (
+        db.query(models.Niveau)
+        .join(models.ParcoursNiveau)
+        .filter(models.ParcoursNiveau.Parcours_id_fk == parcours_id)
+        .distinct()   # 🔹 important si le même niveau existe sur plusieurs années
+        .order_by(models.Niveau.Niveau_code)
+        .all()
+    )
+
+    return niveaux
+
 # ==========================================
 # 2. CRUD (CREATE, UPDATE, DELETE)
 # ==========================================

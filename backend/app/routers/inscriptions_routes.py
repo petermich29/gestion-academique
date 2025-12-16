@@ -26,7 +26,7 @@ def get_inscriptions_list(
     query = db.query(DossierInscription).options(
         joinedload(DossierInscription.etudiant)
     ).filter(
-        DossierInscription.AnneeUniversitaire_id_fk == annee_id
+        DossierInscription.AnneeUniversitaire_id == annee_id
     )
 
     if mention_id:

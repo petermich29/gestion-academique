@@ -13,68 +13,37 @@ import ConfigurationInscription from "./components/ConfigurationInscription";
 
 const API_BASE_URL = "http://127.0.0.1:8000"; 
 
-// --- DONNÉES FICTIVES (MOCK) ---
-const MOCK_INSCRITS_DB = [
-    { id: "DOS_999", nom: "ZAFY", prenom: "Paul", matricule: "24INF_001", semestre: "Semestre 1", cin: "101 202 303 404", ddn: "01/01/2000" }
-];
-
-const MOCK_OPTIONS = {
-    institutions: [{id: "1", label: "IST - Polytechnique"}, {id: "2", label: "ENI - Informatique"}],
-    composantes: [{id: "C1", label: "Département INFO"}, {id: "C2", label: "Département MECANIQUE"}],
-    mentions: [{id: "M1", label: "Informatique Générale"}, {id: "M2", label: "Intelligence Artificielle"}],
-    annees: [], // Initialisé à vide, sera rempli par l'API
-    niveaux: [{id: "L1", label: "Licence 1"}, {id: "L2", label: "Licence 2"}, {id: "M1", label: "Master 1"}],
-    parcours: [{id: "P1", label: "Génie Logiciel"}, {id: "P2", label: "Admin Systèmes"}],
-    modes: [{id: "MD1", label: "Initial"}, {id: "MD2", label: "Par Crédit"}],
+const INITIAL_OPTIONS = {
+    institutions: [],
+    composantes: [],
+    mentions: [],
+    annees: [],
+    niveaux: [], // Chargé globalement via metadonnees
+    parcours: [],
+    modes: [],   // Chargé globalement via metadonnees
 };
-
-const MOCK_NIVEAU_SEMESTRES_MAP = {
-    "L1": [{id: "S1", label: "Semestre 1"}, {id: "S2", label: "Semestre 2"}],
-    "L2": [{id: "S3", label: "Semestre 3"}, {id: "S4", label: "Semestre 4"}],
-    "M1": [{id: "S5", label: "Semestre 5"}, {id: "S6", label: "Semestre 6"}],
-    "": [] 
-};
-
-// --- COMPOSANT CHECKBOX (Inchangé) ---
-const SemestreCheckbox = ({ options, selectedSemestres, onToggle, isLevelSelected }) => (
-    <div className={`flex flex-wrap gap-1.5 ${!isLevelSelected ? 'opacity-50 pointer-events-none' : ''}`}>
-        {!isLevelSelected && <span className="text-xs italic text-gray-500">Choisir un Niveau pour débloquer les semestres.</span>}
-        {options.map(sem => (
-            <label 
-                key={sem.id} 
-                className={`flex items-center text-[10px] px-2 py-0.5 border rounded cursor-pointer transition-all 
-                            ${selectedSemestres.includes(sem.id) 
-                                ? 'bg-indigo-600 text-white border-indigo-600 font-bold' 
-                                : 'bg-white text-gray-700 border-gray-300 hover:bg-indigo-50 hover:border-indigo-400'
-                            }`}
-            >
-                <input
-                    type="checkbox"
-                    checked={selectedSemestres.includes(sem.id)}
-                    onChange={() => onToggle(sem.id)}
-                    className="hidden" 
-                />
-                {sem.label}
-            </label>
-        ))}
-    </div>
-);
 
 export default function InscriptionsMain() {
     
-    // --- API & PAGINATION STATES ---
-    const [fetchedStudents, setFetchedStudents] = useState([]); 
-    const [selectedObjects, setSelectedObjects] = useState([]); 
+    // --- STATE : DONNÉES & UI ---
+    const [fetchedStudents, setFetchedStudents] = useState([]); // Colonne Gauche (Base)
+    const [selectedObjects, setSelectedObjects] = useState([]); // Sélection Colonne Gauche
     const [isLoading, setIsLoading] = useState(false);
     
     const [pagination, setPagination] = useState({ page: 1, limit: 15, total: 0 }); 
     const [searchTerm, setSearchTerm] = useState("");
 
-    // --- STATES EXISTANTS ---
+    // --- STATE : LISTES INSCRIPTIONS ---
     const [leftSelection, setLeftSelection] = useState(new Set()); 
-    const [rightListDb, setRightListDb] = useState(MOCK_INSCRITS_DB);
-    const [rightListPending, setRightListPending] = useState([]);
-    const [rightSelection, setRightSelection] = useState(new Set());
+    
+    // "Inscrits validés" (Colonne Droite) - Vient de la DB
+    const [rightListDb, setRightListDb] = useState([]); 
+    
+    // "En attente" (Milieu) - Construction locale avant envoi
+    const [rightListPending, setRightListPending] = useState([]); 
+    const [rightSelection, setRightSelection] = useState(new Set()); // Sélection dans "En attente"
+
+    // --- STATE : MODALS & CONFIG ---
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isStudentFormOpen, setIsStudentFormOpen] = useState(false);
 
@@ -82,99 +51,249 @@ export default function InscriptionsMain() {
         institution: "", composante: "", mention: "",
         annee: "", parcours: "", niveau: "", mode: ""
     });
-    const [options, setOptions] = useState(MOCK_OPTIONS);
+    
+    const [options, setOptions] = useState(INITIAL_OPTIONS);
+    
+    // Map pour lier un Niveau à ses Semestres (spécifique au parcours choisi)
+    const [niveauSemestresMap, setNiveauSemestresMap] = useState({});
 
     // =========================================================
-    // CORRECTION ROBUSTE : CHARGEMENT DES ANNÉES UNIVERSITAIRES
+    // 1. CHARGEMENT INITIAL (Métadonnées Globales)
     // =========================================================
     useEffect(() => {
-        const fetchMetadonnees = async () => {
+        const fetchInitialData = async () => {
             try {
-                // Vérifiez si votre API backend (FastAPI) est bien lancée et accessible à cette adresse.
-                const response = await fetch(`${API_BASE_URL}/api/metadonnees/annees-universitaires`);
+                // 1. Années Universitaires
+                const resAnnee = await fetch(`${API_BASE_URL}/api/metadonnees/annees-universitaires`);
+                let anneesData = [];
+                if (resAnnee.ok) {
+                    const data = await resAnnee.json();
+                    anneesData = data.map(item => ({
+                        id: item.AnneeUniversitaire_id || item.id_annee_universitaire,
+                        label: `${item.AnneeUniversitaire_annee || item.annee} ${item.AnneeUniversitaire_is_active ? "(Active)" : ""}`
+                    }));
+                }
+
+                // 2. Institutions
+                const resInst = await fetch(`${API_BASE_URL}/api/institutions/`);
+                let instData = [];
+                if (resInst.ok) {
+                    const data = await resInst.json();
+                    instData = data.map(item => ({
+                        id: item.Institution_id,
+                        label: item.Institution_nom
+                    }));
+                }
+
+                // 3. Modes d'inscription
+                const resModes = await fetch(`${API_BASE_URL}/api/metadonnees/modes-inscription`);
+                let modesData = [];
+                if (resModes.ok) {
+                    const data = await resModes.json();
+                    modesData = data.map(item => ({
+                        id: item.ModeInscription_id || item.id_mode,
+                        label: item.ModeInscription_label
+                    }));
+                }
+
+                // 4. Tous les Niveaux (Global)
+                const resNiv = await fetch(`${API_BASE_URL}/api/metadonnees/niveaux`);
+                let niveauxData = [];
+                if (resNiv.ok) {
+                    const data = await resNiv.json();
+                    niveauxData = data.map(item => ({
+                        id: item.Niveau_id || item.id_niveau,
+                        label: item.Niveau_label || item.code
+                    }));
+                }
+
+                setOptions(prev => ({ 
+                    ...prev, 
+                    annees: anneesData, 
+                    institutions: instData,
+                    modes: modesData,
+                    niveaux: niveauxData 
+                }));
+
+            } catch (error) {
+                console.error("Erreur chargement données initiales:", error);
+            }
+        };
+
+        fetchInitialData();
+    }, []);
+
+    // =========================================================
+    // 2. CASCADES DE CHARGEMENT (Institution -> Parcours)
+    // =========================================================
+
+    // Institution -> Composantes
+    useEffect(() => {
+        if (!filters.institution) {
+            setOptions(prev => ({ ...prev, composantes: [], mentions: [], parcours: [] }));
+            setFilters(prev => ({ ...prev, composante: "", mention: "", parcours: "" }));
+            return;
+        }
+        const fetchComposantes = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/composantes/institution?institution_id=${filters.institution}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setOptions(prev => ({
+                        ...prev,
+                        composantes: data.map(c => ({ id: c.Composante_id, label: c.Composante_label }))
+                    }));
+                }
+            } catch (e) { console.error(e); }
+        };
+        fetchComposantes();
+    }, [filters.institution]);
+
+    // Composante -> Mentions
+    useEffect(() => {
+        if (!filters.composante) {
+            setOptions(prev => ({ ...prev, mentions: [], parcours: [] }));
+            setFilters(prev => ({ ...prev, mention: "", parcours: "" }));
+            return;
+        }
+        const fetchMentions = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/mentions/composante/${filters.composante}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setOptions(prev => ({
+                        ...prev,
+                        mentions: data.map(m => ({ id: m.Mention_id, label: m.Mention_label }))
+                    }));
+                }
+            } catch (e) { console.error(e); }
+        };
+        fetchMentions();
+    }, [filters.composante]);
+
+    // Mention -> Parcours
+    useEffect(() => {
+        if (!filters.mention) {
+            setOptions(prev => ({ ...prev, parcours: [] }));
+            setFilters(prev => ({ ...prev, parcours: "" }));
+            return;
+        }
+        const fetchParcours = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/parcours/mention/${filters.mention}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setOptions(prev => ({
+                        ...prev,
+                        parcours: data.map(p => ({ id: p.Parcours_id, label: p.Parcours_label }))
+                    }));
+                }
+            } catch (e) { console.error(e); }
+        };
+        fetchParcours();
+    }, [filters.mention]);
+
+    // Parcours -> Structure (Map Niveau/Semestres)
+    useEffect(() => {
+        if (!filters.parcours) {
+            setNiveauSemestresMap({});
+            return;
+        }
+        const fetchStructure = async () => {
+            try {
+                let url = `${API_BASE_URL}/api/parcours/${filters.parcours}/structure`;
+                if (filters.annee) url += `?annee_id=${filters.annee}`;
+                
+                const res = await fetch(url);
+                if (res.ok) {
+                    const structure = await res.json();
+                    const mapSemestres = {};
+                    structure.forEach(s => {
+                        mapSemestres[s.niveau_id] = s.semestres.map(sem => ({
+                            id: sem.id,
+                            label: `Semestre ${sem.numero}`
+                        }));
+                    });
+                    setNiveauSemestresMap(mapSemestres);
+                }
+            } catch (e) { console.error(e); }
+        };
+        fetchStructure();
+    }, [filters.parcours, filters.annee]);
+
+    // --- HOOK DE CHARGEMENT DES NIVEAUX SELON LE PARCOURS ---
+    useEffect(() => {
+        const fetchNiveauxSpecifiques = async () => {
+            // On ne déclenche l'appel que si un parcours est sélectionné
+            if (!filters.parcours) {
+                // Optionnel : on peut vider la liste ou garder les niveaux par défaut
+                return;
+            }
+
+            try {
+                // On utilise la route qui n'a pas besoin de 'annee_id'
+                const response = await fetch(`${API_BASE_URL}/api/parcours/${filters.parcours}/niveaux`);
                 
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // IMPORTANT : Ouvrez la console du navigateur (F12 > Console)
-                    // pour voir les données reçues et leurs clés exactes (Alias Pydantic ou nom SQL).
-                    console.log("Données Années reçues du Backend:", data); 
-                    
-                    if (!Array.isArray(data)) {
-                         console.error("Le backend n'a pas renvoyé un tableau pour les années universitaires.");
-                         return;
-                    }
+                    // On met à jour l'état global des options pour la modal
+                    setOptions(prev => ({
+                        ...prev,
+                        niveaux: data.map(n => ({
+                            id: n.Niveau_id || n.id_niveau,
+                            label: n.Niveau_label || n.label
+                        }))
+                    }));
 
-                    const anneesFormattees = data.map(item => {
-                        // Récupération sécurisée des clés (Alias Pydantic OU nom de variable Python/SQL)
-                        const id = item.AnneeUniversitaire_id || item.id_annee_universitaire;
-                        const libelle = item.AnneeUniversitaire_annee || item.annee;
-                        const isActive = (item.AnneeUniversitaire_is_active !== undefined) ? item.AnneeUniversitaire_is_active : item.is_active;
-
-                        return {
-                            id: id, 
-                            // Utilisation de String(libelle) pour plus de sécurité
-                            label: `${String(libelle || 'Année Inconnue')} ${isActive ? "(Active)" : ""}`
-                        };
-                    }).filter(item => item.id && item.label && item.id !== 'Année Inconnue'); // Filtrer les entrées invalides
-
-                    if (anneesFormattees.length > 0) {
-                        setOptions(prev => ({
-                            ...prev,
-                            annees: anneesFormattees
-                        }));
-                    } else {
-                        console.warn("La liste des années universitaires est vide après traitement. Vérifiez votre base de données.");
-                    }
+                    console.log("Niveaux mis à jour pour le parcours:", filters.parcours);
                 } else {
-                    console.error("Erreur de l'API lors du chargement des années (Status):", response.status);
+                    console.error("Erreur lors de la récupération des niveaux");
                 }
             } catch (error) {
-                // Cette erreur se produit si le backend n'est pas lancé
-                console.error("Erreur de connexion ou traitement lors du chargement des années universitaires (Backend non joignable?):", error);
+                console.error("Erreur réseau:", error);
             }
         };
 
-        fetchMetadonnees();
-    }, []);
+        fetchNiveauxSpecifiques();
+    }, [filters.parcours]); // S'exécute à chaque changement de parcours
+
+    // --- RESET DU NIVEAU QUAND LE PARCOURS CHANGE (UX) ---
+    useEffect(() => {
+        setFilters(prev => ({
+            ...prev,
+            niveau: ""
+        }));
+    }, [filters.parcours]);
+
+
+    // =========================================================
+    // 3. CHARGEMENT DES LISTES (Gauche et Droite)
     // =========================================================
 
-
-    // --- FETCH DATA (ETUDIANTS) ---
+    // GAUCHE : Base Étudiants
     const fetchStudents = async () => {
         setIsLoading(true);
         try {
             const skip = (pagination.page - 1) * pagination.limit;
-            const params = new URLSearchParams({
-                skip: skip.toString(),
-                limit: pagination.limit.toString(),
-            });
+            const params = new URLSearchParams({ skip: skip.toString(), limit: pagination.limit.toString() });
             if (searchTerm) params.append("search", searchTerm);
 
-            const url = `${API_BASE_URL}/api/etudiants?${params.toString()}`;
-            const res = await fetch(url);
-            
+            const res = await fetch(`${API_BASE_URL}/api/etudiants?${params.toString()}`);
             if (res.ok) {
                 const result = await res.json();
                 const mappedItems = (result.items || []).map(item => ({
                     id: item.Etudiant_id,
                     nom: item.Etudiant_nom,
                     prenom: item.Etudiant_prenoms,
-                    matricule: item.Etudiant_id,
                     cin: item.Etudiant_cin || "—",
-                    ddn: item.Etudiant_naissance_date ? new Date(item.Etudiant_naissance_date).toLocaleDateString("fr-FR") : "—",
+                    ddn: item.Etudiant_naissance_date || "—",
                     original: item 
                 }));
-                
                 setFetchedStudents(mappedItems);
                 setPagination(prev => ({ ...prev, total: result.total || 0 }));
-            } else {
-                setFetchedStudents([]);
             }
-        } catch (error) {
-            console.error("Erreur fetch", error);
-            setFetchedStudents([]);
-        }
+        } catch (error) { console.error(error); }
         setIsLoading(false);
     };
 
@@ -183,7 +302,41 @@ export default function InscriptionsMain() {
         return () => clearTimeout(t);
     }, [pagination.page, pagination.limit, searchTerm]);
 
-    // --- SÉPARATION DES LISTES ---
+    // DROITE : Inscriptions existantes (Rechargé quand les filtres changent)
+    const fetchExistingInscriptions = async () => {
+        if (!filters.annee || !filters.mention) {
+            setRightListDb([]);
+            return;
+        }
+        try {
+            const params = new URLSearchParams({ annee_id: filters.annee, mention_id: filters.mention });
+            if (filters.parcours) params.append("parcours_id", filters.parcours);
+            if (filters.niveau) params.append("niveau_id", filters.niveau);
+
+            const res = await fetch(`${API_BASE_URL}/api/inscriptions/?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                // Mapping des données reçues pour l'affichage
+                const mappedInscrits = data.map(dossier => ({
+                    id: dossier.DossierInscription_id,
+                    nom: dossier.etudiant?.Etudiant_nom || "Inconnu",
+                    prenom: dossier.etudiant?.Etudiant_prenoms || "",
+                    matricule: dossier.DossierInscription_numero || "—",
+                    semestre: dossier.Semestre_id_fk || "—" 
+                }));
+                setRightListDb(mappedInscrits);
+            }
+        } catch (e) { console.error("Erreur chargement inscrits:", e); }
+    };
+
+    useEffect(() => {
+        fetchExistingInscriptions();
+    }, [filters.annee, filters.mention, filters.parcours, filters.niveau]);
+
+    // =========================================================
+    // 4. LOGIQUE UI ET ACTIONS
+    // =========================================================
+
     const { frozenList, scrollableList } = useMemo(() => {
         const selectedIds = new Set(selectedObjects.map(s => s.id));
         const frozen = [...selectedObjects];
@@ -191,27 +344,37 @@ export default function InscriptionsMain() {
         return { frozenList: frozen, scrollableList: scrollable };
     }, [selectedObjects, fetchedStudents]);
 
+    const FILTER_OPTIONS_MAP = {
+        institution: options.institutions,
+        composante: options.composantes,
+        mention: options.mentions,
+        parcours: options.parcours,
+        annee: options.annees,
+        niveau: options.niveaux,
+        mode: options.modes
+    };
 
     const getFilterLabel = (key) => {
         const id = filters[key];
-        const list = options[key + 's'] || []; 
+        if (!id) return "—";
+        const list = FILTER_OPTIONS_MAP[key] || [];
         const item = list.find(opt => opt.id === id);
         return item ? item.label : id;
     };
-    
+
+
     const isConfigured = filters.mention && filters.annee;
-    
     const availableSemestres = useMemo(() => {
-        return MOCK_NIVEAU_SEMESTRES_MAP[filters.niveau] || [];
-    }, [filters.niveau]);
+        if (!filters.niveau) return [];
+        return niveauSemestresMap[filters.niveau] || [];
+    }, [filters.niveau, niveauSemestresMap]);
 
-
+    // Reset semestres si le niveau change
     useEffect(() => {
         setRightListPending(prev => prev.map(item => ({ ...item, semestres: [] })));
     }, [filters.niveau]);
 
-
-    // --- ACTIONS ---
+    // Gestion Selection Gauche
     const toggleLeft = (student) => {
         const id = student.id;
         const newSet = new Set(leftSelection);
@@ -228,31 +391,7 @@ export default function InscriptionsMain() {
         setLeftSelection(newSet);
     };
 
-    const toggleRight = (id) => {
-        const newSet = new Set(rightSelection);
-        newSet.has(id) ? newSet.delete(id) : newSet.add(id);
-        setRightSelection(newSet);
-    };
-
-    const handleSemestreToggle = (id, semestreId) => {
-        if (!filters.niveau) return;
-        setRightListPending(prev => 
-            prev.map(item => {
-                if (item.id === id) {
-                    const currentSemestres = item.semestres || [];
-                    const isSelected = currentSemestres.includes(semestreId);
-                    return { 
-                        ...item, 
-                        semestres: isSelected 
-                            ? currentSemestres.filter(s => s !== semestreId) 
-                            : [...currentSemestres, semestreId]
-                    };
-                }
-                return item;
-            })
-        );
-    };
-
+    // Mouvement Gauche -> Milieu
     const moveRight = () => {
         if (!isConfigured || !filters.niveau) return;
         const toMove = selectedObjects; 
@@ -265,113 +404,121 @@ export default function InscriptionsMain() {
         setSelectedObjects([]);
     };
 
+    // Mouvement Milieu -> Gauche (Annuler)
     const moveLeft = () => {
         setRightListPending(rightListPending.filter(s => !rightSelection.has(s.id)));
         setRightSelection(new Set());
     };
 
-    const handleSave = () => {
+    // Toggle Semestres dans le milieu
+    const handleSemestreToggle = (id, semestreId) => {
+        setRightListPending(prev => prev.map(item => {
+            if (item.id === id) {
+                const current = item.semestres || [];
+                const isSel = current.includes(semestreId);
+                return { ...item, semestres: isSel ? current.filter(s => s !== semestreId) : [...current, semestreId] };
+            }
+            return item;
+        }));
+    };
+
+    const toggleRight = (id) => {
+        const newSet = new Set(rightSelection);
+        newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+        setRightSelection(newSet);
+    };
+
+    // --- SAUVEGARDE (APPEL API) ---
+    const handleSave = async () => {
         const incomplete = rightListPending.filter(s => !s.semestres || s.semestres.length === 0);
         if (incomplete.length > 0) {
-            alert(`Veuillez sélectionner au moins un Semestre.`);
+            alert(`Veuillez sélectionner au moins un Semestre pour tous les étudiants en attente.`);
             return;
         }
 
-        const savedList = rightListPending.flatMap(s => {
-            const anneeLabel = getFilterLabel('annee');
-            const matriculeBase = `${anneeLabel ? anneeLabel.substring(0,2) : 'XX'}${filters.mention}_${s.id.slice(4)}`;
-            return s.semestres.map((semestreId, index) => {
-                const semesterInfo = Object.values(MOCK_NIVEAU_SEMESTRES_MAP).flat().find(opt => opt.id === semestreId);
-                const semestreLabel = semesterInfo ? semesterInfo.label : semestreId;
-                return { 
-                    ...s, 
-                    id: `DOS_${Math.floor(Math.random() * 1000) + 100}_${index}_${semestreId}`, 
-                    matricule: `${matriculeBase}/${semestreLabel}`, 
-                    semestre: semestreLabel 
-                };
+        // On groupe les étudiants par semestre car l'API bulk prend un semestre_id unique par appel
+        const mapBySemestre = {};
+        
+        rightListPending.forEach(etu => {
+            etu.semestres.forEach(semId => {
+                if (!mapBySemestre[semId]) mapBySemestre[semId] = [];
+                mapBySemestre[semId].push(etu.id);
             });
         });
 
-        setRightListDb([...rightListDb, ...savedList]);
-        setRightListPending([]);
+        setIsLoading(true);
+        let successCount = 0;
+
+        for (const [semestreId, etuIds] of Object.entries(mapBySemestre)) {
+            const payload = {
+                annee_id: filters.annee,
+                mention_id: filters.mention,
+                parcours_id: filters.parcours,
+                niveau_id: filters.niveau,
+                semestre_id: semestreId,
+                mode_inscription_id: filters.mode,
+                etudiants_ids: etuIds
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/inscriptions/bulk`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) successCount++;
+            } catch (e) {
+                console.error(`Erreur inscription semestre ${semestreId}`, e);
+            }
+        }
+
+        setIsLoading(false);
+        if (successCount > 0) {
+            setRightListPending([]); // Vide la liste d'attente
+            fetchExistingInscriptions(); // Recharge la liste de droite
+            alert("Inscriptions validées avec succès !");
+        }
     };
 
-    const handleDeleteInscription = (idToDelete) => {
+    const handleDeleteInscription = async (idToDelete) => {
         if (!window.confirm(`Supprimer cette inscription ?`)) return;
+        // Implémentation suppression API si nécessaire
+        // await fetch(`${API_BASE_URL}/api/inscriptions/${idToDelete}`, { method: 'DELETE' });
         setRightListDb(prev => prev.filter(item => item.id !== idToDelete));
     };
     
-    const handleStudentAdded = () => {
-        fetchStudents();
-        setIsStudentFormOpen(false);
-    };
-
-    // --- LOGIQUE PAGINATION ---
+    // --- RENDU PAGINATION ---
     const renderPagination = () => {
         if (pagination.total === 0) return null;
         const total = Math.ceil(pagination.total / pagination.limit);
         const current = pagination.page;
-        const delta = 1; 
-        const range = [];
-        const rangeWithDots = [];
-        let l;
-
-        range.push(1);
-        for (let i = current - delta; i <= current + delta; i++) {
-            if (i < total && i > 1) range.push(i);
-        }
-        if (total > 1) range.push(total);
-
-        for (let i of range) {
-            if (l) {
-                if (i - l === 2) rangeWithDots.push(l + 1);
-                else if (i - l !== 1) rangeWithDots.push('...');
-            }
-            rangeWithDots.push(i);
-            l = i;
-        }
-
         return (
             <div className="flex gap-1 items-center">
-                <button 
-                    disabled={current === 1} 
-                    onClick={() => setPagination(p => ({...p, page: p.page - 1}))} 
-                    className="p-1 border rounded hover:bg-white disabled:opacity-50 text-gray-500"
-                >
-                    <FaChevronLeft/>
-                </button>
-                {rangeWithDots.map((p, idx) => (
-                    p === '...' ? (
-                        <span key={idx} className="text-gray-400 text-xs px-1">...</span>
-                    ) : (
-                        <button
-                            key={idx}
-                            onClick={() => setPagination(prev => ({ ...prev, page: p }))}
-                            className={`px-2.5 py-1 rounded border text-xs font-medium transition-colors ${
-                                pagination.page === p
-                                    ? "bg-blue-600 text-white border-blue-600 shadow-sm"
-                                    : "bg-white text-gray-600 hover:bg-gray-50 border-gray-300"
-                            }`}
-                        >
-                            {p}
-                        </button>
-                    )
-                ))}
-                <button 
-                    disabled={current >= total} 
-                    onClick={() => setPagination(p => ({...p, page: p.page + 1}))} 
-                    className="p-1 border rounded hover:bg-white disabled:opacity-50 text-gray-500"
-                >
-                    <FaChevronRight/>
-                </button>
+                <button disabled={current === 1} onClick={() => setPagination(p => ({...p, page: p.page - 1}))} className="p-1 border rounded hover:bg-white disabled:opacity-50 text-gray-500"><FaChevronLeft/></button>
+                <span className="text-xs px-2 text-gray-600">Page {current} / {total}</span>
+                <button disabled={current >= total} onClick={() => setPagination(p => ({...p, page: p.page + 1}))} className="p-1 border rounded hover:bg-white disabled:opacity-50 text-gray-500"><FaChevronRight/></button>
             </div>
         );
     };
 
+    // --- SOUS-COMPOSANT CHECKBOX ---
+    const SemestreCheckbox = ({ options, selectedSemestres, onToggle }) => (
+        <div className="flex flex-wrap gap-1.5">
+            {options.map(sem => (
+                <label key={sem.id} className={`flex items-center text-[10px] px-2 py-0.5 border rounded cursor-pointer transition-all ${selectedSemestres.includes(sem.id) ? 'bg-indigo-600 text-white border-indigo-600 font-bold' : 'bg-white text-gray-700 border-gray-300 hover:bg-indigo-50'}`}>
+                    <input type="checkbox" checked={selectedSemestres.includes(sem.id)} onChange={() => onToggle(sem.id)} className="hidden" />
+                    {sem.label}
+                </label>
+            ))}
+            {options.length === 0 && <span className="text-[10px] italic text-red-400">Aucun semestre mappé pour ce niveau/parcours.</span>}
+        </div>
+    );
+
     return (
         <div className="flex flex-col h-[calc(100vh-140px)] min-h-[600px]">
             <div className="flex flex-grow gap-0.5 overflow-hidden">
-                {/* COLONNE GAUCHE (inchangé) */}
+                
+                {/* 1. GAUCHE: Base Étudiants */}
                 <div className="w-[40%] flex flex-col bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
                     <div className="p-2 border-b bg-blue-50/50 flex flex-col gap-2 shrink-0">
                         <h3 className="text-sm font-extrabold text-blue-800 uppercase flex justify-between items-center">
@@ -380,46 +527,22 @@ export default function InscriptionsMain() {
                         </h3>
                         <div className="relative">
                             <FaSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
-                            <input
-                                type="text"
-                                placeholder="Rechercher..."
-                                value={searchTerm}
-                                onChange={(e) => {
-                                    setSearchTerm(e.target.value);
-                                    setPagination(p => ({...p, page: 1}));
-                                }}
-                                className="w-full pl-8 pr-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            />
+                            <input type="text" placeholder="Rechercher..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPagination(p => ({...p, page: 1})); }} className="w-full pl-8 pr-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
                         </div>
                     </div>
-
                     <div className="flex-grow overflow-y-auto relative">
-                        {isLoading && (
-                            <div className="absolute inset-0 bg-white/80 z-50 flex justify-center items-center">
-                                <FaSpinner className="animate-spin text-blue-600 text-2xl"/>
-                            </div>
-                        )}
+                        {isLoading && <div className="absolute inset-0 bg-white/80 z-50 flex justify-center items-center"><FaSpinner className="animate-spin text-blue-600 text-2xl"/></div>}
                         <table className="w-full text-left text-xs table-fixed border-collapse">
                             <thead className="sticky top-0 bg-gray-100 border-b text-gray-600 z-30 shadow-sm h-9">
-                                <tr>
-                                    <th className="p-2 w-8 text-center bg-gray-100">#</th>
-                                    <th className="p-2 w-[40%] bg-gray-100">Nom & Prénoms</th>
-                                    <th className="p-2 w-[35%] bg-gray-100">Infos (CIN / Né)</th>
-                                    <th className="p-2 w-[15%] text-center bg-gray-100">ID</th>
-                                </tr>
+                                <tr><th className="p-2 w-8 text-center bg-gray-100">#</th><th className="p-2 w-[40%] bg-gray-100">Nom & Prénoms</th><th className="p-2 w-[35%] bg-gray-100">Infos</th><th className="p-2 w-[15%] text-center bg-gray-100">ID</th></tr>
                             </thead>
                             {frozenList.length > 0 && (
                                 <tbody className="divide-y divide-blue-200 bg-blue-50 sticky top-[36px] z-20 shadow-md border-b-2 border-blue-200">
                                     {frozenList.map(etu => (
                                         <tr key={etu.id} onClick={() => toggleLeft(etu)} className="cursor-pointer bg-blue-100 border-l-4 border-l-blue-600 font-semibold">
                                             <td className="p-2 w-8 text-center"><input type="checkbox" checked={true} readOnly className="pointer-events-none accent-blue-600"/></td>
-                                            <td className="p-2 truncate" title={`${etu.nom} ${etu.prenom}`}><div className="text-gray-900">{etu.nom} {etu.prenom}</div></td>
-                                            <td className="p-2">
-                                                <div className="flex flex-col text-[10px] leading-tight text-gray-700">
-                                                    <span className="flex items-center gap-1"><FaIdCard className="text-blue-400"/> {etu.cin}</span>
-                                                    <span className="flex items-center gap-1"><FaBirthdayCake className="text-blue-400"/> {etu.ddn}</span>
-                                                </div>
-                                            </td>
+                                            <td className="p-2 truncate" title={`${etu.nom} ${etu.prenom}`}>{etu.nom} {etu.prenom}</td>
+                                            <td className="p-2 flex flex-col text-[10px] text-gray-700"><span>CIN: {etu.cin}</span><span>Né: {etu.ddn}</span></td>
                                             <td className="p-2 text-[10px] text-blue-600 text-center font-mono">{etu.id}</td>
                                         </tr>
                                     ))}
@@ -429,61 +552,64 @@ export default function InscriptionsMain() {
                                 {scrollableList.length > 0 ? scrollableList.map(etu => (
                                     <tr key={etu.id} onClick={() => toggleLeft(etu)} className="cursor-pointer transition border-l-4 hover:bg-blue-50 border-l-transparent group">
                                         <td className="p-2 w-8 text-center"><input type="checkbox" checked={false} readOnly className="pointer-events-none accent-blue-600"/></td>
-                                        <td className="p-2 truncate" title={`${etu.nom} ${etu.prenom}`}><div className="text-gray-800">{etu.nom} {etu.prenom}</div></td>
-                                        <td className="p-2"><div className="flex flex-col text-[10px] leading-tight text-gray-500"><span className="flex items-center gap-1"><FaIdCard className="text-gray-400"/> {etu.cin}</span><span className="flex items-center gap-1"><FaBirthdayCake className="text-gray-400"/> {etu.ddn}</span></div></td>
+                                        <td className="p-2 truncate">{etu.nom} {etu.prenom}</td>
+                                        <td className="p-2 flex flex-col text-[10px] text-gray-500"><span>CIN: {etu.cin}</span><span>Né: {etu.ddn}</span></td>
                                         <td className="p-2 text-[10px] text-gray-400 text-center font-mono group-hover:text-blue-500">{etu.id}</td>
                                     </tr>
-                                )) : (frozenList.length === 0 && (<tr><td colSpan="4" className="p-8 text-center text-gray-400 italic">Aucun étudiant trouvé.</td></tr>))}
+                                )) : (frozenList.length === 0 && <tr><td colSpan="4" className="p-8 text-center text-gray-400 italic">Aucun étudiant trouvé.</td></tr>)}
                             </tbody>
                         </table>
                     </div>
-                    <div className="bg-gray-50 border-t p-2 flex justify-between items-center text-xs shrink-0">
-                        <span className="text-gray-500 ml-1">Total {pagination.total}</span>
-                        {renderPagination()}
-                    </div>
+                    <div className="bg-gray-50 border-t p-2 flex justify-between items-center text-xs shrink-0">{renderPagination()}</div>
                 </div>
 
-                {/* COLONNE CENTRALE (inchangé) */}
+                {/* 2. CENTRE: Boutons de transfert */}
                 <div className="w-[4%] flex flex-col justify-center items-center gap-4 shrink-0 bg-gray-50/50">
                     <button onClick={moveRight} disabled={leftSelection.size === 0 || !isConfigured || !filters.niveau} className={`w-10 h-10 rounded-full text-white flex items-center justify-center shadow-md transition-all ${(isConfigured && filters.niveau) ? "bg-blue-600 hover:bg-blue-700" : "bg-gray-300 cursor-not-allowed"}`}><FaAngleRight /></button>
                     <button onClick={moveLeft} disabled={rightSelection.size === 0} className="w-10 h-10 rounded-full bg-white border border-gray-300 text-gray-600 flex items-center justify-center shadow-md hover:bg-red-500 hover:text-white disabled:opacity-50"><FaAngleLeft /></button>
                 </div>
 
-                {/* COLONNE DROITE (inchangé) */}
+                {/* 3. DROITE: Configuration et Listes d'Inscriptions */}
                 <div className="w-[56%] flex flex-col bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden">
+                    
+                    {/* Header Configuration */}
                     <div className="p-3 border-b bg-gray-50 flex justify-between items-start flex-col sm:flex-row shrink-0">
                         <div className="mb-2 sm:mb-0">
-                            <h3 className="text-sm font-extrabold text-gray-800 uppercase flex items-center gap-2"><FaFilter className="text-base"/> Contexte d'Inscription Actif</h3>
+                            <h3 className="text-sm font-extrabold text-gray-800 uppercase flex items-center gap-2"><FaFilter className="text-base"/> Contexte d'Inscription</h3>
                             {isConfigured ? (
                                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-2">
-                                    <p><span className="font-bold text-blue-600">Institution:</span> {getFilterLabel('institution') || "—"}</p>
-                                    <p><span className="font-bold text-blue-600">Composante:</span> {getFilterLabel('composante') || "—"}</p>
+                                    <p><span className="font-bold text-blue-600">Institution:</span> {getFilterLabel('institution')}</p>
+                                    <p><span className="font-bold text-blue-600">Composante:</span> {getFilterLabel('composante')}</p>
                                     <p><span className="font-bold text-blue-600">Mention:</span> {getFilterLabel('mention')}</p>
-                                    <p><span className="font-bold text-blue-600">Parcours:</span> {getFilterLabel('parcours') || "—"}</p>
+                                    <p><span className="font-bold text-blue-600">Parcours:</span> {getFilterLabel('parcours')}</p>
                                     <p><span className="font-bold text-blue-600">Année:</span> {getFilterLabel('annee')}</p>
-                                    <p><span className="font-bold text-blue-600">Niveau:</span> {getFilterLabel('niveau') || "—"}</p>
-                                    <p><span className="font-bold text-blue-600">Mode:</span> {getFilterLabel('mode') || "—"}</p>
+                                    <p><span className="font-bold text-blue-600">Niveau:</span> {getFilterLabel('niveau')}</p>
+                                    <p><span className="font-bold text-blue-600">Mode:</span> {getFilterLabel('mode')}</p>
+
                                 </div>
-                            ) : (<p className="text-xs italic text-red-500 mt-2">Aucune configuration minimale sélectionnée (Mention et Année requises).</p>)}
+                            ) : (<p className="text-xs italic text-red-500 mt-2">Configuration requise (Mention, Année, Niveau).</p>)}
                         </div>
                         <div className="flex flex-col gap-2"> 
-                            <button onClick={() => setIsModalOpen(true)} className={AppStyles.button.secondary + " flex items-center gap-2 px-3 py-1.5 text-xs"}><FaExternalLinkAlt/> Configurer l'inscription</button>
-                            <button onClick={() => setIsStudentFormOpen(true)} disabled={!isConfigured} className={`flex items-center justify-center gap-2 px-3 py-1.5 text-xs ${isConfigured ? AppStyles.button.secondary + " text-green-700 hover:bg-green-100 border-green-300" : "bg-gray-100 text-gray-400 border border-gray-300 cursor-not-allowed"}`}><FaPlus/> Ajouter un étudiant</button>
+                            <button onClick={() => setIsModalOpen(true)} className={AppStyles.button.secondary + " flex items-center gap-2 px-3 py-1.5 text-xs"}><FaExternalLinkAlt/> Configurer</button>
+                            <button onClick={() => setIsStudentFormOpen(true)} disabled={!isConfigured} className={`flex items-center justify-center gap-2 px-3 py-1.5 text-xs ${isConfigured ? AppStyles.button.secondary + " text-green-700 hover:bg-green-100 border-green-300" : "bg-gray-100 text-gray-400 border border-gray-300 cursor-not-allowed"}`}><FaPlus/> Nouvel Étudiant</button>
                         </div>
                     </div>
 
                     <div className="flex-grow overflow-y-auto bg-gray-50/30">
+                        {/* A. LISTE EN ATTENTE (PENDING) */}
                         {rightListPending.length > 0 && (
                             <div className="bg-white border-b border-green-200 mb-2 shadow-md">
-                                <div className="px-3 py-2 bg-green-100 text-green-800 text-xs font-extrabold uppercase flex items-center justify-between"><span><FaTags className="inline mr-1 text-sm"/> En attente de validation ({rightListPending.length})</span></div>
+                                <div className="px-3 py-2 bg-green-100 text-green-800 text-xs font-extrabold uppercase flex items-center justify-between"><span><FaTags className="inline mr-1 text-sm"/> En attente ({rightListPending.length})</span></div>
                                 <table className="w-full text-left text-xs">
-                                    <thead><tr className="bg-green-50 text-green-700"><th className="p-2 w-8">#</th><th className="p-2 w-48">Nom & Prénoms</th><th className="p-2">Semestres à inscrire (Sélectionner au moins un)</th></tr></thead>
+                                    <thead><tr className="bg-green-50 text-green-700"><th className="p-2 w-8">#</th><th className="p-2">Nom</th><th className="p-2">Semestres</th></tr></thead>
                                     <tbody className="divide-y divide-green-50">
                                         {rightListPending.map(etu => (
                                             <tr key={etu.id} onClick={() => toggleRight(etu.id)} className={`cursor-pointer transition ${rightSelection.has(etu.id) ? "bg-red-100" : "hover:bg-red-50"}`}>
                                                 <td className="p-2 w-8 text-center text-red-500"><input type="checkbox" checked={rightSelection.has(etu.id)} readOnly className="accent-red-500" /></td>
-                                                <td className="p-2"><div className="font-bold text-green-700">{etu.nom} {etu.prenom}</div><div className="flex gap-2 text-[9px] text-gray-400"><span>CIN: {etu.cin}</span><span>Né: {etu.ddn}</span></div></td>
-                                                <td className="p-2" onClick={(e) => e.stopPropagation()}><SemestreCheckbox options={availableSemestres} selectedSemestres={etu.semestres} onToggle={(semestreId) => handleSemestreToggle(etu.id, semestreId)} isLevelSelected={!!filters.niveau}/></td>
+                                                <td className="p-2 font-bold text-green-700">{etu.nom} {etu.prenom}</td>
+                                                <td className="p-2" onClick={(e) => e.stopPropagation()}>
+                                                    <SemestreCheckbox options={availableSemestres} selectedSemestres={etu.semestres} onToggle={(sid) => handleSemestreToggle(etu.id, sid)} />
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -491,18 +617,20 @@ export default function InscriptionsMain() {
                             </div>
                         )}
 
+                        {/* B. LISTE VALIDÉE (DB) */}
                         <div className="mt-2">
                             <div className="px-3 py-2 bg-gray-200 text-gray-700 text-xs font-extrabold uppercase border-y border-gray-300"><FaCheckCircle className="inline mr-1 text-sm"/> Inscrits validés ({rightListDb.length})</div>
                             <table className="w-full text-left text-xs bg-white">
-                                <thead><tr className="bg-gray-100 text-gray-600 font-bold border-b"><th className="p-3 w-8"></th><th className="p-3">Étudiant & Matricule (Semestre)</th><th className="p-3 w-16 text-right">Actions</th></tr></thead>
+                                <thead><tr className="bg-gray-100 text-gray-600 font-bold border-b"><th className="p-3 w-8"></th><th className="p-3">Détails</th><th className="p-3 w-16 text-right">Del</th></tr></thead>
                                 <tbody className="divide-y divide-gray-100">
                                     {rightListDb.map(etu => (
                                         <tr key={etu.id} className="text-gray-500 hover:bg-gray-50">
                                             <td className="p-3 w-8 text-center text-gray-300"><FaCheckCircle /></td>
                                             <td className="p-3"><div className="font-semibold text-gray-800">{etu.nom} {etu.prenom}</div><div className="text-[10px] font-mono bg-gray-100 inline-block px-1 rounded">{etu.matricule} ({etu.semestre})</div></td>
-                                            <td className="p-3 w-16 text-right"><button onClick={(e) => {e.stopPropagation(); handleDeleteInscription(etu.id);}} className="text-red-500 hover:text-red-700 p-1 rounded transition-colors" title={`Supprimer l'inscription`}><FaTrash className="text-sm" /></button></td>
+                                            <td className="p-3 w-16 text-right"><button onClick={(e) => {e.stopPropagation(); handleDeleteInscription(etu.id);}} className="text-red-500 hover:text-red-700 p-1 rounded transition-colors"><FaTrash /></button></td>
                                         </tr>
                                     ))}
+                                    {rightListDb.length === 0 && <tr><td colSpan="3" className="p-4 text-center text-gray-400 italic">Aucun inscrit pour ces critères.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -510,20 +638,14 @@ export default function InscriptionsMain() {
                 </div>
             </div>
 
+            {/* BARRE ACTION BAS */}
             <div className="mt-1 p-3 bg-white border border-green-300 rounded-lg shadow-lg flex justify-between items-center shrink-0">
-                <div className="text-sm text-gray-600"><span className="font-extrabold text-green-600">{rightListPending.length}</span> nouvel(s) étudiant(s) prêt(s) à être inscrit(s).</div>
-                <button onClick={handleSave} disabled={rightListPending.length === 0} className={`flex items-center gap-2 px-8 py-2.5 rounded-lg font-bold text-sm shadow-lg transition-all ${rightListPending.length > 0 ? "bg-green-600 text-white hover:bg-green-700 transform hover:-translate-y-0.5" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}><FaSave /> Valider les Inscriptions ({rightListPending.length})</button>
+                <div className="text-sm text-gray-600"><span className="font-extrabold text-green-600">{rightListPending.length}</span> étudiant(s) prêt(s).</div>
+                <button onClick={handleSave} disabled={rightListPending.length === 0} className={`flex items-center gap-2 px-8 py-2.5 rounded-lg font-bold text-sm shadow-lg transition-all ${rightListPending.length > 0 ? "bg-green-600 text-white hover:bg-green-700 transform hover:-translate-y-0.5" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}><FaSave /> Valider Inscriptions</button>
             </div>
             
-            <ConfigurationInscription 
-                isOpen={isModalOpen} 
-                onClose={() => setIsModalOpen(false)} 
-                filters={filters} 
-                setFilters={setFilters} 
-                options={options} 
-                onSave={() => setIsModalOpen(false)}
-            />
-            <StudentFormModal isOpen={isStudentFormOpen} onClose={() => setIsStudentFormOpen(false)} data={null} reloadList={handleStudentAdded}/>
+            <ConfigurationInscription isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} filters={filters} setFilters={setFilters} options={options} onSave={() => setIsModalOpen(false)}/>
+            <StudentFormModal isOpen={isStudentFormOpen} onClose={() => setIsStudentFormOpen(false)} data={null} reloadList={fetchStudents}/>
         </div>
     );
 }

@@ -8,7 +8,7 @@ from .metadonnees_schemas import (
     ModeInscriptionBase, ModeInscriptionSchema,
     AnneeUniversitaireBase, AnneeUniversitaireCreate, AnneeUniversitaireUpdate, AnneeUniversitaireSchema,
     SessionExamenBase, SessionExamenSchema,
-    TypeEnseignementBase, TypeEnseignementSchema
+    TypeEnseignementBase, TypeEnseignementSchema, NiveauSimpleSchema
 )
 from .institutions_schemas import (
     InstitutionCreate, InstitutionUpdate, InstitutionSchema,

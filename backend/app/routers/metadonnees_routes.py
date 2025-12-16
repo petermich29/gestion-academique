@@ -466,3 +466,12 @@ def delete_annee_univ(id: str, db: Session = Depends(get_db)):
 def get_semestres_list(db: Session = Depends(get_db)):
     # On renvoie la liste triée par ID ou par Numéro
     return db.query(models.Semestre).order_by(models.Semestre.Semestre_numero).all()
+
+
+# =================================================================
+# 9. NIVEAUX (Tous les niveaux disponibles)
+# =================================================================
+@router.get("/niveaux", response_model=List[schemas.NiveauSimpleSchema])
+def get_all_niveaux(db: Session = Depends(get_db)):
+    """Récupère la liste complète de tous les niveaux définis dans le système"""
+    return db.query(models.Niveau).order_by(models.Niveau.Niveau_id).all()

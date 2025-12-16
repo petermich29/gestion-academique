@@ -91,3 +91,10 @@ class TypeEnseignementBase(BaseSchema):
 
 class TypeEnseignementSchema(TypeEnseignementBase):
     id_type_enseignement: str = Field(..., alias="TypeEnseignement_id")
+
+
+# --- AJOUT : NIVEAUX (Liste simple) ---
+class NiveauSimpleSchema(BaseSchema):
+    id_niveau: str = Field(..., alias="Niveau_id")
+    code: Optional[str] = Field(None, alias="Niveau_code")
+    label: Optional[str] = Field(None, alias="Niveau_label")
