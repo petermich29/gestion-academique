@@ -302,28 +302,37 @@ export default function InscriptionsMain() {
         return () => clearTimeout(t);
     }, [pagination.page, pagination.limit, searchTerm]);
 
-    // DROITE : Inscriptions existantes (Rechargé quand les filtres changent)
+    // DROITE : Inscriptions existantes
     const fetchExistingInscriptions = async () => {
+        // On attend au moins l'Année et la Mention pour charger
         if (!filters.annee || !filters.mention) {
             setRightListDb([]);
             return;
         }
         try {
-            const params = new URLSearchParams({ annee_id: filters.annee, mention_id: filters.mention });
+            const params = new URLSearchParams({ 
+                annee_id: filters.annee, 
+                mention_id: filters.mention 
+            });
+            
             if (filters.parcours) params.append("parcours_id", filters.parcours);
             if (filters.niveau) params.append("niveau_id", filters.niveau);
 
             const res = await fetch(`${API_BASE_URL}/api/inscriptions/?${params.toString()}`);
             if (res.ok) {
                 const data = await res.json();
-                // Mapping des données reçues pour l'affichage
-                const mappedInscrits = data.map(dossier => ({
-                    id: dossier.DossierInscription_id,
-                    nom: dossier.etudiant?.Etudiant_nom || "Inconnu",
-                    prenom: dossier.etudiant?.Etudiant_prenoms || "",
-                    matricule: dossier.DossierInscription_numero || "—",
-                    semestre: dossier.Semestre_id_fk || "—" 
+                
+                // MAPPING SIMPLIFIÉ (Correspond au nouveau Backend)
+                const mappedInscrits = data.map(item => ({
+                    id: item.id,
+                    nom: item.etudiant_nom || "Inconnu",
+                    prenom: item.etudiant_prenom || "",
+                    matricule: item.matricule || "N/A", // C'est le DossierInscription_numero
+                    semestre: item.semestre_label || "—",
+                    niveau: item.niveau_label || "",
+                    parcours: item.parcours_label || ""
                 }));
+                
                 setRightListDb(mappedInscrits);
             }
         } catch (e) { console.error("Erreur chargement inscrits:", e); }
@@ -618,22 +627,80 @@ export default function InscriptionsMain() {
                         )}
 
                         {/* B. LISTE VALIDÉE (DB) */}
-                        <div className="mt-2">
-                            <div className="px-3 py-2 bg-gray-200 text-gray-700 text-xs font-extrabold uppercase border-y border-gray-300"><FaCheckCircle className="inline mr-1 text-sm"/> Inscrits validés ({rightListDb.length})</div>
-                            <table className="w-full text-left text-xs bg-white">
-                                <thead><tr className="bg-gray-100 text-gray-600 font-bold border-b"><th className="p-3 w-8"></th><th className="p-3">Détails</th><th className="p-3 w-16 text-right">Del</th></tr></thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {rightListDb.map(etu => (
-                                        <tr key={etu.id} className="text-gray-500 hover:bg-gray-50">
-                                            <td className="p-3 w-8 text-center text-gray-300"><FaCheckCircle /></td>
-                                            <td className="p-3"><div className="font-semibold text-gray-800">{etu.nom} {etu.prenom}</div><div className="text-[10px] font-mono bg-gray-100 inline-block px-1 rounded">{etu.matricule} ({etu.semestre})</div></td>
-                                            <td className="p-3 w-16 text-right"><button onClick={(e) => {e.stopPropagation(); handleDeleteInscription(etu.id);}} className="text-red-500 hover:text-red-700 p-1 rounded transition-colors"><FaTrash /></button></td>
+                        <div className="mt-2 flex-grow flex flex-col min-h-0 bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
+                            <div className="px-3 py-2 bg-gray-100 text-gray-700 text-xs font-bold uppercase border-b border-gray-200 flex justify-between items-center sticky top-0 z-10">
+                                <span className="flex items-center gap-2 text-green-700"><FaCheckCircle /> Étudiants Inscrits</span>
+                                <span className="bg-white px-2 py-0.5 rounded border border-gray-300 text-[11px] font-mono">{rightListDb.length}</span>
+                            </div>
+                            
+                            <div className="overflow-y-auto flex-grow">
+                                <table className="w-full text-left table-fixed border-separate border-spacing-0">
+                                    <thead className="sticky top-0 bg-white shadow-sm z-20">
+                                        <tr className="text-[11px] text-gray-500 uppercase font-bold border-b bg-gray-50">
+                                            <th className="p-2 w-10 text-center">#</th>
+                                            <th className="p-2 w-40">N° Inscription</th> {/* Largeur augmentée */}
+                                            <th className="p-2 w-auto">Nom & Prénoms</th>
+                                            <th className="p-2 w-36">Semestres</th> {/* Largeur augmentée */}
+                                            <th className="p-2 w-16 text-center">Niv.</th>
+                                            <th className="p-2 w-10"></th>
                                         </tr>
-                                    ))}
-                                    {rightListDb.length === 0 && <tr><td colSpan="3" className="p-4 text-center text-gray-400 italic">Aucun inscrit pour ces critères.</td></tr>}
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {rightListDb.map((etu, index) => (
+                                            <tr key={etu.id} className="group hover:bg-green-50/30 transition-colors">
+                                                {/* 1. Index */}
+                                                <td className="px-1 py-3 text-center text-xs text-gray-400 font-mono italic">
+                                                {index + 1}
+                                                </td>
+
+                                                {/* 2. N° Inscription : AGRANDI */}
+                                                <td className="px-2 py-3">
+                                                    <span className="text-[13px] font-black font-mono text-blue-800 bg-blue-100 px-2 py-1 rounded border border-blue-200 shadow-sm">
+                                                        {etu.matricule}
+                                                    </span>
+                                                </td>
+
+                                                {/* 3. Nom & Prénoms */}
+                                                <td className="px-2 py-3">
+                                                    <div className="text-[14px] text-gray-800 truncate">
+                                                        <span className="font-extrabold uppercase">{etu.nom}</span>{" "}
+                                                        <span className="text-gray-600 capitalize font-medium">{etu.prenom}</span>
+                                                    </div>
+                                                </td>
+
+                                                {/* 4. Semestres : AGRANDIS et alignés */}
+                                                <td className="px-2 py-3">
+                                                    <div className="flex flex-row flex-wrap gap-1.5 items-center">
+                                                        {etu.semestre.split(',').map((s, idx) => (
+                                                            <span key={idx} className="text-[12px] font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded shadow-sm">
+                                                                {s.trim()}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </td>
+
+                                                {/* 5. Niveau */}
+                                                <td className="px-2 py-3 text-center font-bold text-gray-500 text-xs">
+                                                    {etu.niveau}
+                                                </td>
+
+                                                {/* 6. Action */}
+                                                <td className="px-2 py-3 text-right">
+                                                    <button 
+                                                        onClick={(e) => {e.stopPropagation(); handleDeleteInscription(etu.id);}} 
+                                                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-all"
+                                                    >
+                                                        <FaTrash size={14} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
+
+
                     </div>
                 </div>
             </div>
