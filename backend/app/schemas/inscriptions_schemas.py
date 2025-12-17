@@ -4,6 +4,10 @@ from pydantic import Field
 from .base import BaseSchema
 from .etudiants_schemas import EtudiantSchema
 
+class ModeInscriptionSimple(BaseSchema):
+    ModeInscription_id: str
+    ModeInscription_label: str
+
 # Payload pour la création (POST)
 class InscriptionCreatePayload(BaseSchema):
     etudiants_ids: List[str]
