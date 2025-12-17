@@ -95,7 +95,7 @@ const CustomCountrySelect = ({ value, onChange }) => {
     );
 };
 
-export default function StudentsForms({ isOpen, onClose, data = {}, reloadList }) {
+export default function StudentsForms({ isOpen, onClose, data = {}, reloadList, onSuccess }) {
   const { addToast } = useToast();
   const [formData, setFormData] = useState({});
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -219,8 +219,20 @@ export default function StudentsForms({ isOpen, onClose, data = {}, reloadList }
         throw new Error(errorData.detail || "Erreur API");
       }
 
+      const savedStudent = await res.json();
+
       addToast(isEditMode ? "Mis à jour avec succès" : "Étudiant créé avec succès", "success");
-      if (reloadList) reloadList();
+      
+      // 1. Cas GestionInscriptions : On renvoie l'objet direct
+      if (onSuccess) {
+          onSuccess(savedStudent);
+      }
+
+      // 2. Cas BaseEtudiants : On recharge la liste classique
+      if (reloadList) {
+          reloadList();
+      }
+
       onClose();
     } catch (err) {
       console.error(err);

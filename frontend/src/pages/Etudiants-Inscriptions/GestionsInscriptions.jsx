@@ -1,19 +1,20 @@
-// frontend/src/pages/Ressources/GestionsInscriptions.jsx
 import React, { useState, useEffect, useMemo } from "react";
 import { 
     FaSearch, FaTrash, 
-    FaAngleRight, FaAngleLeft, FaCheckCircle, FaSave, 
-    FaFilter, FaExternalLinkAlt, FaLayerGroup, FaTags,
+    FaAngleRight, FaAngleLeft, FaSave, 
+    FaFilter, FaExternalLinkAlt, FaLayerGroup, 
     FaPlus, FaChevronLeft, FaChevronRight, FaSpinner, 
     FaUserGraduate, FaExchangeAlt, FaInfoCircle
 } from "react-icons/fa";
 
+// Imports UI et Contextes
 import { AppStyles } from "../../components/ui/AppStyles"; 
+import { useToast } from "../../context/ToastContext";
+
+// Imports des composants enfants
 import StudentFormModal from "./components/FormEtudiantsAjout"; 
 import ConfigurationInscription from "./components/ConfigurationInscription";
-
-// IMPORT DU CONTEXTE TOAST
-import { useToast } from "../../context/ToastContext";
+import EnrollmentResultModal from "./components/EnrollmentResultModal"; // Assurez-vous que le chemin est correct
 
 const API_BASE_URL = "http://127.0.0.1:8000"; 
 
@@ -29,7 +30,7 @@ const INITIAL_OPTIONS = {
 
 export default function InscriptionsMain() {
     // --- HOOKS ---
-    const { addToast } = useToast(); // Utilisation du Toast
+    const { addToast } = useToast(); 
 
     // --- STATE : DONNÉES & UI ---
     const [fetchedStudents, setFetchedStudents] = useState([]); 
@@ -41,13 +42,17 @@ export default function InscriptionsMain() {
 
     // --- STATE : LISTES INSCRIPTIONS ---
     const [leftSelection, setLeftSelection] = useState(new Set()); 
-    const [rightListDb, setRightListDb] = useState([]); // Inscrits validés
-    const [rightListPending, setRightListPending] = useState([]); // En attente
+    const [rightListDb, setRightListDb] = useState([]); // Inscrits validés (DB)
+    const [rightListPending, setRightListPending] = useState([]); // En attente (Locales)
     const [rightSelection, setRightSelection] = useState(new Set()); 
 
     // --- STATE : MODALS & CONFIG ---
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isStudentFormOpen, setIsStudentFormOpen] = useState(false);
+    
+    // NOUVEAU : State pour le bilan d'inscription (Modale Résultats)
+    const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+    const [enrollmentResults, setEnrollmentResults] = useState(null);
 
     const [filters, setFilters] = useState({
         institution: "", composante: "", mention: "",
@@ -65,7 +70,6 @@ export default function InscriptionsMain() {
     useEffect(() => {
         const fetchInitialData = async () => {
             try {
-                // Parallélisation des appels pour performance
                 const [resAnnee, resInst, resModes, resNiv] = await Promise.all([
                     fetch(`${API_BASE_URL}/api/metadonnees/annees-universitaires`),
                     fetch(`${API_BASE_URL}/api/institutions/`),
@@ -120,8 +124,6 @@ export default function InscriptionsMain() {
     // =========================================================
     // 2. CASCADES DE CHARGEMENT
     // =========================================================
-
-    // Institution -> Composantes
     useEffect(() => {
         if (!filters.institution) {
             setOptions(prev => ({ ...prev, composantes: [], mentions: [], parcours: [] }));
@@ -134,7 +136,6 @@ export default function InscriptionsMain() {
             .catch(console.error);
     }, [filters.institution]);
 
-    // Composante -> Mentions
     useEffect(() => {
         if (!filters.composante) {
             setOptions(prev => ({ ...prev, mentions: [], parcours: [] }));
@@ -147,7 +148,6 @@ export default function InscriptionsMain() {
             .catch(console.error);
     }, [filters.composante]);
 
-    // Mention -> Parcours
     useEffect(() => {
         if (!filters.mention) {
             setOptions(prev => ({ ...prev, parcours: [] }));
@@ -160,10 +160,8 @@ export default function InscriptionsMain() {
             .catch(console.error);
     }, [filters.mention]);
 
-    // Parcours -> Niveaux Spécifiques
     useEffect(() => {
         if (!filters.parcours) return;
-        
         const fetchNiveauxSpecifiques = async () => {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/parcours/${filters.parcours}/niveaux`);
@@ -180,14 +178,12 @@ export default function InscriptionsMain() {
             } catch (error) { console.error(error); }
         };
         fetchNiveauxSpecifiques();
-        setFilters(prev => ({ ...prev, niveau: "" })); // Reset niveau on parcours change
+        setFilters(prev => ({ ...prev, niveau: "" })); 
     }, [filters.parcours]);
 
-    // Niveau -> Semestres
     useEffect(() => {
         if (!filters.niveau) {
             setSemestresOptions([]);
-            // Reset semestres selectionnés dans pending list si niveau change
             setRightListPending(prev => prev.map(item => ({ ...item, semestres: [] })));
             return;
         }
@@ -197,11 +193,10 @@ export default function InscriptionsMain() {
             .catch(() => setSemestresOptions([]));
     }, [filters.niveau]);
 
-    // =========================================================
-    // 3. CHARGEMENT DES LISTES
-    // =========================================================
 
-    // GAUCHE : Base Étudiants
+    // =========================================================
+    // 3. CHARGEMENT DES LISTES (ETUDIANTS & INSCRITS)
+    // =========================================================
     const fetchStudents = async () => {
         setIsLoading(true);
         try {
@@ -213,7 +208,7 @@ export default function InscriptionsMain() {
             if (res.ok) {
                 const result = await res.json();
                 const mappedItems = (result.items || []).map(item => ({
-                    id: item.Etudiant_id,
+                    id: item.Etudiant_id, 
                     nom: item.Etudiant_nom,
                     prenom: item.Etudiant_prenoms,
                     cin: item.Etudiant_cin || "—",
@@ -225,7 +220,6 @@ export default function InscriptionsMain() {
             }
         } catch (error) { 
             console.error(error);
-            addToast("Erreur chargement étudiants", "error");
         }
         setIsLoading(false);
     };
@@ -235,9 +229,7 @@ export default function InscriptionsMain() {
         return () => clearTimeout(t);
     }, [pagination.page, pagination.limit, searchTerm]);
 
-    // DROITE : Inscriptions existantes
     const fetchExistingInscriptions = async () => {
-        // On vérifie que les filtres minimaux sont là
         if (!filters.annee || !filters.mention) {
             setRightListDb([]);
             return;
@@ -247,21 +239,18 @@ export default function InscriptionsMain() {
                 annee_id: filters.annee, 
                 mention_id: filters.mention 
             });
-            
-            // --- AJOUT STRICT DE TOUS LES FILTRES ---
             if (filters.institution) params.append("institution_id", filters.institution);
             if (filters.composante) params.append("composante_id", filters.composante);
             if (filters.parcours) params.append("parcours_id", filters.parcours);
             if (filters.niveau) params.append("niveau_id", filters.niveau);
             if (filters.mode) params.append("mode_inscription_id", filters.mode);
-            // ----------------------------------------
 
             const res = await fetch(`${API_BASE_URL}/api/inscriptions/?${params.toString()}`);
             if (res.ok) {
                 const data = await res.json();
-                
                 const mappedInscrits = data.map(item => ({
-                    id: item.id,
+                    id: item.id, 
+                    etudiant_id: item.etudiant_id, 
                     nom: item.etudiant_nom || "Inconnu",
                     prenom: item.etudiant_prenom || "",
                     matricule: item.matricule || "N/A",
@@ -270,7 +259,6 @@ export default function InscriptionsMain() {
                     parcours: item.parcours_label || "",
                     mode: item.mode_label || "—"
                 }));
-                
                 setRightListDb(mappedInscrits);
             }
         } catch (e) { console.error("Erreur chargement inscrits:", e); }
@@ -278,23 +266,16 @@ export default function InscriptionsMain() {
 
     useEffect(() => {
         fetchExistingInscriptions();
-    }, [
-        filters.annee, 
-        filters.mention, 
-        filters.parcours, 
-        filters.niveau, 
-        filters.mode,         // <--- C'était l'oubli principal !
-        filters.institution, 
-        filters.composante
-    ]);
+    }, [filters.annee, filters.mention, filters.parcours, filters.niveau, filters.mode, filters.institution, filters.composante]);
+
 
     // =========================================================
-    // 4. LOGIQUE UI ET ACTIONS
+    // 4. LOGIQUE UI ET ACTIONS DE TRANSFERT
     // =========================================================
 
     const { frozenList, scrollableList } = useMemo(() => {
         const selectedIds = new Set(selectedObjects.map(s => s.id));
-        const frozen = [...selectedObjects];
+        const frozen = [...selectedObjects]; 
         const scrollable = fetchedStudents.filter(s => !selectedIds.has(s.id));
         return { frozenList: frozen, scrollableList: scrollable };
     }, [selectedObjects, fetchedStudents]);
@@ -331,14 +312,43 @@ export default function InscriptionsMain() {
 
     const moveRight = () => {
         if (!isConfigured) return;
-        const toMove = selectedObjects; 
-        const existingIds = new Set([...rightListDb.map(i => i.id), ...rightListPending.map(s => s.id)]);
-        const newOnes = toMove.filter(s => !existingIds.has(s.id)).map(s => ({ ...s, semestres: [] })); 
+        
+        const dbIds = new Set(rightListDb.map(i => i.etudiant_id));
+        const pendingIds = new Set(rightListPending.map(s => s.id));
+
+        const alreadyInDbNames = [];
+        const alreadyPendingNames = [];
+        const validStudentsToMove = [];
+
+        selectedObjects.forEach(etu => {
+            if (dbIds.has(etu.id)) {
+                alreadyInDbNames.push(`${etu.nom}`);
+            } else if (pendingIds.has(etu.id)) {
+                alreadyPendingNames.push(`${etu.nom}`);
+            } else {
+                validStudentsToMove.push(etu);
+            }
+        });
+
+        if (alreadyInDbNames.length > 0) {
+            const namesStr = alreadyInDbNames.slice(0, 3).join(", ") + (alreadyInDbNames.length > 3 ? "..." : "");
+            addToast(`Déjà inscrits (refusé) : ${namesStr}`, "error");
+        }
+
+        if (alreadyPendingNames.length > 0) {
+            const namesStr = alreadyPendingNames.slice(0, 3).join(", ") + (alreadyPendingNames.length > 3 ? "..." : "");
+            addToast(`Déjà en liste d'attente : ${namesStr}`, "warning");
+        }
+
+        if (validStudentsToMove.length === 0) return;
+
+        const defaultSemestres = semestresOptions.map(s => s.id);
+        const newOnes = validStudentsToMove.map(s => ({ ...s, semestres: defaultSemestres })); 
 
         setRightListPending([...rightListPending, ...newOnes]);
         setLeftSelection(new Set());
         setSelectedObjects([]);
-        addToast(`${newOnes.length} étudiant(s) ajouté(s) à la liste d'attente`, "info");
+        addToast(`${newOnes.length} étudiant(s) ajouté(s) à la liste d'attente`, "success");
     };
 
     const moveLeft = () => {
@@ -363,7 +373,12 @@ export default function InscriptionsMain() {
         }));
     };
 
+    // =============================================================
+    // 5. LOGIQUE DE SAUVEGARDE ET AUTO-INSCRIPTION (MODIFIÉE ICI)
+    // =============================================================
+
     const handleSave = async () => {
+        // Validation basique
         const incomplete = rightListPending.filter(s => !s.semestres || s.semestres.length === 0);
         if (incomplete.length > 0) {
             addToast(`Veuillez sélectionner au moins un semestre pour tous les étudiants.`, "error");
@@ -371,18 +386,29 @@ export default function InscriptionsMain() {
         }
 
         setIsLoading(true);
+
+        // --- Préparation du rapport ---
+        const report = {
+            successes: [],
+            alreadyEnrolled: [],
+            errors: []
+        };
+
+        // Groupement par semestre (pour l'API)
+        // Note: On groupe les OBJETS étudiants complets pour garder leurs noms
         const mapBySemestre = {};
         rightListPending.forEach(etu => {
             etu.semestres.forEach(semId => {
                 if (!mapBySemestre[semId]) mapBySemestre[semId] = [];
-                mapBySemestre[semId].push(etu.id);
+                mapBySemestre[semId].push(etu); 
             });
         });
 
-        let successCount = 0;
-        let errorCount = 0;
+        // Envoi séquentiel par semestre
+        for (const [semestreId, studentsList] of Object.entries(mapBySemestre)) {
+            const etudiantsIds = studentsList.map(s => s.id);
+            const semestreLabel = semestresOptions.find(s => s.id == semestreId)?.label || "Semestre ??";
 
-        for (const [semestreId, etuIds] of Object.entries(mapBySemestre)) {
             const payload = {
                 annee_id: filters.annee,
                 mention_id: filters.mention,
@@ -390,7 +416,7 @@ export default function InscriptionsMain() {
                 niveau_id: filters.niveau,
                 semestre_id: semestreId,
                 mode_inscription_id: filters.mode,
-                etudiants_ids: etuIds
+                etudiants_ids: etudiantsIds
             };
 
             try {
@@ -399,32 +425,138 @@ export default function InscriptionsMain() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
                 });
-                if (res.ok) successCount++;
-                else errorCount++;
+
+                const result = await res.json();
+
+                if (res.ok) {
+                    // TENTATIVE DE DÉTECTION DES DOUBLONS PRÉCIS
+                    // Idéalement, le backend renvoie : "existing_ids": [12, 55]
+                    const existingIds = result.existing_ids || []; 
+                    
+                    // Si le backend ne renvoie que des compteurs mais pas d'IDs, on doit deviner
+                    const fallbackError = (existingIds.length === 0 && result.deja_inscrits_count > 0 && result.inscrits_count === 0);
+
+                    studentsList.forEach(student => {
+                        if (existingIds.includes(student.id)) {
+                            report.alreadyEnrolled.push({ 
+                                nom: `${student.nom} ${student.prenom}`, 
+                                details: semestreLabel 
+                            });
+                        } else if (fallbackError) {
+                            // Si tout a échoué selon les compteurs mais qu'on a pas les noms, on met tout le monde en erreur
+                            report.alreadyEnrolled.push({ 
+                                nom: `${student.nom} ${student.prenom}`, 
+                                details: `${semestreLabel} (Détecté par serveur)` 
+                            });
+                        } else {
+                            // On considère que c'est un succès si ce n'est pas explicitement une erreur
+                            // (Sauf si on est dans un cas mixte sans détails, où c'est plus risqué, mais on privilégie l'UX positive)
+                            if (!existingIds.includes(student.id)) {
+                                report.successes.push(`${student.nom} ${student.prenom} (${semestreLabel})`);
+                            }
+                        }
+                    });
+
+                    // Cas limite : Mélange succès/échec sans IDs précis venant du backend
+                    if (existingIds.length === 0 && result.deja_inscrits_count > 0 && result.inscrits_count > 0) {
+                        report.errors.push({ 
+                            nom: "Attention doublons", 
+                            reason: `${result.deja_inscrits_count} étudiant(s) déjà inscrit(s) en ${semestreLabel} (Détails non fournis par API)` 
+                        });
+                    }
+
+                } else {
+                    report.errors.push({ 
+                        nom: "Erreur Serveur", 
+                        reason: `Échec pour le semestre ${semestreLabel} (Code ${res.status})` 
+                    });
+                }
             } catch (e) {
                 console.error(e);
-                errorCount++;
+                report.errors.push({ 
+                    nom: "Erreur Connexion", 
+                    reason: `Impossible de joindre le serveur pour ${semestreLabel}` 
+                });
             }
         }
 
         setIsLoading(false);
-        
-        if (successCount > 0) {
-            setRightListPending([]);
-            fetchExistingInscriptions();
-            addToast(`${successCount} lots d'inscriptions validés avec succès !`, "success");
+
+        // Nettoyage visuel des doublons de succès (si même étudiant inscrit en S1 et S2 avec succès)
+        report.successes = [...new Set(report.successes)];
+
+        // MISE À JOUR STATE ET OUVERTURE MODALE
+        setEnrollmentResults(report);
+        setIsResultModalOpen(true);
+
+        // Actions post-traitement
+        setRightListPending([]); // On vide la liste d'attente
+        setTimeout(() => {
+            fetchExistingInscriptions(); // On recharge la liste réelle DB
+        }, 300);
+    };
+
+    // --- AUTO INSCRIPTION (NOUVEAU ETUDIANT) ---
+    const handleAutoEnrollment = async (newStudent) => {
+        fetchStudents(); 
+        if (!isConfigured) {
+            addToast("Étudiant créé. Inscription impossible (contexte manquant).", "warning");
+            return;
         }
-        if (errorCount > 0) {
-            addToast(`${errorCount} erreurs survenues lors de l'enregistrement.`, "warning");
+
+        const semestresIds = semestresOptions.map(s => s.id);
+        if (semestresIds.length === 0) {
+            addToast("Étudiant créé. Pas de semestres pour ce niveau.", "warning");
+            return;
         }
+
+        // On simule une structure "pending" pour réutiliser la logique ou faire une logique simplifiée
+        // Ici on garde la logique simplifiée pour l'auto-enrollment (un seul étudiant)
+        setIsLoading(true);
+        const report = { successes: [], alreadyEnrolled: [], errors: [] };
+
+        for (const semId of semestresIds) {
+            const semLabel = semestresOptions.find(s=>s.id === semId)?.label;
+            const payload = {
+                annee_id: filters.annee,
+                mention_id: filters.mention,
+                parcours_id: filters.parcours,
+                niveau_id: filters.niveau,
+                semestre_id: semId,
+                mode_inscription_id: filters.mode,
+                etudiants_ids: [newStudent.Etudiant_id] 
+            };
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/inscriptions/bulk`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    const json = await res.json();
+                    if(json.deja_inscrits_count > 0) {
+                        report.alreadyEnrolled.push({ nom: newStudent.Etudiant_nom, details: semLabel });
+                    } else {
+                        report.successes.push(`${newStudent.Etudiant_nom} (${semLabel})`);
+                    }
+                } else {
+                    report.errors.push({ nom: "Erreur", reason: `Échec inscription ${semLabel}`});
+                }
+            } catch (e) {
+                report.errors.push({ nom: "Erreur", reason: "Connexion impossible"});
+            }
+        }
+
+        setIsLoading(false);
+        setEnrollmentResults(report);
+        setIsResultModalOpen(true); // On ouvre aussi la modale pour l'auto-inscription
+        fetchExistingInscriptions();
     };
 
     const handleDeleteInscription = async (idToDelete) => {
-        // Optionnel : un toast de confirmation maison pourrait remplacer window.confirm pour être plus joli
         if (!window.confirm(`Supprimer cette inscription ?`)) return;
-        
         try {
-            // Simulation API Call
             // await fetch(`${API_BASE_URL}/api/inscriptions/${idToDelete}`, { method: 'DELETE' });
             setRightListDb(prev => prev.filter(item => item.id !== idToDelete));
             addToast("Inscription supprimée.", "success");
@@ -446,12 +578,7 @@ export default function InscriptionsMain() {
                             : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-100'
                         }`}
                     >
-                        <input 
-                            type="checkbox" 
-                            checked={selectedSemestres.includes(sem.id)} 
-                            onChange={() => onToggle(sem.id)} 
-                            className="hidden" 
-                        />
+                        <input type="checkbox" checked={selectedSemestres.includes(sem.id)} onChange={() => onToggle(sem.id)} className="hidden" />
                         {sem.label}
                     </label>
                 ))
@@ -470,117 +597,81 @@ export default function InscriptionsMain() {
     return (
         <div className="flex flex-col h-[calc(100vh-140px)] min-h-[600px] gap-2">
             
-            {/* --- ZONES PRINCIPALES --- */}
             <div className="flex flex-grow gap-2 overflow-hidden">
-                
                 {/* 1. GAUCHE: Base Étudiants */}
                 <div className="w-[38%] flex flex-col bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
                     <div className="p-3 border-b border-gray-100 bg-white flex flex-col gap-2 shrink-0">
                         <div className="flex justify-between items-center">
                             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                                <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-md"><FaLayerGroup /></div>
-                                Base Étudiants
+                                <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-md"><FaLayerGroup /></div> Base Étudiants
                             </h3>
-                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-200">
-                                {pagination.total}
-                            </span>
+                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-bold border border-slate-200">{pagination.total}</span>
                         </div>
                         <div className="relative group">
                             <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors text-xs" />
-                            <input 
-                                type="text" 
-                                placeholder="Rechercher (Nom, Matricule...)" 
-                                value={searchTerm} 
-                                onChange={(e) => { setSearchTerm(e.target.value); setPagination(p => ({...p, page: 1})); }} 
-                                className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all" 
-                            />
+                            <input type="text" placeholder="Rechercher..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-all" />
                         </div>
                     </div>
 
-                    <div className="flex-grow overflow-y-auto relative scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
-                        {isLoading && (
-                            <div className="absolute inset-0 bg-white/80 z-50 flex justify-center items-center backdrop-blur-sm">
-                                <FaSpinner className="animate-spin text-indigo-600 text-2xl"/>
-                            </div>
-                        )}
-                        <table className="w-full text-left text-xs border-collapse">
-                            <thead className="sticky top-0 z-30 shadow-sm">
+                    <div className="flex-grow overflow-y-auto relative">
+                        {isLoading && <div className="absolute inset-0 bg-white/80 z-50 flex justify-center items-center"><FaSpinner className="animate-spin text-indigo-600 text-2xl"/></div>}
+                        <table className="w-full text-left text-xs border-separate border-spacing-0">
+                            <thead className="sticky top-0 z-50 bg-white">
                                 <tr>
-                                    <TableHeader className="w-8 text-center">#</TableHeader>
-                                    <TableHeader>Identité</TableHeader>
-                                    <TableHeader>Détails</TableHeader>
-                                    <TableHeader className="w-12 text-center">ID</TableHeader>
+                                    <TableHeader className="w-8 text-center border-b border-gray-200 py-3">#</TableHeader>
+                                    <TableHeader className="border-b border-gray-200 py-3">Identité</TableHeader>
+                                    <TableHeader className="border-b border-gray-200 py-3">Détails</TableHeader>
+                                    <TableHeader className="w-12 text-center border-b border-gray-200 py-3">ID</TableHeader>
                                 </tr>
                             </thead>
                             
-                            {/* Liste figée (Sélectionnés) */}
                             {frozenList.length > 0 && (
-                                <tbody className="bg-indigo-50/50 border-b-2 border-indigo-100">
-                                    {frozenList.map(etu => (
-                                        <tr key={etu.id} onClick={() => toggleLeft(etu)} className="cursor-pointer hover:bg-indigo-100 transition-colors">
-                                            <td className="p-3 w-8 text-center">
+                                <tbody className="sticky top-[37px] z-40"> 
+                                    {frozenList.map((etu, idx) => (
+                                        <tr key={`frozen-${etu.id}`} onClick={() => toggleLeft(etu)} className="cursor-pointer bg-indigo-50 hover:bg-indigo-100 transition-colors">
+                                            <td className="p-3 w-8 text-center border-b border-indigo-100">
                                                 <div className="w-4 h-4 rounded border border-indigo-400 bg-indigo-600 flex items-center justify-center text-white text-[10px]">✓</div>
                                             </td>
-                                            <td className="p-3 font-medium text-indigo-900">{etu.nom} {etu.prenom}</td>
-                                            <td className="p-3 text-indigo-700 text-[10px]">CIN: {etu.cin}</td>
-                                            <td className="p-3 text-center text-[10px] font-mono text-indigo-500">{etu.id}</td>
+                                            <td className="p-3 font-bold text-indigo-900 border-b border-indigo-100">{etu.nom} {etu.prenom}</td>
+                                            <td className="p-3 text-indigo-700 border-b border-indigo-100">CIN: {etu.cin}</td>
+                                            <td className="p-3 text-center font-mono text-indigo-400 border-b border-indigo-100">{etu.id}</td>
                                         </tr>
                                     ))}
+                                    <tr className="h-0 shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1)]"><td colSpan="4" className="p-0 bg-indigo-50"></td></tr>
                                 </tbody>
                             )}
 
-                            {/* Liste Scrollable */}
                             <tbody className="divide-y divide-slate-50">
-                                {scrollableList.length > 0 ? scrollableList.map(etu => (
-                                    <tr key={etu.id} onClick={() => toggleLeft(etu)} className="group cursor-pointer hover:bg-slate-50 transition-colors">
-                                        <td className="p-3 w-8 text-center">
-                                            <div className="w-4 h-4 rounded border border-gray-300 group-hover:border-indigo-400 bg-white"></div>
-                                        </td>
+                                {scrollableList.map(etu => (
+                                    <tr key={`scroll-${etu.id}`} onClick={() => toggleLeft(etu)} className="group cursor-pointer hover:bg-slate-50 transition-colors">
+                                        <td className="p-3 w-8 text-center"><div className="w-4 h-4 rounded border border-gray-300 group-hover:border-indigo-400 bg-white"></div></td>
                                         <td className="p-3 text-slate-700">
-                                            <div className="font-semibold truncate max-w-[140px]">{etu.nom}</div>
-                                            <div className="text-slate-500 truncate max-w-[140px]">{etu.prenom}</div>
+                                            <div className="font-semibold truncate">{etu.nom}</div>
+                                            <div className="text-slate-500 truncate">{etu.prenom}</div>
                                         </td>
-                                        <td className="p-3 text-[10px] text-slate-400 flex flex-col gap-0.5">
-                                            <span>CIN: <span className="text-slate-600">{etu.cin}</span></span>
-                                            <span>Né(e): <span className="text-slate-600">{etu.ddn}</span></span>
+                                        <td className="p-3 text-[10px] text-slate-400">
+                                            <div>CIN: {etu.cin}</div>
+                                            <div>Né: {etu.ddn}</div>
                                         </td>
                                         <td className="p-3 text-center text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{etu.id}</td>
                                     </tr>
-                                )) : (!isLoading && frozenList.length === 0 && 
-                                    <tr><td colSpan="4" className="p-8 text-center text-gray-400 italic">Aucun étudiant trouvé.</td></tr>
-                                )}
+                                ))}
                             </tbody>
                         </table>
                     </div>
-                    
-                    {/* Pagination Simple */}
                     <div className="p-2 border-t bg-slate-50 flex justify-between items-center shrink-0">
-                        <button disabled={pagination.page === 1} onClick={() => setPagination(p => ({...p, page: p.page - 1}))} className="p-1.5 rounded hover:bg-white text-slate-500 disabled:opacity-30 transition"><FaChevronLeft/></button>
-                        <span className="text-[10px] font-medium text-slate-500">Page {pagination.page} / {Math.ceil(pagination.total / pagination.limit) || 1}</span>
-                        <button disabled={pagination.page * pagination.limit >= pagination.total} onClick={() => setPagination(p => ({...p, page: p.page + 1}))} className="p-1.5 rounded hover:bg-white text-slate-500 disabled:opacity-30 transition"><FaChevronRight/></button>
+                        <button onClick={() => setPagination(p => ({...p, page: p.page - 1}))} disabled={pagination.page === 1} className="p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-30"><FaChevronLeft/></button>
+                        <span className="text-[10px] font-bold text-slate-500">PAGE {pagination.page}</span>
+                        <button onClick={() => setPagination(p => ({...p, page: p.page + 1}))} disabled={pagination.page * pagination.limit >= pagination.total} className="p-1.5 text-slate-400 hover:text-indigo-600 disabled:opacity-30"><FaChevronRight/></button>
                     </div>
                 </div>
 
                 {/* 2. CENTRE: Boutons de transfert */}
                 <div className="w-[4%] flex flex-col justify-center items-center gap-4 shrink-0">
-                    <button 
-                        onClick={moveRight} 
-                        disabled={leftSelection.size === 0 || !isConfigured} 
-                        className={`w-9 h-9 rounded-full flex items-center justify-center shadow-md transition-all duration-200 transform active:scale-95 ${
-                            (isConfigured) 
-                            ? "bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-lg" 
-                            : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                        }`}
-                        title={isConfigured ? "Ajouter à la liste d'attente" : "Configurez l'inscription d'abord"}
-                    >
+                    <button onClick={moveRight} disabled={leftSelection.size === 0 || !isConfigured} className={`w-9 h-9 rounded-full flex items-center justify-center shadow-md transition-all duration-200 transform active:scale-95 ${ (isConfigured) ? "bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-lg" : "bg-gray-200 text-gray-400 cursor-not-allowed" }`}>
                         <FaAngleRight />
                     </button>
-                    <button 
-                        onClick={moveLeft} 
-                        disabled={rightSelection.size === 0} 
-                        className="w-9 h-9 rounded-full bg-white border border-gray-200 text-slate-600 flex items-center justify-center shadow-sm hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Retirer de la liste d'attente"
-                    >
+                    <button onClick={moveLeft} disabled={rightSelection.size === 0} className="w-9 h-9 rounded-full bg-white border border-gray-200 text-slate-600 flex items-center justify-center shadow-sm hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                         <FaAngleLeft />
                     </button>
                 </div>
@@ -588,7 +679,6 @@ export default function InscriptionsMain() {
                 {/* 3. DROITE: Configuration et Listes */}
                 <div className="w-[58%] flex flex-col bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
                     
-                    {/* Header Config */}
                     <div className="p-3 border-b border-gray-100 bg-slate-50/50 flex justify-between items-start shrink-0">
                         <div className="flex-1 min-w-0">
                             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-2">
@@ -597,17 +687,10 @@ export default function InscriptionsMain() {
                             </h3>
                             {isConfigured ? (
                                 <div className="bg-white p-2.5 rounded border border-indigo-100 shadow-sm grid grid-cols-1 lg:grid-cols-2 gap-x-4 gap-y-1.5 w-full">
-                                    {/* Ligne 1 : Institution & Composante */}
                                     <div className="col-span-1 lg:col-span-2 flex gap-4 border-b border-dashed border-gray-100 pb-1 mb-1">
-                                        <p className="truncate text-[10px] text-gray-500">
-                                            <span className="font-bold text-indigo-700 uppercase">Inst:</span> {getFilterLabel('institution')}
-                                        </p>
-                                        <p className="truncate text-[10px] text-gray-500">
-                                            <span className="font-bold text-indigo-700 uppercase">Comp:</span> {getFilterLabel('composante')}
-                                        </p>
+                                        <p className="truncate text-[10px] text-gray-500"><span className="font-bold text-indigo-700 uppercase">Inst:</span> {getFilterLabel('institution')}</p>
+                                        <p className="truncate text-[10px] text-gray-500"><span className="font-bold text-indigo-700 uppercase">Comp:</span> {getFilterLabel('composante')}</p>
                                     </div>
-
-                                    {/* Autres filtres */}
                                     <p className="text-[11px] text-slate-600"><span className="font-bold text-indigo-600 text-[10px] uppercase w-14 inline-block">Année:</span> {getFilterLabel('annee')}</p>
                                     <p className="text-[11px] text-slate-600"><span className="font-bold text-indigo-600 text-[10px] uppercase w-14 inline-block">Mention:</span> {getFilterLabel('mention')}</p>
                                     <p className="text-[11px] text-slate-600"><span className="font-bold text-indigo-600 text-[10px] uppercase w-14 inline-block">Parcours:</span> {getFilterLabel('parcours')}</p>
@@ -619,8 +702,7 @@ export default function InscriptionsMain() {
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 p-3 rounded border border-amber-200 w-full">
-                                    <FaInfoCircle className="text-lg shrink-0"/> 
-                                    <span>Veuillez configurer le contexte d'inscription (Année, Mention, Niveau, Mode) pour commencer.</span>
+                                    <FaInfoCircle className="text-lg shrink-0"/> <span>Veuillez configurer le contexte d'inscription pour commencer.</span>
                                 </div>
                             )}
                         </div>
@@ -635,14 +717,11 @@ export default function InscriptionsMain() {
                     </div>
 
                     <div className="flex-grow overflow-y-auto bg-slate-50/30 p-2 flex flex-col gap-3">
-                        
                         {/* A. LISTE EN ATTENTE */}
                         {rightListPending.length > 0 && (
                             <div className="bg-white rounded-md border border-indigo-100 shadow-sm overflow-hidden animate-fadeIn">
                                 <div className="px-3 py-2 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center">
-                                    <span className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-2">
-                                        <FaExchangeAlt /> En attente de validation
-                                    </span>
+                                    <span className="text-xs font-bold text-indigo-800 uppercase flex items-center gap-2"><FaExchangeAlt /> En attente de validation</span>
                                     <span className="bg-white text-indigo-600 px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">{rightListPending.length}</span>
                                 </div>
                                 <table className="w-full text-left text-xs">
@@ -652,9 +731,7 @@ export default function InscriptionsMain() {
                                     <tbody className="divide-y divide-gray-50">
                                         {rightListPending.map(etu => (
                                             <tr key={etu.id} onClick={() => toggleRight(etu.id)} className={`transition ${rightSelection.has(etu.id) ? "bg-red-50" : "hover:bg-gray-50"}`}>
-                                                <td className="p-2 text-center">
-                                                    <input type="checkbox" checked={rightSelection.has(etu.id)} readOnly className="accent-red-500 cursor-pointer" />
-                                                </td>
+                                                <td className="p-2 text-center"><input type="checkbox" checked={rightSelection.has(etu.id)} readOnly className="accent-red-500 cursor-pointer" /></td>
                                                 <td className="p-2 font-medium text-slate-700">{etu.nom} {etu.prenom}</td>
                                                 <td className="p-2" onClick={(e) => e.stopPropagation()}>
                                                     <SemestreCheckbox options={semestresOptions} selectedSemestres={etu.semestres} onToggle={(sid) => handleSemestreToggle(etu.id, sid)} />
@@ -669,9 +746,7 @@ export default function InscriptionsMain() {
                         {/* B. LISTE VALIDÉE (DB) */}
                         <div className="flex-grow flex flex-col bg-white rounded-md border border-gray-200 shadow-sm overflow-hidden">
                             <div className="px-3 py-2 bg-slate-100/50 border-b border-gray-200 flex justify-between items-center sticky top-0 z-10">
-                                <span className="flex items-center gap-2 text-xs font-bold text-emerald-700 uppercase">
-                                    <FaUserGraduate /> Inscrits Validés
-                                </span>
+                                <span className="flex items-center gap-2 text-xs font-bold text-emerald-700 uppercase"><FaUserGraduate /> Inscrits Validés</span>
                                 <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-bold border border-emerald-200">{rightListDb.length}</span>
                             </div>
                             
@@ -682,9 +757,7 @@ export default function InscriptionsMain() {
                                             <TableHeader className="w-8 text-center">#</TableHeader>
                                             <TableHeader className="w-32">Matricule</TableHeader>
                                             <TableHeader>Étudiant</TableHeader>
-                                            {/* --- AJOUT : Colonne Niveau --- */}
                                             <TableHeader className="w-16">Niveau</TableHeader>
-                                            {/* ----------------------------- */}
                                             <TableHeader>Semestres</TableHeader>
                                             <TableHeader>Mode</TableHeader>
                                             <TableHeader className="w-10"></TableHeader>
@@ -694,59 +767,27 @@ export default function InscriptionsMain() {
                                         {rightListDb.map((etu, index) => (
                                             <tr key={etu.id} className="group hover:bg-slate-50 transition-colors">
                                                 <td className="px-2 py-2.5 text-center text-gray-400 font-mono text-[10px]">{index + 1}</td>
-                                                
-                                                {/* Matricule */}
-                                                <td className="px-2 py-2.5">
-                                                    <span className="font-mono font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-[11px]">
-                                                        {etu.matricule}
-                                                    </span>
-                                                </td>
-                                                
-                                                {/* Étudiant */}
+                                                <td className="px-2 py-2.5"><span className="font-mono font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-[11px]">{etu.matricule}</span></td>
                                                 <td className="px-2 py-2.5">
                                                     <div className="font-semibold text-slate-700 uppercase text-[11px]">{etu.nom}</div>
                                                     <div className="text-slate-500 capitalize text-[10px]">{etu.prenom}</div>
                                                 </td>
-
-                                                {/* --- AJOUT : Affichage du Niveau --- */}
-                                                <td className="px-2 py-2.5">
-                                                    <span className="text-[10px] font-bold text-slate-600 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
-                                                        {etu.niveau || "—"}
-                                                    </span>
-                                                </td>
-                                                {/* ----------------------------------- */}
-
-                                                {/* Semestres */}
+                                                <td className="px-2 py-2.5"><span className="text-[10px] font-bold text-slate-600 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">{etu.niveau || "—"}</span></td>
                                                 <td className="px-2 py-2.5">
                                                     <div className="flex flex-wrap gap-1">
                                                         {etu.semestre.split(',').map((s, idx) => (
-                                                            <span key={idx} className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 rounded">
-                                                                {s.trim()}
-                                                            </span>
+                                                            <span key={idx} className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 rounded">{s.trim()}</span>
                                                         ))}
                                                     </div>
                                                 </td>
-                                                
-                                                {/* Mode (Donnée maintenant corrigée par le backend) */}
-                                                <td className="px-2 py-2.5">
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-100 font-medium">
-                                                        {etu.mode}
-                                                    </span>
-                                                </td>
-
+                                                <td className="px-2 py-2.5"><span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-100 font-medium">{etu.mode}</span></td>
                                                 <td className="px-2 py-2.5 text-right">
-                                                    {/* Bouton supprimer inchangé */}
-                                                    <button 
-                                                        onClick={(e) => {e.stopPropagation(); handleDeleteInscription(etu.id);}} 
-                                                        className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100"
-                                                        title="Supprimer l'inscription"
-                                                    >
+                                                    <button onClick={(e) => {e.stopPropagation(); handleDeleteInscription(etu.id);}} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100" title="Supprimer l'inscription">
                                                         <FaTrash size={12} />
                                                     </button>
                                                 </td>
                                             </tr>
                                         ))}
-                                        {/* ... */}
                                     </tbody>
                                 </table>
                             </div>
@@ -785,7 +826,21 @@ export default function InscriptionsMain() {
             
             {/* MODALS */}
             <ConfigurationInscription isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} filters={filters} setFilters={setFilters} options={options} onSave={() => setIsModalOpen(false)}/>
-            <StudentFormModal isOpen={isStudentFormOpen} onClose={() => setIsStudentFormOpen(false)} data={null} reloadList={fetchStudents}/>
+            
+            <StudentFormModal 
+                isOpen={isStudentFormOpen} 
+                onClose={() => setIsStudentFormOpen(false)} 
+                data={null} 
+                reloadList={fetchStudents}
+                onSuccess={handleAutoEnrollment} 
+            />
+
+            {/* --- NOUVELLE MODALE DE RÉSULTATS --- */}
+            <EnrollmentResultModal 
+                isOpen={isResultModalOpen}
+                onClose={() => setIsResultModalOpen(false)}
+                results={enrollmentResults}
+            />
         </div>
     );
 }
