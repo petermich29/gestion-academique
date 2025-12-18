@@ -543,17 +543,22 @@ export default function InscriptionsMain() {
     // =============================================================
 
     const handleSave = async () => {
+        // Validation basique
         const incomplete = rightListPending.filter(s => !s.semestres || s.semestres.length === 0);
         if (incomplete.length > 0) {
-            addToast(`Veuillez sélectionner au moins un semestre.`, "error");
+            addToast(`Veuillez sélectionner au moins un semestre pour tous les étudiants.`, "error");
             return;
         }
 
         setIsLoading(true);
 
-        const report = { successes: [], alreadyEnrolled: [], errors: [] };
+        const report = { 
+            uniqueSuccessIds: new Set(), // ICI: On stockera les ID uniques qui ont réussi
+            alreadyEnrolledCount: 0,
+            errors: [] 
+        };
         
-        // Groupement par semestre
+        // Groupement par semestre (identique à avant)
         const mapBySemestre = {};
         rightListPending.forEach(etu => {
             etu.semestres.forEach(semId => {
@@ -561,6 +566,8 @@ export default function InscriptionsMain() {
                 mapBySemestre[semId].push(etu); 
             });
         });
+
+        const semestresUtilisesLabels = new Set(); // Pour l'affichage des badges
 
         // Envoi séquentiel
         for (const [semestreId, studentsList] of Object.entries(mapBySemestre)) {
@@ -589,48 +596,41 @@ export default function InscriptionsMain() {
                 if (res.ok) {
                     const existingIds = result.existing_ids || []; 
                     
-                    studentsList.forEach(student => {
-                        if (existingIds.includes(student.id)) {
-                            // C'est un vrai doublon (déjà dans ce semestre)
-                            report.alreadyEnrolled.push({ 
-                                nom: `${student.nom} ${student.prenom}`, 
-                                details: semestreLabel 
-                            });
-                        } else {
-                            // Grâce au correctif backend, tout le reste est un succès (ajout inscription OU ajout semestre)
-                            report.successes.push(`${student.nom} ${student.prenom} (${semestreLabel})`);
-                        }
+                    // Calculer qui a réussi dans ce lot
+                    const successfulIdsInBatch = etudiantsIds.filter(id => !existingIds.includes(id));
+                    
+                    // Ajouter les réussites au Set global (dé-doublonnage automatique)
+                    successfulIdsInBatch.forEach(id => {
+                        report.uniqueSuccessIds.add(id);
+                        semestresUtilisesLabels.add(semestreLabel);
                     });
+
+                    // Compter les "déjà inscrits" (ce sont des opérations échouées, pas des étudiants uniques ici)
+                    report.alreadyEnrolledCount += existingIds.length;
+
                 } else {
-                    report.errors.push({ 
-                        nom: "Erreur Serveur", 
-                        reason: `Échec semestre ${semestreLabel}` 
-                    });
+                    report.errors.push(`Erreur semestre ${semestreLabel}`);
                 }
             } catch (e) {
                 console.error(e);
-                report.errors.push({ 
-                    nom: "Erreur Connexion", 
-                    reason: `Impossible de joindre le serveur pour ${semestreLabel}` 
-                });
+                report.errors.push(`Erreur connexion ${semestreLabel}`);
             }
         }
 
         setIsLoading(false);
 
-        // UI Updates
-        const semLabel = options.semestres?.find(s => s.id === filters.semestre_id)?.label || "Semestre"; // Fallback safe
-
+        // Préparation des résultats pour le modal
         setEnrollmentResults({
-            count: report.successes.length,
-            semestres: Object.keys(mapBySemestre).map(sid => semestresOptions.find(s=>s.id == sid)?.label),
-            details: `${report.successes.length} opération(s) réussie(s). ${report.alreadyEnrolled.length} déjà existant(s).`
+            count: report.uniqueSuccessIds.size, // LE FIX EST ICI : Nombre d'étudiants uniques
+            semestres: Array.from(semestresUtilisesLabels),
+            details: report.alreadyEnrolledCount > 0 
+                ? `${report.alreadyEnrolledCount} opération(s) ignorée(s) (déjà existantes).` 
+                : "Toutes les opérations ont réussi."
         });
 
-        // CORRECTION : Forcer le nettoyage et l'affichage
         setIsResultModalOpen(true); 
-        setRightListPending([]); // Vider la liste d'attente
-        fetchExistingInscriptions(); // Recharger la liste des inscrits à droite
+        setRightListPending([]); 
+        fetchExistingInscriptions(); 
     };
 
     // --- AUTO INSCRIPTION (NOUVEAU ETUDIANT) ---

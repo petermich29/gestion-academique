@@ -1,48 +1,71 @@
 import React from "react";
-import { DraggableModal } from "../../../components/ui/Modal";
-import { FaCheckCircle, FaInfoCircle } from "react-icons/fa";
+import { DraggableModal } from "../../../components/ui/Modal"; // Assurez-vous du chemin
+import { FaCheck, FaInfoCircle, FaLayerGroup, FaUserGraduate } from "react-icons/fa";
 
 export default function EnrollmentResultModal({ isOpen, onClose, results }) {
     if (!results) return null;
 
     return (
-        <DraggableModal isOpen={isOpen} onClose={onClose} title="Résumé des inscriptions">
-            <div className="p-6 text-center">
-                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FaCheckCircle size={40} />
-                </div>
+        <DraggableModal 
+            isOpen={isOpen} 
+            onClose={onClose} 
+            title="Confirmation"
+            width="400px" // On force une petite largeur si le composant le permet, sinon géré par le div interne
+        >
+            {/* Conteneur compact et propre */}
+            <div className="p-5 max-w-sm mx-auto">
                 
-                <h2 className="text-2xl font-bold text-gray-800 mb-2">Opération réussie</h2>
-                <p className="text-gray-500 mb-6">Le traitement des dossiers d'inscription est terminé.</p>
-
-                <div className="bg-gray-50 rounded-2xl p-5 border border-gray-100 text-left space-y-4">
-                    <div className="flex justify-between items-center border-b pb-3">
-                        <span className="text-gray-600">Étudiants traités :</span>
-                        <span className="font-bold text-gray-800 text-lg">{results.count}</span>
+                {/* En-tête Visuel */}
+                <div className="flex flex-col items-center mb-5">
+                    <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-3 shadow-sm animate-bounce-short">
+                        <FaCheck size={20} />
                     </div>
+                    <h2 className="text-xl font-bold text-gray-800">Inscriptions validées !</h2>
+                    <p className="text-xs text-gray-500 mt-1">Le traitement est terminé avec succès.</p>
+                </div>
 
-                    <div>
-                        <span className="text-gray-600 block mb-2">Semestres validés :</span>
-                        <div className="flex flex-wrap gap-2">
+                {/* Bloc Stats Compact (Grid) */}
+                <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                        <FaUserGraduate className="text-gray-400 text-lg mb-1" />
+                        <span className="text-2xl font-bold text-gray-800">{results.count}</span>
+                        <span className="text-[10px] uppercase font-semibold text-gray-500 tracking-wider">Étudiants</span>
+                    </div>
+                    
+                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 flex flex-col items-center justify-center text-center">
+                        <FaLayerGroup className="text-gray-400 text-lg mb-1" />
+                        <span className="text-2xl font-bold text-gray-800">{results.semestres.length}</span>
+                        <span className="text-[10px] uppercase font-semibold text-gray-500 tracking-wider">Semestres</span>
+                    </div>
+                </div>
+
+                {/* Liste des semestres concernés (Badges) */}
+                {results.semestres.length > 0 && (
+                    <div className="mb-5 text-center">
+                        <div className="flex flex-wrap justify-center gap-2">
                             {results.semestres.map((s, i) => (
-                                <span key={i} className="bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm">
+                                <span key={i} className="bg-emerald-50 text-emerald-700 text-xs font-medium px-2.5 py-1 rounded-md border border-emerald-100">
                                     {s}
                                 </span>
                             ))}
                         </div>
                     </div>
+                )}
 
-                    <div className="flex items-start gap-3 bg-blue-50 p-3 rounded-lg text-blue-700 text-xs italic">
+                {/* Message d'info discret si besoin */}
+                {results.details && results.details.includes("ignorée") && (
+                    <div className="flex items-start gap-2 bg-amber-50 p-2.5 rounded-lg text-amber-700 text-xs mb-5 border border-amber-100">
                         <FaInfoCircle className="mt-0.5 flex-shrink-0" />
-                        <p>{results.details}</p>
+                        <p className="leading-tight">{results.details}</p>
                     </div>
-                </div>
+                )}
 
+                {/* Bouton d'action unique */}
                 <button
                     onClick={onClose}
-                    className="w-full mt-8 bg-gray-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-all shadow-lg"
+                    className="w-full bg-gray-900 text-white font-medium py-2.5 rounded-lg hover:bg-black transition-all shadow-md text-sm"
                 >
-                    Fermer
+                    Terminer
                 </button>
             </div>
         </DraggableModal>
