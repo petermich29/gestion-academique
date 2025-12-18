@@ -100,7 +100,6 @@ def create_or_add_ue_to_maquette(
                 models.ParcoursNiveau.AnneeUniversitaire_id_fk == annee_id
             ).count()
             new_pn = models.ParcoursNiveau(
-                ParcoursNiveau_id=f"PN_{uuid.uuid4().hex[:8]}",
                 Parcours_id_fk=parcours_id,
                 Niveau_id_fk=niveau_id,
                 AnneeUniversitaire_id_fk=annee_id,
