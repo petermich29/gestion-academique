@@ -4,7 +4,7 @@ import {
     FaAngleRight, FaAngleLeft, FaSave, 
     FaFilter, FaExternalLinkAlt, FaLayerGroup, 
     FaPlus, FaChevronLeft, FaChevronRight, FaSpinner, 
-    FaUserGraduate, FaExchangeAlt, FaInfoCircle
+    FaUserGraduate, FaExchangeAlt, FaInfoCircle, FaEdit, FaTimes
 } from "react-icons/fa";
 
 // Imports UI et Contextes
@@ -15,6 +15,7 @@ import { useToast } from "../../context/ToastContext";
 import StudentFormModal from "./components/FormEtudiantsAjout"; 
 import ConfigurationInscription from "./components/ConfigurationInscription";
 import EnrollmentResultModal from "./components/EnrollmentResultModal"; // Assurez-vous que le chemin est correct
+import DeleteInscriptionModal from "./components/DeleteInscriptionModal";
 
 const API_BASE_URL = "http://127.0.0.1:8000"; 
 
@@ -46,13 +47,15 @@ export default function InscriptionsMain() {
     const [rightListPending, setRightListPending] = useState([]); // En attente (Locales)
     const [rightSelection, setRightSelection] = useState(new Set()); 
 
+    // --- ÉDITION INLINE ---
+    const [editingId, setEditingId] = useState(null); 
+    const [editData, setEditData] = useState({ mode: "", semestres: [] });
+    const [availableSemesters, setAvailableSemesters] = useState([]);
+    const [isSavingEdit, setIsSavingEdit] = useState(false);
+
     // --- STATE : MODALS & CONFIG ---
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isStudentFormOpen, setIsStudentFormOpen] = useState(false);
-    
-    // NOUVEAU : State pour le bilan d'inscription (Modale Résultats)
-    const [isResultModalOpen, setIsResultModalOpen] = useState(false);
-    const [enrollmentResults, setEnrollmentResults] = useState(null);
 
     const [filters, setFilters] = useState({
         institution: "", composante: "", mention: "",
@@ -63,6 +66,14 @@ export default function InscriptionsMain() {
     const [semestresOptions, setSemestresOptions] = useState([]);
 
     const isConfigured = filters.mention && filters.annee && filters.niveau && filters.parcours && filters.mode;
+
+    const [allInscritsRaw, setAllInscritsRaw] = useState([]);
+
+    // --- États pour les nouvelles modales ---
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [studentToDelete, setStudentToDelete] = useState(null);
+    const [isResultModalOpen, setIsResultModalOpen] = useState(false);
+    const [enrollmentResults, setEnrollmentResults] = useState(null);
 
     // =========================================================
     // 1. CHARGEMENT INITIAL & METADONNEES
@@ -194,6 +205,23 @@ export default function InscriptionsMain() {
     }, [filters.niveau]);
 
 
+    useEffect(() => {
+        const enrolledIds = new Set(rightListDb.map(i => i.etudiant_id));
+
+        setSelectedObjects(prev =>
+            prev.filter(s => !enrolledIds.has(s.id))
+        );
+
+        setLeftSelection(prev => {
+            const clean = new Set(
+                [...prev].filter(id => !enrolledIds.has(id))
+            );
+            return clean;
+        });
+    }, [rightListDb]);
+
+
+
     // =========================================================
     // 3. CHARGEMENT DES LISTES (ETUDIANTS & INSCRITS)
     // =========================================================
@@ -230,8 +258,10 @@ export default function InscriptionsMain() {
     }, [pagination.page, pagination.limit, searchTerm]);
 
     const fetchExistingInscriptions = async () => {
+        // On a besoin au minimum de l'année et de la mention pour charger quelque chose de pertinent
         if (!filters.annee || !filters.mention) {
             setRightListDb([]);
+            setAllInscritsRaw([]); // Reset aussi la liste brute
             return;
         }
         try {
@@ -243,8 +273,12 @@ export default function InscriptionsMain() {
             if (filters.composante) params.append("composante_id", filters.composante);
             if (filters.parcours) params.append("parcours_id", filters.parcours);
             if (filters.niveau) params.append("niveau_id", filters.niveau);
-            if (filters.mode) params.append("mode_inscription_id", filters.mode);
 
+            // --- CHANGEMENT MAJEUR ---
+            // On N'ENVOIE PAS le filtre mode au backend ici.
+            // On veut récupérer TOUS les étudiants (Hybride + Classique) pour pouvoir les griser à gauche.
+            // if (filters.mode) params.append("mode_inscription_id", filters.mode); <--- SUPPRIMÉ
+            
             const res = await fetch(`${API_BASE_URL}/api/inscriptions/?${params.toString()}`);
             if (res.ok) {
                 const data = await res.json();
@@ -257,9 +291,20 @@ export default function InscriptionsMain() {
                     semestre: item.semestre_label || "—",
                     niveau: item.niveau_label || "",
                     parcours: item.parcours_label || "",
-                    mode: item.mode_label || "—"
+                    mode: item.mode_label || "—",
+                    mode_id: item.mode_id // On récupère l'ID pour filtrer
                 }));
-                setRightListDb(mappedInscrits);
+
+                // A. On stocke TOUT le monde pour le verrouillage (grisage)
+                setAllInscritsRaw(mappedInscrits);
+
+                // B. On filtre pour l'affichage à droite selon le mode sélectionné dans la liste déroulante
+                if (filters.mode) {
+                    const filteredList = mappedInscrits.filter(i => i.mode_id === filters.mode);
+                    setRightListDb(filteredList);
+                } else {
+                    setRightListDb(mappedInscrits);
+                }
             }
         } catch (e) { console.error("Erreur chargement inscrits:", e); }
     };
@@ -274,11 +319,21 @@ export default function InscriptionsMain() {
     // =========================================================
 
     const { frozenList, scrollableList } = useMemo(() => {
+        const enrolledIds = new Set(rightListDb.map(i => i.etudiant_id));
         const selectedIds = new Set(selectedObjects.map(s => s.id));
-        const frozen = [...selectedObjects]; 
-        const scrollable = fetchedStudents.filter(s => !selectedIds.has(s.id));
+
+        // 🔒 Les inscrits validés ne peuvent JAMAIS être frozen
+        const frozen = selectedObjects.filter(
+            s => !enrolledIds.has(s.id)
+        );
+
+        const scrollable = fetchedStudents.filter(
+            s => !selectedIds.has(s.id)
+        );
+
         return { frozenList: frozen, scrollableList: scrollable };
-    }, [selectedObjects, fetchedStudents]);
+    }, [selectedObjects, fetchedStudents, rightListDb]);
+
 
     const getFilterLabel = (key) => {
         const list = {
@@ -294,21 +349,131 @@ export default function InscriptionsMain() {
         return item ? item.label : "—";
     };
 
+    // Création d'un Set pour vérification ultra-rapide (O(1)) des inscrits
+    const enrolledIdsSet = useMemo(() => {
+        return new Set(allInscritsRaw.map(i => String(i.etudiant_id)));
+    }, [allInscritsRaw]);
+
     const toggleLeft = (student) => {
+        // ⛔ BLOCAGE STRICT : Si l'étudiant est dans le Set des inscrits, on arrête tout.
+        if (enrolledIdsSet.has(String(student.id))) {
+            addToast("Cet étudiant est déjà inscrit pour ce contexte.", "info"); // Feedback optionnel
+            return; 
+        }
+
         const id = student.id;
         const newSet = new Set(leftSelection);
+
         if (newSet.has(id)) {
             newSet.delete(id);
             setSelectedObjects(prev => prev.filter(s => s.id !== id));
         } else {
             newSet.add(id);
-            setSelectedObjects(prev => {
-                if (prev.find(s => s.id === id)) return prev;
-                return [...prev, student];
-            });
+            setSelectedObjects(prev =>
+                prev.find(s => s.id === id) ? prev : [...prev, student]
+            );
         }
+
         setLeftSelection(newSet);
     };
+
+
+    // Fonction helper pour rendre les lignes du panneau gauche
+    const renderLeftStudentRow = (etu) => {
+        // Vérification avec conversion String
+        const isEnrolled = enrolledIdsSet.has(String(etu.id));
+        
+        return (
+            <tr 
+            key={`scroll-${etu.id}`} 
+            onClick={() => toggleLeft(etu)} 
+            // Amélioration du contraste gris pour bien voir qu'il est désactivé
+            className={`group transition-colors border-b border-slate-50 last:border-none ${
+                isEnrolled 
+                ? 'bg-slate-100 cursor-not-allowed opacity-50' // Plus gris et moins opaque
+                : 'cursor-pointer hover:bg-slate-50 bg-white'
+            }`}
+            >
+            <td className="p-3 w-8 text-center">
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+                isEnrolled
+                    ? 'border-slate-300 bg-slate-200 text-slate-400' // Case visiblement désactivée
+                    : leftSelection.has(etu.id) 
+                        ? 'border-indigo-500 bg-indigo-500 text-white' 
+                        : 'border-gray-300 group-hover:border-indigo-400 bg-white'
+                }`}>
+                    {isEnrolled && <span className="text-[8px]">🔒</span>} 
+                </div>
+            </td>
+            {/* ... le reste des cellules (Identity, Details, ID) reste identique ... */}
+             <td className={`p-3 ${isEnrolled ? 'text-gray-400 select-none' : 'text-slate-700'}`}>
+                <div className="font-semibold truncate">{etu.nom}</div>
+                <div className="truncate text-[11px]">{etu.prenom}</div>
+            </td>
+            <td className={`p-3 text-[10px] ${isEnrolled ? 'text-gray-400 select-none' : 'text-slate-400'}`}>
+                <div>CIN: {etu.cin}</div>
+                <div>N°: {etu.ddn}</div>
+            </td>
+            <td className={`p-3 text-center text-[10px] font-mono ${isEnrolled ? 'text-gray-400 select-none' : 'text-slate-300 group-hover:text-indigo-400'}`}>
+                {etu.id}
+            </td>
+            </tr>
+        );
+    };
+
+
+    const ModeToggleGroup = ({ options, currentInfo, onChange }) => {
+        return (
+            <div className="flex bg-slate-100 p-1 rounded-md border border-slate-200 w-fit">
+                {options.map((opt) => {
+                    const isSelected = currentInfo === opt.id;
+                    return (
+                        <button
+                            key={opt.id}
+                            onClick={() => onChange(opt.id)}
+                            className={`
+                                px-3 py-1 text-[10px] font-bold rounded-sm transition-all duration-200
+                                ${isSelected 
+                                    ? "bg-white text-indigo-600 shadow-sm ring-1 ring-black/5 transform scale-105" 
+                                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                                }
+                            `}
+                        >
+                            {opt.label}
+                        </button>
+                    );
+                })}
+            </div>
+        );
+    };
+
+    // Helper UI : Composant Checkbox Moderne pour les Semestres (Style Chips)
+    const SemestreChipSelector = ({ options, selectedIds, onToggle }) => {
+        return (
+            <div className="flex flex-wrap gap-1.5">
+                {options.map((sem) => {
+                    const isSelected = selectedIds.includes(sem.id);
+                    return (
+                        <div
+                            key={sem.id}
+                            onClick={() => onToggle(sem.id)}
+                            className={`
+                                cursor-pointer select-none px-2.5 py-1 rounded-md text-[10px] font-bold border transition-all duration-200 flex items-center gap-1.5
+                                ${isSelected 
+                                    ? "bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-200" 
+                                    : "bg-white border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-500"
+                                }
+                            `}
+                        >
+                            <div className={`w-2 h-2 rounded-full ${isSelected ? "bg-white" : "bg-slate-300"}`} />
+                            {sem.label}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
 
     const moveRight = () => {
         if (!isConfigured) return;
@@ -378,24 +543,17 @@ export default function InscriptionsMain() {
     // =============================================================
 
     const handleSave = async () => {
-        // Validation basique
         const incomplete = rightListPending.filter(s => !s.semestres || s.semestres.length === 0);
         if (incomplete.length > 0) {
-            addToast(`Veuillez sélectionner au moins un semestre pour tous les étudiants.`, "error");
+            addToast(`Veuillez sélectionner au moins un semestre.`, "error");
             return;
         }
 
         setIsLoading(true);
 
-        // --- Préparation du rapport ---
-        const report = {
-            successes: [],
-            alreadyEnrolled: [],
-            errors: []
-        };
-
-        // Groupement par semestre (pour l'API)
-        // Note: On groupe les OBJETS étudiants complets pour garder leurs noms
+        const report = { successes: [], alreadyEnrolled: [], errors: [] };
+        
+        // Groupement par semestre
         const mapBySemestre = {};
         rightListPending.forEach(etu => {
             etu.semestres.forEach(semId => {
@@ -404,7 +562,7 @@ export default function InscriptionsMain() {
             });
         });
 
-        // Envoi séquentiel par semestre
+        // Envoi séquentiel
         for (const [semestreId, studentsList] of Object.entries(mapBySemestre)) {
             const etudiantsIds = studentsList.map(s => s.id);
             const semestreLabel = semestresOptions.find(s => s.id == semestreId)?.label || "Semestre ??";
@@ -429,46 +587,24 @@ export default function InscriptionsMain() {
                 const result = await res.json();
 
                 if (res.ok) {
-                    // TENTATIVE DE DÉTECTION DES DOUBLONS PRÉCIS
-                    // Idéalement, le backend renvoie : "existing_ids": [12, 55]
                     const existingIds = result.existing_ids || []; 
                     
-                    // Si le backend ne renvoie que des compteurs mais pas d'IDs, on doit deviner
-                    const fallbackError = (existingIds.length === 0 && result.deja_inscrits_count > 0 && result.inscrits_count === 0);
-
                     studentsList.forEach(student => {
                         if (existingIds.includes(student.id)) {
+                            // C'est un vrai doublon (déjà dans ce semestre)
                             report.alreadyEnrolled.push({ 
                                 nom: `${student.nom} ${student.prenom}`, 
                                 details: semestreLabel 
                             });
-                        } else if (fallbackError) {
-                            // Si tout a échoué selon les compteurs mais qu'on a pas les noms, on met tout le monde en erreur
-                            report.alreadyEnrolled.push({ 
-                                nom: `${student.nom} ${student.prenom}`, 
-                                details: `${semestreLabel} (Détecté par serveur)` 
-                            });
                         } else {
-                            // On considère que c'est un succès si ce n'est pas explicitement une erreur
-                            // (Sauf si on est dans un cas mixte sans détails, où c'est plus risqué, mais on privilégie l'UX positive)
-                            if (!existingIds.includes(student.id)) {
-                                report.successes.push(`${student.nom} ${student.prenom} (${semestreLabel})`);
-                            }
+                            // Grâce au correctif backend, tout le reste est un succès (ajout inscription OU ajout semestre)
+                            report.successes.push(`${student.nom} ${student.prenom} (${semestreLabel})`);
                         }
                     });
-
-                    // Cas limite : Mélange succès/échec sans IDs précis venant du backend
-                    if (existingIds.length === 0 && result.deja_inscrits_count > 0 && result.inscrits_count > 0) {
-                        report.errors.push({ 
-                            nom: "Attention doublons", 
-                            reason: `${result.deja_inscrits_count} étudiant(s) déjà inscrit(s) en ${semestreLabel} (Détails non fournis par API)` 
-                        });
-                    }
-
                 } else {
                     report.errors.push({ 
                         nom: "Erreur Serveur", 
-                        reason: `Échec pour le semestre ${semestreLabel} (Code ${res.status})` 
+                        reason: `Échec semestre ${semestreLabel}` 
                     });
                 }
             } catch (e) {
@@ -482,18 +618,19 @@ export default function InscriptionsMain() {
 
         setIsLoading(false);
 
-        // Nettoyage visuel des doublons de succès (si même étudiant inscrit en S1 et S2 avec succès)
-        report.successes = [...new Set(report.successes)];
+        // UI Updates
+        const semLabel = options.semestres?.find(s => s.id === filters.semestre_id)?.label || "Semestre"; // Fallback safe
 
-        // MISE À JOUR STATE ET OUVERTURE MODALE
-        setEnrollmentResults(report);
-        setIsResultModalOpen(true);
+        setEnrollmentResults({
+            count: report.successes.length,
+            semestres: Object.keys(mapBySemestre).map(sid => semestresOptions.find(s=>s.id == sid)?.label),
+            details: `${report.successes.length} opération(s) réussie(s). ${report.alreadyEnrolled.length} déjà existant(s).`
+        });
 
-        // Actions post-traitement
-        setRightListPending([]); // On vide la liste d'attente
-        setTimeout(() => {
-            fetchExistingInscriptions(); // On recharge la liste réelle DB
-        }, 300);
+        // CORRECTION : Forcer le nettoyage et l'affichage
+        setIsResultModalOpen(true); 
+        setRightListPending([]); // Vider la liste d'attente
+        fetchExistingInscriptions(); // Recharger la liste des inscrits à droite
     };
 
     // --- AUTO INSCRIPTION (NOUVEAU ETUDIANT) ---
@@ -554,16 +691,111 @@ export default function InscriptionsMain() {
         fetchExistingInscriptions();
     };
 
-    const handleDeleteInscription = async (idToDelete) => {
-        if (!window.confirm(`Supprimer cette inscription ?`)) return;
+    // --- LOGIQUE DE SUPPRESSION ---
+    
+    // 1. Fonction appelée par le bouton "Poubelle" du tableau : Ouvre le modal
+    const handleRequestDelete = (item) => {
+        setStudentToDelete(item);
+        setIsDeleteModalOpen(true);
+    };
+
+    const handleConfirmDelete = async (idToDelete) => {
         try {
-            // await fetch(`${API_BASE_URL}/api/inscriptions/${idToDelete}`, { method: 'DELETE' });
-            setRightListDb(prev => prev.filter(item => item.id !== idToDelete));
-            addToast("Inscription supprimée.", "success");
+            const response = await fetch(`${API_BASE_URL}/api/inscriptions/${idToDelete}`, { 
+                method: 'DELETE' 
+            });
+
+            if (response.ok) {
+                // 1. Mise à jour UI Immédiate (Liste Droite)
+                setRightListDb(prev => prev.filter(i => i.id !== idToDelete));
+                
+                // 2. CORRECTION CRUCIALE : Mise à jour de la liste brute pour déverrouiller à gauche
+                // Si on ne fait pas ça, enrolledIdsSet contient toujours l'ID
+                setAllInscritsRaw(prev => prev.filter(i => i.id !== idToDelete));
+                
+                // 3. Nettoyer les sélections pour éviter les bugs
+                setSelectedObjects(prev => prev.filter(obj => obj.id !== idToDelete));
+                
+                // 4. Actualiser la liste de gauche (Base) pour être sûr
+                // On relance aussi fetchExistingInscriptions pour être synchro avec le serveur
+                fetchStudents(); 
+                fetchExistingInscriptions(); 
+                
+                addToast("Inscription supprimée et étudiant libéré.", "success");
+            } else {
+                addToast("Erreur lors de la suppression sur le serveur", "error");
+            }
         } catch (e) {
-            addToast("Erreur lors de la suppression.", "error");
+            console.error(e);
+            addToast("Erreur de connexion lors de la suppression", "error");
         }
     };
+
+    const handleStartEdit = async (item) => {
+        try {
+            // 1. Charger les semestres du niveau pour savoir quoi afficher en checkboxes
+            const res = await fetch(`${API_BASE_URL}/api/inscriptions/structure/semestres/${filters.niveau}`);
+            if (res.ok) {
+                const sems = await res.json();
+                setAvailableSemesters(sems);
+                
+                // 2. Pré-remplir les semestres cochés (on déduit de la string "S1, S2")
+                const currentLabels = item.semestre.split(",").map(s => s.trim());
+                const initialSemIds = sems
+                    .filter(s => currentLabels.some(l => s.label.includes(l)))
+                    .map(s => s.id);
+
+                setEditData({
+                    mode: item.mode_id, // Assurez-vous que le backend renvoie mode_id
+                    semestres: initialSemIds
+                });
+                setEditingId(item.id);
+            }
+        } catch (e) {
+            addToast("Erreur lors de la préparation de l'édition", "error");
+        }
+    };
+
+    const handleSaveInline = async (id) => {
+        setIsSavingEdit(true);
+        try {
+            // [CORRECTION IMPORTANTE]
+            // Dans handleStartEdit, vous faites : setEditData({ mode: item.mode_id ... })
+            // Donc ici, il faut utiliser editData.mode et non editData.mode_id
+            
+            const payload = {
+                mode_inscription_id: String(editData.mode || ""), // Correction ici
+                semestres_ids: Array.isArray(editData.semestres) ? editData.semestres : [] // Correction ici (c'est .semestres dans le state, pas .semestres_ids)
+            };
+
+            // Vérification console pour débogage
+            // console.log("Payload envoyé:", payload);
+
+            const response = await fetch(`${API_BASE_URL}/api/inscriptions/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                addToast("Modification enregistrée", "success");
+                setEditingId(null);
+                
+                // On recharge la liste pour être sûr d'avoir les labels à jour (ex: "S1, S2")
+                fetchExistingInscriptions(); 
+            } else {
+                const errorData = await response.json();
+                console.error("Erreur API:", errorData);
+                addToast("Erreur de validation : " + (errorData.detail || "Vérifiez les données"), "error");
+            }
+        } catch (error) {
+            console.error(error);
+            addToast("Erreur de connexion", "error");
+        } finally {
+            setIsSavingEdit(false);
+        }
+    };
+    
 
     // --- RENDER HELPERS ---
     const SemestreCheckbox = ({ options, selectedSemestres, onToggle }) => (
@@ -642,20 +874,7 @@ export default function InscriptionsMain() {
                             )}
 
                             <tbody className="divide-y divide-slate-50">
-                                {scrollableList.map(etu => (
-                                    <tr key={`scroll-${etu.id}`} onClick={() => toggleLeft(etu)} className="group cursor-pointer hover:bg-slate-50 transition-colors">
-                                        <td className="p-3 w-8 text-center"><div className="w-4 h-4 rounded border border-gray-300 group-hover:border-indigo-400 bg-white"></div></td>
-                                        <td className="p-3 text-slate-700">
-                                            <div className="font-semibold truncate">{etu.nom}</div>
-                                            <div className="text-slate-500 truncate">{etu.prenom}</div>
-                                        </td>
-                                        <td className="p-3 text-[10px] text-slate-400">
-                                            <div>CIN: {etu.cin}</div>
-                                            <div>Né: {etu.ddn}</div>
-                                        </td>
-                                        <td className="p-3 text-center text-[10px] text-slate-300 font-mono group-hover:text-indigo-400">{etu.id}</td>
-                                    </tr>
-                                ))}
+                                {scrollableList.map(renderLeftStudentRow)}
                             </tbody>
                         </table>
                     </div>
@@ -751,45 +970,142 @@ export default function InscriptionsMain() {
                             </div>
                             
                             <div className="overflow-y-auto flex-grow h-0">
+                                
                                 <table className="w-full text-left text-xs border-collapse">
                                     <thead className="sticky top-0 z-20 shadow-sm">
                                         <tr>
-                                            <TableHeader className="w-8 text-center">#</TableHeader>
-                                            <TableHeader className="w-32">Matricule</TableHeader>
-                                            <TableHeader>Étudiant</TableHeader>
-                                            <TableHeader className="w-16">Niveau</TableHeader>
-                                            <TableHeader>Semestres</TableHeader>
-                                            <TableHeader>Mode</TableHeader>
-                                            <TableHeader className="w-10"></TableHeader>
+                                        <TableHeader className="w-8 text-center">#</TableHeader>
+                                        <TableHeader className="w-32">Matricule</TableHeader>
+                                        <TableHeader>Étudiant</TableHeader>
+                                        <TableHeader className="w-16">Niveau</TableHeader>
+                                        <TableHeader>Semestres</TableHeader>
+                                        <TableHeader>Mode</TableHeader>
+                                        <TableHeader className="w-10"></TableHeader>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-50">
-                                        {rightListDb.map((etu, index) => (
-                                            <tr key={etu.id} className="group hover:bg-slate-50 transition-colors">
-                                                <td className="px-2 py-2.5 text-center text-gray-400 font-mono text-[10px]">{index + 1}</td>
-                                                <td className="px-2 py-2.5"><span className="font-mono font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 text-[11px]">{etu.matricule}</span></td>
-                                                <td className="px-2 py-2.5">
-                                                    <div className="font-semibold text-slate-700 uppercase text-[11px]">{etu.nom}</div>
-                                                    <div className="text-slate-500 capitalize text-[10px]">{etu.prenom}</div>
-                                                </td>
-                                                <td className="px-2 py-2.5"><span className="text-[10px] font-bold text-slate-600 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">{etu.niveau || "—"}</span></td>
-                                                <td className="px-2 py-2.5">
-                                                    <div className="flex flex-wrap gap-1">
-                                                        {etu.semestre.split(',').map((s, idx) => (
-                                                            <span key={idx} className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-1.5 rounded">{s.trim()}</span>
-                                                        ))}
-                                                    </div>
-                                                </td>
-                                                <td className="px-2 py-2.5"><span className="text-[10px] px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-100 font-medium">{etu.mode}</span></td>
-                                                <td className="px-2 py-2.5 text-right">
-                                                    <button onClick={(e) => {e.stopPropagation(); handleDeleteInscription(etu.id);}} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100" title="Supprimer l'inscription">
-                                                        <FaTrash size={12} />
+
+                                    <tbody className="divide-y divide-gray-100">
+                                        {rightListDb.map((item, index) => {
+                                        const isEditing = editingId === item.id;
+
+                                        return (
+                                            <tr
+                                            key={item.id}
+                                            className={`transition-colors ${
+                                                isEditing ? "bg-indigo-50/50" : "hover:bg-gray-50/50"
+                                            }`}
+                                            >
+                                            {/* # */}
+                                            <td className="px-3 py-3 text-center align-middle text-slate-400">
+                                                {index + 1}
+                                            </td>
+
+                                            {/* Matricule */}
+                                            <td className="px-3 py-3 align-middle text-[10px] text-slate-400 font-mono tracking-tight">
+                                                {item.matricule}
+                                            </td>
+
+                                            {/* Étudiant */}
+                                            <td className="px-3 py-3 align-middle">
+                                                <span className="font-bold text-slate-700 text-[12px]">
+                                                {item.nom} {item.prenom}
+                                                </span>
+                                            </td>
+
+                                            {/* Niveau */}
+                                            <td className="px-3 py-3 align-middle text-slate-500 text-[11px]">
+                                                {item.niveau}
+                                            </td>
+
+                                            {/* Semestres */}
+                                            <td className="px-3 py-3 align-middle">
+                                                {isEditing ? (
+                                                <SemestreChipSelector
+                                                    options={semestresOptions}
+                                                    selectedIds={editData.semestres}
+                                                    onToggle={(sid) => {
+                                                    const current = editData.semestres;
+                                                    setEditData({
+                                                        ...editData,
+                                                        semestres: current.includes(sid)
+                                                        ? current.filter((id) => id !== sid)
+                                                        : [...current, sid],
+                                                    });
+                                                    }}
+                                                />
+                                                ) : (
+                                                <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+                                                    {item.semestre}
+                                                </span>
+                                                )}
+                                            </td>
+
+                                            {/* Mode */}
+                                            <td className="px-3 py-3 align-middle">
+                                                {isEditing ? (
+                                                <ModeToggleGroup
+                                                    options={options.modes}
+                                                    currentInfo={editData.mode}
+                                                    onChange={(newMode) =>
+                                                    setEditData({ ...editData, mode: newMode })
+                                                    }
+                                                />
+                                                ) : (
+                                                <span className="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold uppercase border border-slate-200">
+                                                    {item.mode}
+                                                </span>
+                                                )}
+                                            </td>
+
+                                            {/* Actions */}
+                                            <td className="px-3 py-3 align-middle text-right">
+                                                <div className="flex justify-end gap-2">
+                                                {isEditing ? (
+                                                    <>
+                                                    <button
+                                                        onClick={() => handleSaveInline(item.id)}
+                                                        className="p-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 shadow-sm transition-all"
+                                                        title="Sauvegarder"
+                                                    >
+                                                        {isSavingEdit ? (
+                                                        <FaSpinner className="animate-spin text-xs" />
+                                                        ) : (
+                                                        <FaSave className="text-xs" />
+                                                        )}
                                                     </button>
-                                                </td>
+                                                    <button
+                                                        onClick={() => setEditingId(null)}
+                                                        className="p-2 bg-white border border-slate-200 text-slate-400 rounded-md hover:bg-slate-100"
+                                                        title="Annuler"
+                                                    >
+                                                        <FaTimes className="text-xs" />
+                                                    </button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                    <button
+                                                        onClick={() => handleStartEdit(item)}
+                                                        className="p-1.5 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                                                    >
+                                                        <FaEdit />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleRequestDelete(item)}
+                                                        className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                                    >
+                                                        <FaTrash />
+                                                    </button>
+                                                    </>
+                                                )}
+                                                </div>
+                                            </td>
                                             </tr>
-                                        ))}
+                                        );
+                                        })}
                                     </tbody>
-                                </table>
+                                    </table>
+
+
                             </div>
                         </div>
                     </div>
@@ -835,12 +1151,19 @@ export default function InscriptionsMain() {
                 onSuccess={handleAutoEnrollment} 
             />
 
-            {/* --- NOUVELLE MODALE DE RÉSULTATS --- */}
+            <DeleteInscriptionModal 
+                isOpen={isDeleteModalOpen}
+                onClose={() => setIsDeleteModalOpen(false)}
+                onConfirm={handleConfirmDelete} 
+                studentData={studentToDelete}
+            />
+
             <EnrollmentResultModal 
                 isOpen={isResultModalOpen}
                 onClose={() => setIsResultModalOpen(false)}
                 results={enrollmentResults}
             />
+
         </div>
     );
 }

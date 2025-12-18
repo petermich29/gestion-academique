@@ -17,21 +17,19 @@ from app.models import (
     Mention,
     AnneeUniversitaire,
     ModeInscription,
-    Composante,     # <--- Ajouté
+    Composante,
     Institution
 )
-from app.schemas.inscriptions_schemas import InscriptionCreatePayload, InscriptionResponse
+from app.schemas.inscriptions_schemas import InscriptionCreatePayload, InscriptionResponse, InscriptionUpdatePayload
 
 router = APIRouter(prefix="/inscriptions", tags=["Dossiers d'Inscription"])
 
-# ==============================================================================
-# GET : Récupérer la liste des inscrits (Affichage Panneau Droite)
-# ==============================================================================
+# ... (Gardez la route GET "/" telle quelle, elle est correcte) ...
 @router.get("/")
 def get_inscriptions_list(
     annee_id: str = Query(...),
-    institution_id: Optional[str] = Query(None), # <--- Ajouté
-    composante_id: Optional[str] = Query(None),  # <--- Ajouté
+    institution_id: Optional[str] = Query(None),
+    composante_id: Optional[str] = Query(None),
     mention_id: Optional[str] = Query(None),
     parcours_id: Optional[str] = Query(None),
     niveau_id: Optional[str] = Query(None),
@@ -40,22 +38,15 @@ def get_inscriptions_list(
     db: Session = Depends(get_db)
 ):
     query = db.query(Inscription)
-
-    # 1. Jointures de base
     query = query.join(Inscription.dossier_inscription)
     
-    # 2. Jointures STRICTES pour la hiérarchie (si filtres demandés)
-    # Inscription -> Dossier -> Mention -> Composante -> Institution
     if institution_id or composante_id or mention_id:
         query = query.join(DossierInscription.mention)
-        
     if institution_id or composante_id:
         query = query.join(Mention.composante)
-        
     if institution_id:
         query = query.join(Composante.institution)
 
-    # 3. Chargement optimisé (Eager Loading)
     query = query.options(
         joinedload(Inscription.dossier_inscription).joinedload(DossierInscription.etudiant),
         joinedload(Inscription.niveau),
@@ -64,38 +55,24 @@ def get_inscriptions_list(
         joinedload(Inscription.semestres).joinedload(InscriptionSemestre.semestre)
     )
 
-    # 4. Application STRICTE des filtres
     query = query.filter(Inscription.AnneeUniversitaire_id_fk == annee_id)
     
-    if institution_id:
-        query = query.filter(Institution.Institution_id == institution_id)
-
-    if composante_id:
-        query = query.filter(Composante.Composante_id == composante_id)
-
-    if mention_id:
-        query = query.filter(DossierInscription.Mention_id_fk == mention_id)
-
-    if parcours_id:
-        query = query.filter(Inscription.Parcours_id_fk == parcours_id)
-    
-    if niveau_id:
-        query = query.filter(Inscription.Niveau_id_fk == niveau_id)
-
-    if mode_inscription_id:
-        query = query.filter(Inscription.ModeInscription_id_fk == mode_inscription_id)
+    if institution_id: query = query.filter(Institution.Institution_id == institution_id)
+    if composante_id: query = query.filter(Composante.Composante_id == composante_id)
+    if mention_id: query = query.filter(DossierInscription.Mention_id_fk == mention_id)
+    if parcours_id: query = query.filter(Inscription.Parcours_id_fk == parcours_id)
+    if niveau_id: query = query.filter(Inscription.Niveau_id_fk == niveau_id)
+    if mode_inscription_id: query = query.filter(Inscription.ModeInscription_id_fk == mode_inscription_id)
 
     if semestre_id:
         query = query.join(Inscription.semestres).filter(
             InscriptionSemestre.Semestre_id_fk == semestre_id
         )
 
-    # 5. Tri et Résultat
     query = query.join(DossierInscription.etudiant).order_by(Etudiant.Etudiant_nom.asc())
 
     results = query.all()
 
-    # ... (le reste de la fonction mapping response_data reste inchangé)
     response_data = []
     for insc in results:
         semestres_labels = [s.semestre.Semestre_numero for s in insc.semestres if s.semestre]
@@ -106,57 +83,81 @@ def get_inscriptions_list(
 
         response_data.append({
             "id": insc.Inscription_id,
+            "etudiant_id": etudiant.Etudiant_id, 
             "DossierInscription_id": dossier.DossierInscription_id,
             "matricule": dossier.DossierInscription_numero,
             "etudiant_nom": etudiant.Etudiant_nom,
             "etudiant_prenom": etudiant.Etudiant_prenoms,
             "niveau_label": insc.niveau.Niveau_label if insc.niveau else "",
             "parcours_label": insc.parcours.Parcours_label if insc.parcours else "",
+            "mode_id": insc.ModeInscription_id_fk,
             "mode_label": insc.mode_inscription.ModeInscription_label if insc.mode_inscription else "—",
             "semestre_label": semestre_str
         })
 
     return response_data
 
+# ... (Gardez la route PUT telle quelle) ...
+@router.put("/{inscription_id}")
+def update_inscription(
+    inscription_id: str, 
+    payload: InscriptionUpdatePayload, 
+    db: Session = Depends(get_db)
+):
+    insc = db.query(Inscription).filter(Inscription.Inscription_id == inscription_id).first()
+    if not insc:
+        raise HTTPException(status_code=404, detail="Inscription non trouvée")
+
+    try:
+        insc.ModeInscription_id_fk = payload.mode_inscription_id
+        existing_links = db.query(InscriptionSemestre).filter(
+            InscriptionSemestre.Inscription_id_fk == inscription_id
+        ).all()
+        
+        existing_sem_ids = {l.Semestre_id_fk for l in existing_links}
+        target_sem_ids = set(payload.semestres_ids)
+
+        for link in existing_links:
+            if link.Semestre_id_fk not in target_sem_ids:
+                db.delete(link)
+
+        for sem_id in target_sem_ids:
+            if sem_id not in existing_sem_ids:
+                new_link_id = f"{inscription_id}_{sem_id}"
+                new_link = InscriptionSemestre(
+                    InscriptionSemestre_id=new_link_id,
+                    Inscription_id_fk=inscription_id,
+                    Semestre_id_fk=sem_id,
+                    InscriptionSemestre_statut='INSCRIT'
+                )
+                db.add(new_link)
+
+        db.commit()
+        return {"success": True, "message": "Mise à jour effectuée"}
+
+    except Exception as e:
+        db.rollback()
+        print(f"ERREUR SERVEUR (PUT): {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erreur interne: {str(e)}")
+
 
 # ==============================================================================
-# POST : Inscription en masse
+# POST : Inscription en masse (CORRIGÉ)
 # ==============================================================================
 @router.post("/bulk", response_model=InscriptionResponse)
 def create_bulk_dossiers(payload: InscriptionCreatePayload, db: Session = Depends(get_db)):
     
-    # 1. Vérifications des dépendances clés
     mention = db.query(Mention).filter(Mention.Mention_id == payload.mention_id).first()
     annee = db.query(AnneeUniversitaire).filter(AnneeUniversitaire.AnneeUniversitaire_id == payload.annee_id).first()
     semestre = db.query(Semestre).filter(Semestre.Semestre_id == payload.semestre_id).first()
 
-    if not mention or not annee:
-        raise HTTPException(status_code=404, detail="Mention ou Année introuvable.")
+    if not mention or not annee or not semestre:
+        raise HTTPException(status_code=404, detail="Mention, Année ou Semestre introuvable.")
     
-    if not semestre:
-        raise HTTPException(status_code=404, detail=f"Semestre introuvable (ID reçu: {payload.semestre_id})")
-    
-    # ✅ CORRECTION MODE INSCRIPTION (SÉCURITÉ)
-    # ------------------------------------------------------------------------------------------------
-    # Utiliser 'MODE_001' par défaut si le payload.mode_inscription_id est None ou vide.
     mode_inscription_id_final = payload.mode_inscription_id or 'MODE_001'
     
-    # Vérification que le Mode d'Inscription existe bien en BDD
-    mode = db.query(ModeInscription).filter(
-        ModeInscription.ModeInscription_id == mode_inscription_id_final
-    ).first()
-    
-    if not mode:
-        # Erreur 404 si le mode requis (même le défaut) n'existe pas.
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Le mode d'inscription '{mode_inscription_id_final}' est introuvable. Veuillez vérifier la table 'modes_inscription'."
-        )
-    # ------------------------------------------------------------------------------------------------
-    
-    # 2. Génération ID Dossier (Séquence)
+    # ... (Code de génération de séquence dossier identique) ...
     annee_label = annee.AnneeUniversitaire_annee
-    # Extrait les deux derniers chiffres de l'année de fin (ex: 2024-2025 -> 25)
     yy = annee_label.split("-")[-1][-2:] if annee_label and "-" in annee_label else annee_label[-2:]
     abbr = mention.Mention_abbreviation or mention.Mention_code or "UNK"
     prefix_numero = f"{yy}{abbr}_"
@@ -168,31 +169,26 @@ def create_bulk_dossiers(payload: InscriptionCreatePayload, db: Session = Depend
     current_sequence = 0
     if last_dossier and last_dossier.DossierInscription_numero:
         try:
-            # Récupère la partie numérique de la séquence
             num_part = last_dossier.DossierInscription_numero.split("_")[-1]
             current_sequence = int(num_part)
         except ValueError:
             current_sequence = 0
 
-    students_newly_registered = 0
-    students_already_registered = 0
+    # Compteurs corrigés
+    success_count = 0 
+    already_enrolled_count = 0
+    existing_ids_list = []
 
     try:
         for etu_id in payload.etudiants_ids:
             
-            # --- A. GESTION DU DOSSIER (Administratif) ---
-            # Un dossier est unique par Etudiant + Mention + Année
+            # 1. DOSSIER
             dossier_id = f"{etu_id}_{payload.mention_id}_{payload.annee_id}"
-            
-            dossier = db.query(DossierInscription).filter(
-                DossierInscription.DossierInscription_id == dossier_id
-            ).first()
+            dossier = db.query(DossierInscription).filter(DossierInscription.DossierInscription_id == dossier_id).first()
 
             if not dossier:
-                # Création du dossier si inexistant
                 current_sequence += 1
                 numero_final = f"{prefix_numero}{str(current_sequence).zfill(5)}"
-                
                 dossier = DossierInscription(
                     DossierInscription_id=dossier_id,
                     Etudiant_id_fk=etu_id,
@@ -201,16 +197,13 @@ def create_bulk_dossiers(payload: InscriptionCreatePayload, db: Session = Depend
                     DossierInscription_date_creation=date.today()
                 )
                 db.add(dossier)
-                db.flush() # Pour avoir l'ID disponible tout de suite
+                db.flush()
 
-            # --- B. GESTION DE L'INSCRIPTION (Pédagogique) ---
-            # Une inscription est unique par Dossier + Année + Parcours + Niveau
+            # 2. INSCRIPTION ADMINISTRATIVE
             inscription_id = f"{dossier_id}_{payload.parcours_id}_{payload.niveau_id}"
+            inscription = db.query(Inscription).filter(Inscription.Inscription_id == inscription_id).first()
             
-            inscription = db.query(Inscription).filter(
-                Inscription.Inscription_id == inscription_id
-            ).first()
-
+            is_new_inscription = False
             if not inscription:
                 inscription = Inscription(
                     Inscription_id=inscription_id,
@@ -218,18 +211,14 @@ def create_bulk_dossiers(payload: InscriptionCreatePayload, db: Session = Depend
                     AnneeUniversitaire_id_fk=payload.annee_id,
                     Parcours_id_fk=payload.parcours_id,
                     Niveau_id_fk=payload.niveau_id,
-                    # ✅ Utilisation de l'ID mode d'inscription sécurisé
                     ModeInscription_id_fk=mode_inscription_id_final,
                     Inscription_date=date.today()
                 )
                 db.add(inscription)
                 db.flush()
-                students_newly_registered += 1
-            else:
-                students_already_registered += 1
+                is_new_inscription = True
 
-            # --- C. GESTION DES SEMESTRES (Détail) ---
-            # On ajoute le semestre s'il n'est pas déjà lié à cette inscription
+            # 3. LIAISON SEMESTRE (C'est ici qu'on détermine le vrai succès)
             sem_link_id = f"{inscription.Inscription_id}_{payload.semestre_id}"
             existing_sem = db.query(InscriptionSemestre).filter(
                 InscriptionSemestre.InscriptionSemestre_id == sem_link_id
@@ -243,35 +232,48 @@ def create_bulk_dossiers(payload: InscriptionCreatePayload, db: Session = Depend
                     InscriptionSemestre_statut='INSCRIT'
                 )
                 db.add(new_sem_link)
+                # SUCCÈS : Soit nouvelle inscription, soit ajout d'un nouveau semestre
+                success_count += 1
+            else:
+                # ÉCHEC : L'étudiant a déjà ce semestre spécifiquement
+                already_enrolled_count += 1
+                existing_ids_list.append(etu_id)
 
         db.commit()
         
         return {
             "success": True, 
             "message": "Inscriptions traitées", 
-            "inscrits_count": students_newly_registered,
-            "deja_inscrits_count": students_already_registered
+            "inscrits_count": success_count,
+            "deja_inscrits_count": already_enrolled_count,
+            "existing_ids": existing_ids_list
         }
 
     except Exception as e:
         db.rollback()
-        print(f"Erreur SQL: {str(e)}") # Log serveur pour debug
-        # Renvoyer l'erreur exacte pour faciliter le debug en frontend
+        print(f"Erreur SQL Bulk: {str(e)}") 
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+# ... (Gardez get_semestres et delete tels quels) ...
 @router.get("/structure/semestres/{niveau_id}")
 def get_semestres_by_niveau(niveau_id: str, db: Session = Depends(get_db)):
-    """
-    Renvoie la liste des semestres liés à un Niveau donné.
-    Utilise la table Semestre et filtre par Niveau_id_fk.
-    """
-    # 1. Requête pour trouver tous les semestres associés au Niveau
     semestres = db.query(Semestre).filter(
         Semestre.Niveau_id_fk == niveau_id
     ).order_by(Semestre.Semestre_numero.asc()).all()
+    return [{"id": s.Semestre_id, "label": f"Semestre {s.Semestre_numero}"} for s in semestres]
 
-    # 2. Formatage des données pour le Frontend (respecte le format attendu: id, label)
-    return [
-        {"id": s.Semestre_id, "label": f"Semestre {s.Semestre_numero}"} 
-        for s in semestres
-    ]
+@router.delete("/{inscription_id}")
+def delete_inscription(inscription_id: str, db: Session = Depends(get_db)):
+    inscription = db.query(Inscription).filter(Inscription.Inscription_id == inscription_id).first()
+    if not inscription:
+        raise HTTPException(status_code=404, detail="Inscription introuvable")
+
+    try:
+        db.query(InscriptionSemestre).filter(InscriptionSemestre.Inscription_id_fk == inscription_id).delete()
+        db.delete(inscription)
+        db.commit()
+        return {"success": True, "message": "Inscription supprimée avec succès"}
+    except Exception as e:
+        db.rollback()
+        print(f"Erreur DELETE: {str(e)}")
+        raise HTTPException(status_code=500, detail="Impossible de supprimer l'inscription")

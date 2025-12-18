@@ -32,3 +32,7 @@ class InscriptionResponse(BaseSchema):
     success: bool
     message: str
     inscrits_count: int
+
+class InscriptionUpdatePayload(BaseSchema):
+    mode_inscription_id: str
+    semestres_ids: List[str]
