@@ -46,7 +46,6 @@ from .results_schemas import (
     NoteBase, NoteSchema,
     SuiviCreditCycleBase, SuiviCreditCycleBase, SuiviCreditCycleSchema,
     VolumeHoraireECBase, VolumeHoraireECSchema,
-    AffectationECBase, AffectationECSchema,
     JuryBase, JurySchema
 )
 

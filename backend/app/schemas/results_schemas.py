@@ -85,16 +85,6 @@ class VolumeHoraireECBase(BaseSchema):
 class VolumeHoraireECSchema(VolumeHoraireECBase):
     id_volume_horaire_ec: str = Field(..., alias="VolumeHoraireEC_id")
 
-class AffectationECBase(BaseSchema):
-    id_enseignant: str = Field(..., alias="Enseignant_id_fk")
-    id_ec: str = Field(..., alias="EC_id_fk")
-    id_type_enseignement: str = Field(..., alias="TypeEnseignement_id_fk")
-    id_annee_universitaire: str = Field(..., alias="AnneeUniversitaire_id_fk")
-    volume_heure_effectif: Optional[float] = Field(None, alias="AffectationEC_volume_heure_effectif")
-
-class AffectationECSchema(AffectationECBase):
-    id_affectation_ec: str = Field(..., alias="AffectationEC_id")
-
 class JuryBase(BaseSchema):
     id_enseignant: str = Field(..., alias="Enseignant_id_fk") # Président
     id_semestre: str = Field(..., alias="Semestre_id_fk")

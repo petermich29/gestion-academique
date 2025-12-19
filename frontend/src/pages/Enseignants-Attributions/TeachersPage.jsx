@@ -1,3 +1,4 @@
+// frontend\src\pages\Enseignants-Attributions\TeachersPage.jsx
 import React, { useState, useEffect, useCallback } from "react";
 import {
     FaSearch, FaPlus, FaEdit, FaTrash, FaUser,
