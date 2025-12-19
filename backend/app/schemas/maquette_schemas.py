@@ -8,7 +8,7 @@ class VolumeHoraireSchema(BaseSchema):
     id: str = Field(..., alias="Volume_id")
     heures: float = Field(..., alias="Volume_heures")
     type_enseignement_id: str = Field(..., alias="TypeEnseignement_id_fk")
-    maquette_ec_id: str = Field(..., alias="MaquetteEC_id_fk")
+    maquette_ec_id: Optional[str] = Field(None, alias="MaquetteEC_id_fk")
     
     # Ces champs seront mappés manuellement ou via les relations chargées
     type_enseignement_label: Optional[str] = None

@@ -2,19 +2,13 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  FaChevronLeft, FaChevronRight, FaLayerGroup, FaGraduationCap,
-  FaSearch, FaCalendarAlt, FaSync, FaBook
-} from "react-icons/fa";
-
+import { FaChevronLeft, FaChevronRight, FaLayerGroup, FaGraduationCap, FaSearch, FaCalendarAlt, FaSync, FaBook } from "react-icons/fa";
 import { SpinnerIcon, PlusIcon, ThIcon, ListIcon } from "../../components/ui/Icons";
 import { AppStyles } from "../../components/ui/AppStyles";
 import { ToastContainer } from "../../components/ui/Toast";
 import { ConfirmModal } from "../../components/ui/Modal";
 import { useBreadcrumb } from "../../context/BreadcrumbContext";
 import { useAdministration } from "../../context/AdministrationContext";
-
-// --- NOUVEAUX IMPORTS SÉPARÉS ---
 import { StructureView } from "./components/StructureView";
 import { UeFormModal } from "./components/UeFormModal";
 import { EcManagerModal } from "./components/EcManagerModal";
@@ -25,21 +19,16 @@ const ParcoursDetail = () => {
   const { id: institutionId, etablissementId, mentionId, parcoursId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  
-  // Contextes
   const { setBreadcrumb } = useBreadcrumb();
   const { yearsList } = useAdministration();
 
-  // --- STATES DONNÉES ---
   const [parcours, setParcours] = useState(location.state?.parcours || null);
   const [mention, setMention] = useState(null); 
   const [etablissement, setEtablissement] = useState(null);
   const [institution, setInstitution] = useState(null);
-  
   const [structure, setStructure] = useState([]); 
   const [semestresList, setSemestresList] = useState([]); 
   
-  // --- STATES UI & FILTRES ---
   const [selectedYearId, setSelectedYearId] = useState(""); 
   const [isLoading, setIsLoading] = useState(true);
   const [isStructureLoading, setIsStructureLoading] = useState(false);
@@ -49,7 +38,6 @@ const ParcoursDetail = () => {
   const [toasts, setToasts] = useState([]);
   const [nextUeId, setNextUeId] = useState("chargement..."); 
 
-  // --- STATES CRUD UE ---
   const [modalOpen, setModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editUE, setEditUE] = useState(null);
@@ -58,22 +46,16 @@ const ParcoursDetail = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // --- STATES GESTION EC ---
   const [ecModalOpen, setEcModalOpen] = useState(false);
   const [selectedUEForEC, setSelectedUEForEC] = useState(null); 
   const [editingEcId, setEditingEcId] = useState(null); 
   const [editEcData, setEditEcData] = useState({ code: "", intitule: "", coefficient: 1.0 });
   const [ecForm, setEcForm] = useState({ code: "", intitule: "", coefficient: 1.0 });
   const [isEcSubmitting, setIsEcSubmitting] = useState(false);
-
   const [typesEnseignement, setTypesEnseignement] = useState([]);
-
-
-  // Refs
   const dataFetchedRef = useRef(false);
 
-  // Helpers
-  const getVal = (obj, keyAlias, keyName) => obj ? (obj[keyAlias] || obj[keyName] || "") : "";
+  const getVal = (obj, k1, k2) => obj ? (obj[k1] || obj[k2] || "") : "";
   const addToast = (message, type = "success") => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -81,15 +63,10 @@ const ParcoursDetail = () => {
   };
   const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
 
-  // ==========================================
-  // 1. INITIALISATION & CHARGEMENT
-  // ==========================================
-
   useEffect(() => {
-    if (yearsList && yearsList.length > 0 && !selectedYearId) {
+    if (yearsList?.length > 0 && !selectedYearId) {
         const active = yearsList.find(y => y.AnneeUniversitaire_is_active);
-        if (active) setSelectedYearId(active.AnneeUniversitaire_id);
-        else setSelectedYearId(yearsList[0].AnneeUniversitaire_id);
+        setSelectedYearId(active ? active.AnneeUniversitaire_id : yearsList[0].AnneeUniversitaire_id);
     }
   }, [yearsList, selectedYearId]);
 
@@ -97,29 +74,17 @@ const ParcoursDetail = () => {
       if (!selectedYearId || !parcoursId) return;
       setIsStructureLoading(true);
       try {
-        const timestamp = new Date().getTime();
-        const url = `${API_BASE_URL}/api/parcours/${parcoursId}/structure?annee_id=${selectedYearId}&_t=${timestamp}`;
-        const resStruct = await fetch(url, { headers: { "Cache-Control": "no-cache", "Pragma": "no-cache", "Expires": "0" }});
-
-        if(resStruct.ok) {
-            const data = await resStruct.json();
+        const url = `${API_BASE_URL}/api/parcours/${parcoursId}/structure?annee_id=${selectedYearId}&_t=${new Date().getTime()}`;
+        const res = await fetch(url, { headers: { "Cache-Control": "no-cache", "Pragma": "no-cache", "Expires": "0" }});
+        if(res.ok) {
+            const data = await res.json();
             setStructure(data);
-            setActiveNiveauId(prev => {
-                if (!data || data.length === 0) return null;
-                const exists = data.find(d => d.niveau_id === prev);
-                return exists ? prev : data[0].niveau_id;
-            });
-        } else {
-            setStructure([]);
-        }
-      } catch(e) { 
-          addToast("Erreur chargement structure", "error");
-      } finally {
-          setIsStructureLoading(false);
-      }
+            setActiveNiveauId(prev => (data && data.length > 0) ? (data.find(d => d.niveau_id === prev) ? prev : data[0].niveau_id) : null);
+        } else setStructure([]);
+      } catch(e) { addToast("Erreur chargement structure", "error"); } 
+      finally { setIsStructureLoading(false); }
   }, [parcoursId, selectedYearId]); 
 
-  // Synchro EC Modal quand structure change
   useEffect(() => {
       if (ecModalOpen && selectedUEForEC && structure.length > 0) {
           let found = null;
@@ -130,32 +95,25 @@ const ParcoursDetail = () => {
               }
               if (found) break;
           }
-          if (found) {
-              if (JSON.stringify(found) !== JSON.stringify(selectedUEForEC)) setSelectedUEForEC(found);
-          } else {
-              setEcModalOpen(false);
-          }
+          found && JSON.stringify(found) !== JSON.stringify(selectedUEForEC) ? setSelectedUEForEC(found) : (!found && setEcModalOpen(false));
       }
   }, [structure, ecModalOpen, selectedUEForEC]); 
 
   const fetchNextId = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/ues/next-id`);
-      return res.ok ? await res.json() : "UE_NEW";
-    } catch (e) { return "UE_ERR"; }
+    try { const res = await fetch(`${API_BASE_URL}/api/ues/next-id`); return res.ok ? await res.json() : "UE_NEW"; } 
+    catch (e) { return "UE_ERR"; }
   };
 
   useEffect(() => {
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
-    
     const fetchMeta = async () => {
       setIsLoading(true);
       try {
-        let currentParcours = parcours;
-        if (!currentParcours || getVal(currentParcours, "Parcours_id", "id_parcours") !== parcoursId) {
+        let cp = parcours;
+        if (!cp || getVal(cp, "Parcours_id", "id_parcours") !== parcoursId) {
             const res = await fetch(`${API_BASE_URL}/api/parcours/${parcoursId}`);
-            if(res.ok) { currentParcours = await res.json(); setParcours(currentParcours); }
+            if(res.ok) { cp = await res.json(); setParcours(cp); }
         }
         if (mentionId) {
             const resM = await fetch(`${API_BASE_URL}/api/mentions/${mentionId}`);
@@ -180,9 +138,7 @@ const ParcoursDetail = () => {
     fetchMeta();
   }, [parcoursId, mentionId, etablissementId, institutionId, parcours, institution]);
   
-  useEffect(() => {
-      if (parcoursId && selectedYearId && !isLoading) fetchStructure();
-  }, [selectedYearId, isLoading, parcoursId, fetchStructure]); 
+  useEffect(() => { if (parcoursId && selectedYearId && !isLoading) fetchStructure(); }, [selectedYearId, isLoading, parcoursId, fetchStructure]); 
 
   useEffect(() => {
       if (isLoading || !institution || !etablissement || !mention || !parcours) return;
@@ -195,72 +151,48 @@ const ParcoursDetail = () => {
       ]);
   }, [institution, etablissement, mention, parcours, isLoading, institutionId, etablissementId, mentionId, setBreadcrumb]);
 
-
   useEffect(() => {
-  fetch(`${API_BASE_URL}/api/metadonnees/types-enseignement`)
-    .then(res => res.json())
-    .then(data => {
-      setTypesEnseignement(
-        data.map(t => ({
-          id: t.TypeEnseignement_id,
-          code: t.TypeEnseignement_code,
-          label: t.TypeEnseignement_label
-        }))
-      );
-    });
-}, []);
-
-
-  // ==========================================
-  // 2. LOGIQUE METIER & CRUD
-  // ==========================================
+    fetch(`${API_BASE_URL}/api/metadonnees/types-enseignement`).then(res => res.json())
+    .then(data => setTypesEnseignement(data.map(t => ({ id: t.TypeEnseignement_id, code: t.TypeEnseignement_code, label: t.TypeEnseignement_label }))));
+  }, []);
 
   const sortedStructure = useMemo(() => {
     if (!structure) return [];
     const levelOrder = { "L1": 1, "L2": 2, "L3": 3, "M1": 4, "M2": 5, "D1": 6, "D2": 7, "D3": 8 };
     return [...structure].sort((a, b) => {
-        const getWeight = (l) => { const k = Object.keys(levelOrder).find(key => l.toUpperCase().includes(key)); return k ? levelOrder[k] : 99; };
+        const getWeight = (l) => levelOrder[Object.keys(levelOrder).find(k => l.toUpperCase().includes(k))] || 99;
         const wA = getWeight(a.niveau_label), wB = getWeight(b.niveau_label);
         return wA === wB ? a.niveau_label.localeCompare(b.niveau_label) : wA - wB;
     });
   }, [structure]);
 
-  const handleChangeYear = (direction) => {
-      if (!yearsList || yearsList.length === 0) return;
+  const handleChangeYear = (dir) => {
+      if (!yearsList?.length) return;
       const curIdx = yearsList.findIndex(y => y.AnneeUniversitaire_id === selectedYearId);
       if (curIdx === -1) return;
-      let newIdx = direction === 'next' ? curIdx - 1 : curIdx + 1;
+      let newIdx = dir === 'next' ? curIdx - 1 : curIdx + 1;
       if (newIdx >= 0 && newIdx < yearsList.length) setSelectedYearId(yearsList[newIdx].AnneeUniversitaire_id);
   };
 
   const openModal = async (semestreId = "", ue = null) => {
       setErrors({});
-      const potentialId = await fetchNextId();
-      setNextUeId(potentialId);
-      if(ue) {
-          setEditUE(ue);
-          setForm({ code: ue.code, intitule: ue.intitule, credit: ue.credit, semestre_id: semestreId || "", update_mode: "global" });
-      } else {
-          setEditUE(null);
-          setForm({ code: potentialId, intitule: "", credit: 5, semestre_id: semestreId || "", update_mode: "global" });
-      }
+      const pid = await fetchNextId();
+      setNextUeId(pid);
+      setEditUE(ue);
+      setForm(ue ? { code: ue.code, intitule: ue.intitule, credit: ue.credit, semestre_id: semestreId || "", update_mode: "global" } : { code: pid, intitule: "", credit: 5, semestre_id: semestreId || "", update_mode: "global" });
       setModalOpen(true);
   };
 
   const handleSubmit = async (e) => {
       e.preventDefault();
-      setIsSubmitting(true);
-      setErrors({});
+      setIsSubmitting(true); setErrors({});
       const formData = new FormData();
       Object.keys(form).forEach(k => formData.append(k, form[k]));
       formData.append("parcours_id", parcoursId); 
       formData.append("annee_id", selectedYearId);
-
       try {
-          let url = `${API_BASE_URL}/api/ues`;
-          let method = "POST";
-          if(editUE) { url += `/${editUE.id_maquette}`; method = "PUT"; }
-          const res = await fetch(url, { method, body: formData });
+          let url = `${API_BASE_URL}/api/ues` + (editUE ? `/${editUE.id_maquette}` : "");
+          const res = await fetch(url, { method: editUE ? "PUT" : "POST", body: formData });
           if(!res.ok) throw new Error((await res.json()).detail || "Erreur sauvegarde UE");
           await fetchStructure();
           addToast(editUE ? "UE Modifiée" : "UE Ajoutée");
@@ -273,50 +205,33 @@ const ParcoursDetail = () => {
     try {
         const res = await fetch(`${API_BASE_URL}/api/ues/${ueToDelete.id_maquette}`, { method: 'DELETE' });
         if(!res.ok) throw new Error("Erreur suppression UE");
-        await fetchStructure(); 
-        addToast("UE retirée de la maquette.");
-        setDeleteModalOpen(false); 
+        await fetchStructure(); addToast("UE retirée de la maquette."); setDeleteModalOpen(false); 
     } catch(e) { addToast("Erreur suppression", "error"); }
   };
 
-  // Gestion EC
   const openEcModal = (ue) => { setSelectedUEForEC(ue); setEcForm({ code: "", intitule: "", coefficient: 1.0 }); setEditingEcId(null); setEcModalOpen(true); };
   
   const handleAddEC = async (e) => {
       e.preventDefault();
       if (!selectedUEForEC) return;
-      setIsEcSubmitting(true);
-      setErrors({});
+      setIsEcSubmitting(true); setErrors({});
       const formData = new FormData();
       formData.append("maquette_ue_id", selectedUEForEC.id_maquette);
       Object.keys(ecForm).forEach(k => formData.append(k, ecForm[k]));
-
       try {
           const res = await fetch(`${API_BASE_URL}/api/ecs/`, { method: "POST", body: formData });
           if (!res.ok) throw new Error((await res.json()).detail || "Erreur ajout EC");
-          addToast("EC ajouté");
-          await fetchStructure(); 
-          setEcForm({ code: "", intitule: "", coefficient: 1.0 }); 
+          addToast("EC ajouté"); await fetchStructure(); setEcForm({ code: "", intitule: "", coefficient: 1.0 }); 
       } catch (err) { addToast(err.message, "error"); setErrors({ ec_form: err.message }); } finally { setIsEcSubmitting(false); }
   };
 
   const handleDeleteEC = async (ecId) => {
     if (!window.confirm("Supprimer ce module ?")) return;
     try {
-        // Vérifiez que l'URL est bien : API_BASE_URL + "/api/ecs/" + ecId
-        const response = await fetch(`${API_BASE_URL}/api/ecs/${ecId}`, {
-            method: "DELETE",
-        });
-
-        if (response.ok) {
-            // ... logique de mise à jour de l'état
-        } else {
-            console.error("Erreur suppression:", response.status);
-        }
-    } catch (error) {
-        console.error("Erreur réseau:", error);
-    }
-};
+        const response = await fetch(`${API_BASE_URL}/api/ecs/${ecId}`, { method: "DELETE" });
+        if (!response.ok) console.error("Erreur suppression:", response.status);
+    } catch (error) { console.error("Erreur réseau:", error); }
+  };
 
   const startEditEC = (ec) => { setEditingEcId(ec.id); setEditEcData({ code: ec.code, intitule: ec.intitule, coefficient: parseFloat(ec.coefficient) || 0 }); };
   const cancelEditEC = () => { setEditingEcId(null); setEditEcData({ code: "", intitule: "", coefficient: 1.0 }); };
@@ -326,13 +241,10 @@ const ParcoursDetail = () => {
       const formData = new FormData();
       formData.append("maquette_ec_id", editingEcId);
       Object.keys(editEcData).forEach(k => formData.append(k, editEcData[k]));
-
       try {
           const res = await fetch(`${API_BASE_URL}/api/ecs/${editingEcId}`, { method: "PUT", body: formData });
           if(!res.ok) throw new Error((await res.json()).detail || "Erreur modification");
-          addToast("EC modifié");
-          setEditingEcId(null); 
-          await fetchStructure(); 
+          addToast("EC modifié"); setEditingEcId(null); await fetchStructure(); 
       } catch(e) { addToast(e.message, "error"); }
   };
 
@@ -353,11 +265,6 @@ const ParcoursDetail = () => {
      if (form.credit === 0 && maxCreditsAllowed > 0) setForm(p => ({ ...p, credit: 1 }));
   }, [maxCreditsAllowed, form.credit]);
 
-
-  // ==========================================
-  // 3. RENDU
-  // ==========================================
-
   if (isLoading) return <div className="p-10 text-center"><SpinnerIcon className="animate-spin text-4xl text-blue-600 inline" /></div>;
   if (!parcours) return <div className="p-10 text-center text-red-500">Parcours introuvable</div>;
 
@@ -370,8 +277,6 @@ const ParcoursDetail = () => {
   return (
     <div className={AppStyles.pageContainer}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
-      
-      {/* HEADER */}
       <div className={AppStyles.header.container}>
          <div className="flex flex-col">
             <h2 className={AppStyles.mainTitle}>Détail du Parcours</h2>
@@ -385,8 +290,6 @@ const ParcoursDetail = () => {
          </button>
       </div>
       <hr className={AppStyles.separator} />
-
-      {/* FICHE INFO */}
       <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1, y:0}} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-6 mb-6 relative overflow-hidden">
           <div className="absolute -right-4 -top-6 text-[100px] font-black text-gray-50 opacity-10 pointer-events-none select-none">{selectedYearLabel.split('-')[0]}</div>
           <div className="flex-shrink-0 mx-auto md:mx-0 z-10">
@@ -408,12 +311,8 @@ const ParcoursDetail = () => {
               </div>
           </div>
       </motion.div>
-
-      {/* STRUCTURE PÉDAGOGIQUE */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 min-h-[600px] flex flex-col relative">
           {isStructureLoading && <div className="absolute inset-0 bg-white/60 z-20 flex items-center justify-center backdrop-blur-[1px] rounded-xl"><SpinnerIcon className="animate-spin text-3xl text-blue-600" /></div>}
-
-          {/* ONGLETS NIVEAUX */}
           <div className="flex border-b border-gray-100 overflow-x-auto">
               {sortedStructure.length > 0 ? (
                   sortedStructure.map((niv) => (
@@ -427,8 +326,6 @@ const ParcoursDetail = () => {
                   <div className="p-4 text-sm text-gray-400 italic">Maquette vide</div>
               )}
           </div>
-
-          {/* TOOLBAR */}
           <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex flex-col lg:flex-row justify-between items-center gap-4">
                <div className="flex items-center gap-3 w-full lg:w-auto">
                    <div className="relative flex-1 lg:w-64">
@@ -449,22 +346,11 @@ const ParcoursDetail = () => {
                     <button onClick={() => handleChangeYear('next')} disabled={isLastYear} className={`p-2 rounded-md transition-colors ${isLastYear ? "text-gray-300 cursor-not-allowed" : "text-gray-600 hover:bg-gray-100 hover:text-blue-600"}`}><FaChevronRight size={12} /></button>
                </div>
           </div>
-
-          {/* CONTENU PRINCIPAL (Refactoré) */}
           <div className="p-6 bg-gray-50/30 space-y-8 flex-1">
               <AnimatePresence mode="wait">
                 {sortedStructure.length > 0 && currentNiveau ? (
                     <motion.div key={`${currentNiveau.niveau_id}-${selectedYearId}`} initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} className="space-y-8 relative w-full">
-                        <StructureView
-                            view={view}
-                            semestres={currentNiveau.semestres}
-                            searchTerm={searchTerm}
-                            openModal={openModal}
-                            openEcModal={openEcModal}
-                            setUeToDelete={setUeToDelete}
-                            setDeleteModalOpen={setDeleteModalOpen}
-                            typesEnseignement={typesEnseignement}
-                        />
+                        <StructureView view={view} semestres={currentNiveau.semestres} searchTerm={searchTerm} openModal={openModal} openEcModal={openEcModal} setUeToDelete={setUeToDelete} setDeleteModalOpen={setDeleteModalOpen} typesEnseignement={typesEnseignement} />
                     </motion.div>
                 ) : (
                     !isStructureLoading && (
@@ -479,25 +365,8 @@ const ParcoursDetail = () => {
               </AnimatePresence>
           </div>
       </div>
-
-      {/* --- MODALES REFACTORÉES --- */}
-      <UeFormModal 
-          isOpen={modalOpen} onClose={() => setModalOpen(false)}
-          editUE={editUE} form={form} setForm={setForm} errors={errors}
-          isSubmitting={isSubmitting} handleSubmit={handleSubmit}
-          semestresList={semestresList} selectedYearLabel={selectedYearLabel}
-          nextUeId={nextUeId} maxCreditsAllowed={maxCreditsAllowed}
-      />
-
-      <EcManagerModal 
-          isOpen={ecModalOpen} onClose={() => setEcModalOpen(false)}
-          ue={selectedUEForEC} editingEcId={editingEcId} editEcData={editEcData} setEditEcData={setEditEcData}
-          ecForm={ecForm} setEcForm={setEcForm}
-          handleAddEC={handleAddEC} handleUpdateEC={handleUpdateEC} handleDeleteEC={handleDeleteEC}
-          startEditEC={startEditEC} cancelEditEC={cancelEditEC} isEcSubmitting={isEcSubmitting} errors={errors}
-          onSaveSuccess={fetchStructure}
-      />
-
+      <UeFormModal isOpen={modalOpen} onClose={() => setModalOpen(false)} editUE={editUE} form={form} setForm={setForm} errors={errors} isSubmitting={isSubmitting} handleSubmit={handleSubmit} semestresList={semestresList} selectedYearLabel={selectedYearLabel} nextUeId={nextUeId} maxCreditsAllowed={maxCreditsAllowed} />
+      <EcManagerModal isOpen={ecModalOpen} onClose={() => setEcModalOpen(false)} ue={selectedUEForEC} editingEcId={editingEcId} editEcData={editEcData} setEditEcData={setEditEcData} ecForm={ecForm} setEcForm={setEcForm} handleAddEC={handleAddEC} handleUpdateEC={handleUpdateEC} handleDeleteEC={handleDeleteEC} startEditEC={startEditEC} cancelEditEC={cancelEditEC} isEcSubmitting={isEcSubmitting} errors={errors} onSaveSuccess={fetchStructure} />
       <ConfirmModal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} title="Supprimer UE">
           <p>Confirmer la suppression de l'UE <b>{ueToDelete?.code}</b> pour l'année {selectedYearLabel} ?</p>
           <div className="flex justify-end gap-2 mt-4">
@@ -508,5 +377,4 @@ const ParcoursDetail = () => {
     </div>
   );
 };
-
 export default ParcoursDetail;

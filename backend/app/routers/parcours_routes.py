@@ -145,8 +145,7 @@ def get_parcours_structure(
         .all()
     )
     
-    # 3. Récupérer TOUTES les Maquettes pour ce parcours/année en une seule requête (Optimisation)
-    # On charge profondément : Maquette -> UE Catalog ET Maquette -> MaquetteEC -> EC Catalog
+    # 3. Récupérer TOUTES les Maquettes (UE -> EC -> Volumes)
     all_maquettes = (
         db.query(models.MaquetteUE)
         .filter(
@@ -157,15 +156,14 @@ def get_parcours_structure(
             joinedload(models.MaquetteUE.ue_catalog),
             joinedload(models.MaquetteUE.maquette_ecs)
                 .joinedload(models.MaquetteEC.ec_catalog),
-            # 👇 AJOUTEZ CES LIGNES 👇
             joinedload(models.MaquetteUE.maquette_ecs)
-                .joinedload(models.MaquetteEC.volumes_horaires) # Charge la liste des volumes
-                .joinedload(models.VolumeHoraire.type_enseignement) # Charge les noms (CM, TD...)
+                .joinedload(models.MaquetteEC.volumes_horaires) # Utilisation du nom correct
+                .joinedload(models.VolumeHoraire.type_enseignement)
         )
         .all()
     )
 
-    # 4. Organiser les maquettes par Semestre ID pour un accès rapide
+    # 4. Organisation par Semestre
     maquettes_by_semestre = {}
     for mq in all_maquettes:
         if mq.Semestre_id_fk not in maquettes_by_semestre:
@@ -179,32 +177,43 @@ def get_parcours_structure(
         if not niveau: continue
         
         semestres_data = []
-        # Tri des semestres (gestion robuste du tri string/int)
         sorted_semestres = sorted(
             niveau.semestres, 
-            key=lambda x: int(x.Semestre_numero) if x.Semestre_numero.isdigit() else x.Semestre_numero
+            key=lambda x: int(x.Semestre_numero) if str(x.Semestre_numero).isdigit() else x.Semestre_numero
         )
 
         for sem in sorted_semestres:
             ues_data = []
-            
-            # Récupération des UEs depuis notre dictionnaire pré-chargé
             maquettes_du_semestre = maquettes_by_semestre.get(sem.Semestre_id, [])
             
             for mq in maquettes_du_semestre:
-                if not mq.ue_catalog: continue # Sécurité intégrité
+                if not mq.ue_catalog: continue
 
-                # Construction des ECs
+                # Construction des ECs avec volumes formatés pour le front
                 ecs_data = []
                 for mec in mq.maquette_ecs:
                     if mec.ec_catalog:
+                        # ON PRÉPARE LES VOLUMES AVEC LES NOMS DE LA BDD (pour Pydantic)
+                        vols_pydantic = []
+                        for v in mec.volumes_horaires:
+                            vols_pydantic = []
+                            for v in mec.volumes_horaires:
+                                vols_pydantic.append({
+                                    "Volume_id": v.Volume_id,
+                                    "Volume_heures": float(v.Volume_heures), # Forcer en float
+                                    "TypeEnseignement_id_fk": v.TypeEnseignement_id_fk,
+                                    "MaquetteEC_id_fk": v.MaquetteEC_id_fk,
+                                    "type_enseignement_code": v.type_enseignement.TypeEnseignement_code if v.type_enseignement else "?"
+                                })
+
+                        # On crée l'objet StructureEC
                         ecs_data.append(schemas.StructureEC(
                             id=mec.MaquetteEC_id,
                             id_catalog=mec.ec_catalog.EC_id,
                             code=mec.ec_catalog.EC_code,
                             intitule=mec.ec_catalog.EC_intitule,
                             coefficient=float(mec.MaquetteEC_coefficient),
-                            volumes=mec.volumes_horaires
+                            volumes=vols_pydantic  # Pydantic va convertir "Volume_heures" en "heures" grâce aux alias
                         ))
                 
                 ecs_data.sort(key=lambda x: x.code)
