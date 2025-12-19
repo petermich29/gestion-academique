@@ -10,20 +10,16 @@ const formatHeures = (val) => {
 
 const getTypeEnseignementCode = (vol, typesEnseignement = []) => {
   if (!vol) return "?";
-
-  // Cas idéal : déjà fourni par l'API
   if (vol.type_enseignement_code) return vol.type_enseignement_code;
 
-  const typeId =
-    vol.type_enseignement_id ||
-    vol.TypeEnseignement_id_fk ||
-    vol.type_id;
+  const typeId = vol.type_enseignement_id || vol.TypeEnseignement_id_fk || vol.type_id;
 
-  const match = typesEnseignement.find(
-    t => String(t.id) === String(typeId)
+  const match = typesEnseignement.find(t => 
+    String(t.id) === String(typeId) || 
+    String(t.TypeEnseignement_id) === String(typeId)
   );
 
-  return match?.code || "?";
+  return match?.TypeEnseignement_code || match?.code || "?";
 };
 
 // --- COMPOSANT BADGE (Minimaliste) ---
@@ -55,6 +51,10 @@ export const StructureView = ({
   setDeleteModalOpen,
   typesEnseignement
 }) => {
+
+  if (!semestres || !Array.isArray(semestres)) {
+    return <div className="text-center py-10 text-gray-500">Chargement de la structure...</div>;
+  }
 
   return semestres.map((sem) => {
     const filteredUEs = sem.ues.filter(ue =>
