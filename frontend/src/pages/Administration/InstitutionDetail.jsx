@@ -138,21 +138,37 @@ const InstitutionDetail = () => {
   }, [institution, setBreadcrumb, institutionId, isLoading]);
 
   // --------------------------
-  // LOGIQUE DUPLICATION
+  // LOGIQUE DUPLICATION (CORRIGÉE)
   // --------------------------
   const handleDuplicate = async (e) => {
     e.preventDefault();
     if (!duplicateSourceYear || !duplicateTargetYear) {
-      addToast("Sélectionnez les deux années.", "error");
+      addToast("Sélectionnez les deux années (source et cible).", "error");
       return;
     }
+
+    if (duplicateSourceYear === duplicateTargetYear) {
+      addToast("L'année source et l'année cible doivent être différentes.", "error");
+      return;
+    }
+
     setIsDuplicating(true);
     setDuplicateStatus(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/institutions/${institutionId}/duplicate`, {
+      // 1. Vérifiez bien que l'URL correspond à votre routeur Backend
+      // Route Backend : POST /institutions/{id}/duplicate
+      const url = `${API_BASE_URL}/api/institutions/${institutionId}/duplicate`;
+      
+      console.log("Tentative duplication vers :", url); // Debug console
+
+      const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+            "Content-Type": "application/json",
+            // Ajoutez ceci si vous avez une auth (ex: JWT)
+            // "Authorization": `Bearer ${token}` 
+        },
         body: JSON.stringify({
           source_annee_id: duplicateSourceYear,
           target_annee_id: duplicateTargetYear
@@ -160,16 +176,20 @@ const InstitutionDetail = () => {
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Erreur duplication");
+      
+      if (!res.ok) {
+        throw new Error(data.detail || "Erreur lors de la duplication");
+      }
 
-      addToast("Structure dupliquée avec succès !");
+      addToast("Structure dupliquée avec succès !", "success"); // Type success explicite
       setDuplicateStatus(data.details);
       
-      // Rafraîchir si l'année cible est affichée
+      // Rafraîchir l'interface si l'année cible est actuellement affichée
       if (selectedYearsIds.includes(duplicateTargetYear)) {
-          setRefreshKey(k => k + 1);
+          setRefreshKey(prev => prev + 1);
       }
     } catch (err) {
+      console.error(err);
       addToast(err.message, "error");
     } finally {
       setIsDuplicating(false);
@@ -369,11 +389,14 @@ const InstitutionDetail = () => {
             {/* BOUTON DUPLICATION */}
             <button 
                 onClick={() => {
-                    const activeY = yearsList.find(y => y.AnneeUniversitaire_is_active);
-                    if(activeY) setDuplicateSourceYear(activeY.AnneeUniversitaire_id);
-                    setDuplicateTargetYear("");
-                    setDuplicateStatus(null);
-                    setDuplicateModalOpen(true);
+                    // Sécurité : on vérifie si yearsList existe avant de faire le .find()
+                    const activeY = yearsList?.find(y => y.AnneeUniversitaire_is_active);
+                    
+                    // On pré-remplit l'année source si on la trouve, sinon vide
+                    setDuplicateSourceYear(activeY ? activeY.AnneeUniversitaire_id : "");
+                    setDuplicateTargetYear(""); // Reset cible
+                    setDuplicateStatus(null);   // Reset status
+                    setDuplicateModalOpen(true); // Ouvre la modale
                 }}
                 className={`${AppStyles.button.secondary} flex items-center gap-1 bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100`}
                 title="Dupliquer la structure vers une autre année"
