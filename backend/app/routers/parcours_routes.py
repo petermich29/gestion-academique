@@ -155,7 +155,12 @@ def get_parcours_structure(
         )
         .options(
             joinedload(models.MaquetteUE.ue_catalog),
-            joinedload(models.MaquetteUE.maquette_ecs).joinedload(models.MaquetteEC.ec_catalog)
+            joinedload(models.MaquetteUE.maquette_ecs)
+                .joinedload(models.MaquetteEC.ec_catalog),
+            # 👇 AJOUTEZ CES LIGNES 👇
+            joinedload(models.MaquetteUE.maquette_ecs)
+                .joinedload(models.MaquetteEC.volumes_horaires) # Charge la liste des volumes
+                .joinedload(models.VolumeHoraire.type_enseignement) # Charge les noms (CM, TD...)
         )
         .all()
     )
@@ -198,7 +203,8 @@ def get_parcours_structure(
                             id_catalog=mec.ec_catalog.EC_id,
                             code=mec.ec_catalog.EC_code,
                             intitule=mec.ec_catalog.EC_intitule,
-                            coefficient=float(mec.MaquetteEC_coefficient)
+                            coefficient=float(mec.MaquetteEC_coefficient),
+                            volumes=mec.volumes_horaires
                         ))
                 
                 ecs_data.sort(key=lambda x: x.code)

@@ -25,8 +25,9 @@ from .academic_schemas import (
 from .maquette_schemas import (
     UniteEnseignementBase, UniteEnseignementSchema,
     ElementConstitutifBase, ElementConstitutifSchema,
-    MaquetteElementConstitutifSchema,  # <-- NOUVEL EXPORT
-    StructureUE, StructureEC, StructureSemestre, StructureNiveau
+    MaquetteElementConstitutifSchema, VolumeHoraireSchema, # <-- NOUVEL EXPORT
+    StructureUE, StructureEC, StructureSemestre, StructureNiveau,
+    BulkUpdateUeSchema, VolumeHoraireInput, MaquetteEcInput
 )
 from .etudiants_schemas import (
     # === CORRECTION MAJEURE: Garder seulement les schémas Etudiant ===

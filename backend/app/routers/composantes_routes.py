@@ -571,9 +571,9 @@ def duplicate_composante_structure(
                     ).first()
 
                     if not exists_pn:
-                        new_pn_id = f"PN_{uuid.uuid4().hex[:12]}"
+                        # CORRECTION ICI ÉGALEMENT
                         new_pn = ParcoursNiveau(
-                            ParcoursNiveau_id=new_pn_id,
+                            # ParcoursNiveau_id=... <-- SUPPRIMER CECI
                             Parcours_id_fk=parc.Parcours_id,
                             Niveau_id_fk=src_pn.Niveau_id_fk,
                             AnneeUniversitaire_id_fk=target_annee_id,

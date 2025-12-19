@@ -298,6 +298,35 @@ class ElementConstitutif(Base):
     maquettes_ec = relationship("MaquetteEC", back_populates="ec_catalog")
     notes = relationship("Note", back_populates="element_constitutif")
 
+    def appellation_complete(self, annee_univ_id=None):
+        """
+        Retourne une appellation du type :
+        'Mathématiques S4 MISS'
+        """
+        if not self.maquettes_ec:
+            return self.EC_intitule
+
+        # On prend la première maquette correspondante
+        maquette_ec = (
+            next(
+                (m for m in self.maquettes_ec
+                 if not annee_univ_id or m.maquette_ue.AnneeUniversitaire_id_fk == annee_univ_id),
+                None
+            )
+        )
+
+        if not maquette_ec:
+            return self.EC_intitule
+
+        ue = maquette_ec.maquette_ue
+        semestre = ue.semestre
+        parcours = ue.parcours
+
+        semestre_label = f"S{semestre.Semestre_numero}" if semestre else ""
+        parcours_label = parcours.Parcours_abbreviation or parcours.Parcours_code if parcours else ""
+
+        return f"{self.EC_intitule} {semestre_label} {parcours_label}".strip()
+
 
 class MaquetteUE(Base):
     __tablename__ = 'maquettes_ue'
@@ -824,6 +853,7 @@ class VolumeHoraire(Base):
     Volume_heures = Column(Numeric(5, 2), nullable=False)
 
     maquette_ec = relationship("MaquetteEC", back_populates="volumes_horaires")
+    type_enseignement = relationship("TypeEnseignement")
 
 
 class AttributionEnseignant(Base):

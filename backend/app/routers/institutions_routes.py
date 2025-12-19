@@ -553,13 +553,15 @@ def duplicate_institution_structure(
                         ).first()
 
                         if not exists_pn:
-                            new_pn_id = f"PN_{uuid.uuid4().hex[:12]}"
+                            # CORRECTION ICI : On retire la génération de new_pn_id
+                            # et le champ ParcoursNiveau_id qui n'existe pas dans le modèle.
+                            
                             new_pn = ParcoursNiveau(
-                                ParcoursNiveau_id=new_pn_id,
+                                # ParcoursNiveau_id=...  <-- LIGNE À SUPPRIMER
                                 Parcours_id_fk=parc.Parcours_id,
                                 Niveau_id_fk=src_pn.Niveau_id_fk,
                                 AnneeUniversitaire_id_fk=target_annee_id,
-                                ParcoursNiveau_ordre=getattr(src_pn, 'ParcoursNiveau_ordre', None) 
+                                ParcoursNiveau_ordre=getattr(src_pn, 'ParcoursNiveau_ordre', 0) 
                             )
                             db.add(new_pn)
                             results["parcours_niveaux_created"] += 1
