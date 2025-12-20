@@ -21,6 +21,8 @@ from app.models import (
     Institution
 )
 from app.schemas.inscriptions_schemas import InscriptionCreatePayload, InscriptionResponse, InscriptionUpdatePayload
+# app/routers/inscriptions_routes.py
+from app.services.inscription_service import InscriptionService # AJOUT
 
 router = APIRouter(prefix="/inscriptions", tags=["Dossiers d'Inscription"])
 
@@ -205,6 +207,14 @@ def create_bulk_dossiers(payload: InscriptionCreatePayload, db: Session = Depend
             
             is_new_inscription = False
             if not inscription:
+                # --- AJOUT DU CALCUL DE RÉGIME ICI ---
+                regime_detecte = InscriptionService.determiner_regime_inscription(
+                    db=db,
+                    etudiant_id=etu_id,
+                    parcours_id=payload.parcours_id,
+                    niveau_id=payload.niveau_id,
+                    annee_actuelle_id=payload.annee_id
+                )
                 inscription = Inscription(
                     Inscription_id=inscription_id,
                     DossierInscription_id_fk=dossier.DossierInscription_id,
@@ -212,7 +222,8 @@ def create_bulk_dossiers(payload: InscriptionCreatePayload, db: Session = Depend
                     Parcours_id_fk=payload.parcours_id,
                     Niveau_id_fk=payload.niveau_id,
                     ModeInscription_id_fk=mode_inscription_id_final,
-                    Inscription_date=date.today()
+                    Inscription_date=date.today(),
+                    Inscription_regime=regime_detecte
                 )
                 db.add(inscription)
                 db.flush()

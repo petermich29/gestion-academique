@@ -296,7 +296,6 @@ class ElementConstitutif(Base):
     EC_intitule = Column(String(255), nullable=False)
     
     maquettes_ec = relationship("MaquetteEC", back_populates="ec_catalog")
-    notes = relationship("Note", back_populates="element_constitutif")
 
     def appellation_complete(self, annee_univ_id=None):
         """
@@ -367,6 +366,8 @@ class MaquetteEC(Base):
     
     volumes_horaires = relationship("VolumeHoraire", back_populates="maquette_ec", cascade="all, delete-orphan")
     attributions = relationship("AttributionEnseignant", back_populates="maquette_ec", cascade="all, delete-orphan")
+
+    notes = relationship("Note", back_populates="maquette_ec")
 
 
 # ===================================================================
@@ -450,7 +451,6 @@ class AnneeUniversitaire(Base):
     AnneeUniversitaire_is_active = Column(Boolean, default=False, nullable=False)
 
     inscriptions = relationship("Inscription", back_populates="annee_univ")
-    notes_obtenues = relationship("Note", back_populates="annee_univ")
 
     def __repr__(self):
         etat = "ACTIVE" if self.AnneeUniversitaire_is_active else "INACTIVE"
@@ -489,10 +489,8 @@ class Etudiant(Base):
     Etudiant_scan_cin_path = Column(String(255), nullable=True)
     Etudiant_scan_releves_notes_bacc_path = Column(String(255), nullable=True)
 
-    notes_obtenues = relationship("Note", back_populates="etudiant")
     credits_cycles = relationship("SuiviCreditCycle", back_populates="etudiant")
-    resultats_ue = relationship("ResultatUE", back_populates="etudiant")
-    resultats_semestre = relationship("ResultatSemestre", back_populates="etudiant_resultat")
+
 
     dossiers_inscription = relationship("DossierInscription", back_populates="etudiant")
 
@@ -622,6 +620,18 @@ class Inscription(Base):
 
     Inscription_id = Column(String(120), primary_key=True)
 
+    # --- NOUVELLES COLONNES ---
+    # Stockage du statut au moment de l'inscription : 'PASSANT', 'REDOUBLANT', 'TRIPLAN'
+    Inscription_regime = Column(
+        String(20), 
+        CheckConstraint(
+            "\"Inscription_regime\" IN ('PASSANT', 'REDOUBLANT', 'TRIPLAN', 'AUTRE')", 
+            name='ck_inscription_regime'
+        ),
+        default='PASSANT',
+        nullable=False
+    )
+
     DossierInscription_id_fk = Column(
         String(120),
         ForeignKey('dossiers_inscription.DossierInscription_id'),
@@ -665,6 +675,25 @@ class Inscription(Base):
         cascade="all, delete-orphan"
     )
 
+    # --- LOGIQUE MÉTIER SUGGÉRÉE ---
+    def determiner_regime(self, historique_inscriptions):
+        """
+        Logique pour aider le backend à définir le régime lors de la création.
+        'historique_inscriptions' est la liste des inscriptions passées de l'étudiant.
+        """
+        doublons = [
+            i for i in historique_inscriptions 
+            if i.Parcours_id_fk == self.Parcours_id_fk 
+            and i.Niveau_id_fk == self.Niveau_id_fk
+            and i.AnneeUniversitaire_id_fk != self.AnneeUniversitaire_id_fk
+        ]
+        
+        if len(doublons) == 1:
+            return 'REDOUBLANT'
+        elif len(doublons) >= 2:
+            return 'TRIPLAN'
+        return 'PASSANT'
+
 
 class InscriptionSemestre(Base):
     __tablename__ = 'inscriptions_semestres'
@@ -704,84 +733,83 @@ class InscriptionSemestre(Base):
     inscription = relationship("Inscription", back_populates="semestres")
     semestre = relationship("Semestre")
 
+    notes = relationship("Note", back_populates="inscription_semestre")
+    resultats_ue = relationship("ResultatUE", back_populates="inscription_semestre")
+    resultats_semestre = relationship("ResultatSemestre", back_populates="inscription_semestre")
+
 
 class ResultatSemestre(Base):
     __tablename__ = 'resultats_semestre'
     __table_args__ = (
-        UniqueConstraint('Etudiant_id_fk', 'Semestre_id_fk', 'AnneeUniversitaire_id_fk', 'SessionExamen_id_fk', name='uq_resultat_semestre_session'),
+        UniqueConstraint('InscriptionSemestre_id_fk', 'SessionExamen_id_fk', name='uq_resultat_semestre_inscription_session'),
+        {'extend_existing': True}
     )
 
     ResultatSemestre_id = Column(String(50), primary_key=True)
-    Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
-    Semestre_id_fk = Column(String(10), ForeignKey('semestres.Semestre_id'), nullable=False)
-    AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
+    
+    # Simplification majeure : InscriptionSemestre contient déjà Etudiant + Annee + Semestre
+    InscriptionSemestre_id_fk = Column(String(120), ForeignKey('inscriptions_semestres.InscriptionSemestre_id'), nullable=False)
     SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)
 
-    ResultatSemestre_statut_validation = Column(String(5), nullable=False) # 'V', 'NV', 'AJ'
+    ResultatSemestre_statut_validation = Column(String(5), nullable=False) # VAL, NV, AJ
     ResultatSemestre_credits_acquis = Column(Numeric(4, 1))
     ResultatSemestre_moyenne_obtenue = Column(Numeric(4, 2))
 
-    etudiant_resultat = relationship("Etudiant", back_populates="resultats_semestre")
-    semestre = relationship("Semestre")
+    inscription_semestre = relationship("InscriptionSemestre", backref="resultats_semestre")
     session_examen = relationship("SessionExamen", back_populates="resultats_semestre_collection")
-    annee_univ = relationship("AnneeUniversitaire")
 
 
 class ResultatUE(Base):
     __tablename__ = 'resultats_ue'
     __table_args__ = (
-        # Unicité : Un étudiant a un seul résultat pour une Maquette donnée lors d'une session donnée
-        UniqueConstraint('Etudiant_id_fk', 'MaquetteUE_id_fk', 'SessionExamen_id_fk', name='uq_resultat_maquette_session'),
+        UniqueConstraint('InscriptionSemestre_id_fk', 'MaquetteUE_id_fk', 'SessionExamen_id_fk', name='uq_resultat_ue_inscription_session'),
+        {'extend_existing': True}
     )
 
     ResultatUE_id = Column(String(50), primary_key=True)
-
-    Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
     
-    # CHANGEMENT ICI : On pointe vers MaquetteUE au lieu de UE + Annee
-    # Cela inclut implicitement l'Année, le Parcours et les Crédits de référence
+    # On lie à l'inscription semestre (plus précis que Etudiant seul)
+    InscriptionSemestre_id_fk = Column(String(120), ForeignKey('inscriptions_semestres.InscriptionSemestre_id'), nullable=False)
+    
     MaquetteUE_id_fk = Column(String(50), ForeignKey('maquettes_ue.MaquetteUE_id'), nullable=False)
-    
     SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)
 
     ResultatUE_moyenne = Column(Numeric(4, 2), nullable=False)
     ResultatUE_is_acquise = Column(Boolean, default=False, nullable=False)
-    
-    # On garde le crédit obtenu ici (stockage du résultat acquis), 
-    # même si la valeur de référence (crédit total possible) est dans maquette_ue.MaquetteUE_credit
     ResultatUE_credit_obtenu = Column(Integer, default=0, nullable=False)
 
-    etudiant = relationship("Etudiant", back_populates="resultats_ue")
-    session = relationship("SessionExamen", back_populates="resultats_ue_session")
-    
-    # NOUVELLE RELATION
+    inscription_semestre = relationship("InscriptionSemestre", backref="resultats_ue")
     maquette_ue = relationship("MaquetteUE", back_populates="resultats")
-
-    # Note : On supprime les relations directes vers 'unite_enseignement' et 'annee_univ'
-    # car elles sont accessibles via self.maquette_ue.ue_catalog et self.maquette_ue.annee
+    session = relationship("SessionExamen", back_populates="resultats_ue_session")
 
 
 class Note(Base):
     __tablename__ = 'notes'
     __table_args__ = (
+        # Unicité: Pour une inscription donnée, un EC précis (Maquette) et une Session
         UniqueConstraint(
-            'Etudiant_id_fk', 'EC_id_fk', 'AnneeUniversitaire_id_fk', 'SessionExamen_id_fk',
-            name='uq_etudiant_ec_annee_session'
+            'InscriptionSemestre_id_fk', 'MaquetteEC_id_fk', 'SessionExamen_id_fk',
+            name='uq_note_inscription_maquette_session'
         ),
         {'extend_existing': True}
     )
 
     Note_id = Column(String(50), primary_key=True)
-    Etudiant_id_fk = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
-    EC_id_fk = Column(String(50), ForeignKey('elements_constitutifs_catalog.EC_id'), nullable=False)
-    AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
+    
+    # Lien vers le contexte administratif (Qui, Quelle année, Quel Semestre)
+    InscriptionSemestre_id_fk = Column(String(120), ForeignKey('inscriptions_semestres.InscriptionSemestre_id'), nullable=False)
+    
+    # Lien vers le contexte pédagogique (Quel cours, quel coeff, quel crédit)
+    MaquetteEC_id_fk = Column(String(50), ForeignKey('maquettes_ec.MaquetteEC_id'), nullable=False)
+    
+    # Lien vers le moment de l'évaluation
     SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False)
 
     Note_valeur = Column(Numeric(5, 2), nullable=False)
 
-    etudiant = relationship("Etudiant", back_populates="notes_obtenues")
-    element_constitutif = relationship("ElementConstitutif", back_populates="notes")
-    annee_univ = relationship("AnneeUniversitaire", back_populates="notes_obtenues")
+    # Relations
+    inscription_semestre = relationship("InscriptionSemestre", backref="notes")
+    maquette_ec = relationship("MaquetteEC", back_populates="notes")
     session = relationship("SessionExamen", back_populates="notes_session")
 
 

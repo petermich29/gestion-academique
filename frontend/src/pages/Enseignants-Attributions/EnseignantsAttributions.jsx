@@ -31,16 +31,6 @@ export default function EnseignantsAttributions() {
 
             {/* Onglets */}
             <div className="flex gap-4 border-b border-gray-200 mt-4">
-                <button
-                    onClick={() => setActiveTab("attributions")}
-                    className={`pb-3 px-2 flex items-center gap-2 font-bold text-sm border-b-2 transition-all ${
-                        activeTab === "attributions"
-                            ? "text-blue-600 border-blue-600"
-                            : "text-gray-500 border-transparent hover:text-gray-700"
-                    }`}
-                >
-                    <FaNetworkWired className="text-lg" /> Attributions & Charges
-                </button>
 
                 <button
                     onClick={() => setActiveTab("enseignants")}
@@ -52,6 +42,18 @@ export default function EnseignantsAttributions() {
                 >
                     <FaChalkboardTeacher className="text-lg" /> Enseignants (Annuaire)
                 </button>
+                <button
+                    onClick={() => setActiveTab("attributions")}
+                    className={`pb-3 px-2 flex items-center gap-2 font-bold text-sm border-b-2 transition-all ${
+                        activeTab === "attributions"
+                            ? "text-blue-600 border-blue-600"
+                            : "text-gray-500 border-transparent hover:text-gray-700"
+                    }`}
+                >
+                    <FaNetworkWired className="text-lg" /> Attributions & Charges
+                </button>
+
+                
             </div>
 
             {/* Sous-pages */}

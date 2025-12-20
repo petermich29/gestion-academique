@@ -13,17 +13,17 @@ export const TeacherSelector = ({ selectedTeacher, onSelect, teachersList }) => 
 
     // Normalisation robuste des données
     // Dans TeacherSelector.jsx
-    const getTeacherInfo = (t) => {
-        if (!t) return { nom: "", photo: null, statut: null, affiliation: null };
-        
-        return {
-            nom: t.enseignant_nom || t.Enseignant_nom || 
-                (t.Enseignant_prenoms ? `${t.Enseignant_nom} ${t.Enseignant_prenoms}` : null) || "Inconnu",
-            photo: t.enseignant_photo || t.Enseignant_photo_profil_path || null,
-            statut: t.enseignant_statut || t.Enseignant_statut, // Récupère le statut
-            affiliation: t.enseignant_affiliation || t.affiliation // Récupère l'affiliation
+        const getTeacherInfo = (t) => {
+            if (!t) return { nom: "", photo: null, statut: null, affiliation: null };
+            
+            return {
+                nom: t.enseignant_nom || t.Enseignant_nom || 
+                    (t.Enseignant_prenoms ? `${t.Enseignant_nom} ${t.Enseignant_prenoms}` : null) || "Inconnu",
+                photo: t.enseignant_photo || t.Enseignant_photo_profil_path || null,
+                statut: t.enseignant_statut || t.Enseignant_statut, // Récupère le statut
+                affiliation: t.enseignant_affiliation || t.affiliation // Récupère l'affiliation
+            };
         };
-    };
 
     const info = getTeacherInfo(selectedTeacher);
 
