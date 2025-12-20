@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from models import Note, MaquetteEC, ResultatUE #
+from app.models import Note, MaquetteEC, ResultatUE #
 
 class NotesService:
     @staticmethod

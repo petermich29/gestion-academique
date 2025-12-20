@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
-from models import Inscription, InscriptionSemestre, AnneeUniversitaire, DossierInscription
+from app.models import Inscription, InscriptionSemestre, AnneeUniversitaire, DossierInscription
 
 class InscriptionService:
     @staticmethod

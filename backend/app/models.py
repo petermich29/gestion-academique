@@ -755,8 +755,10 @@ class ResultatSemestre(Base):
     ResultatSemestre_credits_acquis = Column(Numeric(4, 1))
     ResultatSemestre_moyenne_obtenue = Column(Numeric(4, 2))
 
-    inscription_semestre = relationship("InscriptionSemestre", backref="resultats_semestre")
+    inscription_semestre = relationship("InscriptionSemestre", back_populates="resultats_semestre")
     session_examen = relationship("SessionExamen", back_populates="resultats_semestre_collection")
+
+    
 
 
 class ResultatUE(Base):
@@ -778,7 +780,7 @@ class ResultatUE(Base):
     ResultatUE_is_acquise = Column(Boolean, default=False, nullable=False)
     ResultatUE_credit_obtenu = Column(Integer, default=0, nullable=False)
 
-    inscription_semestre = relationship("InscriptionSemestre", backref="resultats_ue")
+    inscription_semestre = relationship("InscriptionSemestre", back_populates="resultats_ue")
     maquette_ue = relationship("MaquetteUE", back_populates="resultats")
     session = relationship("SessionExamen", back_populates="resultats_ue_session")
 
@@ -808,7 +810,7 @@ class Note(Base):
     Note_valeur = Column(Numeric(5, 2), nullable=False)
 
     # Relations
-    inscription_semestre = relationship("InscriptionSemestre", backref="notes")
+    inscription_semestre = relationship("InscriptionSemestre", back_populates="notes")
     maquette_ec = relationship("MaquetteEC", back_populates="notes")
     session = relationship("SessionExamen", back_populates="notes_session")
 

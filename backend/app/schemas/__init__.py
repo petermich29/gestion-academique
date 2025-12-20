@@ -51,6 +51,8 @@ from .results_schemas import (
 
 from .inscriptions_schemas import InscriptionCreatePayload, InscriptionResponse
 
+from .notes_schemas import ColonneEC, ColonneUE, GrilleResponse, GrilleStructure, ResultatUEData, EtudiantGrilleRow, NoteInput
+
 # ==========================================
 # RÉSOLUTION DES DÉPENDANCES CIRCULAIRES
 # ==========================================

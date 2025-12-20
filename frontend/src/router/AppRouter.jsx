@@ -21,6 +21,7 @@ import EtudiantsInscriptions from "../pages/Etudiants-Inscriptions/EtudiantsInsc
 import EnseingnantsAttributions from "../pages/Enseignants-Attributions/EnseignantsAttributions";
 
 // Notes
+import GestionNotes from "../pages/GestionNotes/GestionNotes";
 
 // Services
 
@@ -59,6 +60,9 @@ const AppRouter = () => (
 
         {/* Enseignants et attriutions */}
         <Route path="/enseignants-attributions" element={<EnseingnantsAttributions />} />
+
+        {/* Notes */}
+        <Route path="/gestion-notes" element={<GestionNotes />} />
 
         {/* Métadonnées */}
         <Route path="/metadonnees" element={<Metadonnees />} />
