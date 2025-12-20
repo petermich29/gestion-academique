@@ -12,16 +12,17 @@ export const TeacherSelector = ({ selectedTeacher, onSelect, teachersList }) => 
     const dropdownRef = useRef(null);
 
     // Normalisation robuste des données
+    // Dans TeacherSelector.jsx
     const getTeacherInfo = (t) => {
-        if (!t) return { nom: "", photo: null };
-        // On cherche toutes les variantes possibles de clés venant de l'API ou du Frontend
-        const nom = t.enseignant_nom || t.Enseignant_nom || 
-                    (t.Enseignant_prenoms ? `${t.Enseignant_nom} ${t.Enseignant_prenoms}` : null) || 
-                    t.nom || "Inconnu";
+        if (!t) return { nom: "", photo: null, statut: null, affiliation: null };
         
-        const photo = t.enseignant_photo || t.Enseignant_photo_profil_path || t.photo || null;
-        
-        return { nom, photo };
+        return {
+            nom: t.enseignant_nom || t.Enseignant_nom || 
+                (t.Enseignant_prenoms ? `${t.Enseignant_nom} ${t.Enseignant_prenoms}` : null) || "Inconnu",
+            photo: t.enseignant_photo || t.Enseignant_photo_profil_path || null,
+            statut: t.enseignant_statut || t.Enseignant_statut, // Récupère le statut
+            affiliation: t.enseignant_affiliation || t.affiliation // Récupère l'affiliation
+        };
     };
 
     const info = getTeacherInfo(selectedTeacher);

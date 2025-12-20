@@ -24,8 +24,10 @@ class AttributionViewItem(BaseModel):
     enseignant_id: Optional[str]
     enseignant_nom: Optional[str]
     enseignant_photo: Optional[str]
+    enseignant_statut: Optional[str]      # Nouveau
+    enseignant_affiliation: Optional[str] # Nouveau
     type_id: str
-    type_label: str  # Ce champ est maintenant garanti
+    type_label: str
     heures: float
 
 class ECViewItem(BaseModel):
@@ -64,52 +66,63 @@ def get_attribution_matrix(
         for mec in mue.maquette_ecs:
             slots_data = []
             
-            # 3. Récupérer les volumes avec le JOIN sur TypeEnseignement pour avoir Label et Code
+            # 2. Récupérer les volumes horaires
             volumes = db.query(models.VolumeHoraire)\
                 .options(joinedload(models.VolumeHoraire.type_enseignement))\
                 .filter(models.VolumeHoraire.MaquetteEC_id_fk == mec.MaquetteEC_id)\
                 .all()
 
-            # 4. Récupérer les attributions existantes
+            # 3. Récupérer les attributions avec les relations CORRECTES :
+            # Enseignant -> composante_attachement -> institution
             attributions = db.query(models.AttributionEnseignant).filter(
                 models.AttributionEnseignant.MaquetteEC_id_fk == mec.MaquetteEC_id
-            ).options(joinedload(models.AttributionEnseignant.enseignant)).all()
+            ).options(
+                joinedload(models.AttributionEnseignant.enseignant).joinedload(
+                    models.Enseignant.composante_attachement
+                ).joinedload(
+                    models.Composante.institution
+                )
+            ).all()
             
             attr_map = {attr.TypeEnseignement_id_fk: attr for attr in attributions}
 
             for vol in volumes:
                 existing_attr = attr_map.get(vol.TypeEnseignement_id_fk)
                 
-                ens_id = None
-                ens_nom = None
-                ens_photo = None
+                ens_id = ens_nom = ens_photo = ens_statut = ens_affiliation = None
                 attr_id = None
 
                 if existing_attr and existing_attr.enseignant:
-                    ens_id = existing_attr.enseignant.Enseignant_id
-                    ens_nom = f"{existing_attr.enseignant.Enseignant_nom} {existing_attr.enseignant.Enseignant_prenoms or ''}"
-                    ens_photo = existing_attr.enseignant.Enseignant_photo_profil_path
+                    e = existing_attr.enseignant
+                    ens_id = e.Enseignant_id
+                    ens_nom = f"{e.Enseignant_nom} {e.Enseignant_prenoms or ''}"
+                    ens_photo = e.Enseignant_photo_profil_path
+                    ens_statut = e.Enseignant_statut
                     attr_id = existing_attr.Attribution_id
 
-                # --- CONSTRUCTION DU LABEL ---
-                # On veut : "Cours Magistral (CM)" ou juste "CM" selon vos préférences
-                display_label = vol.TypeEnseignement_id_fk # fallback
-                
+                    # Construction de l'affiliation si Permanent
+                    if e.Enseignant_statut == 'PERM' and e.composante_attachement:
+                        comp = e.composante_attachement
+                        inst_nom = comp.institution.Institution_nom if comp.institution else ""
+                        # Format: "Université de Toamasina (Faculté des Sciences)"
+                        ens_affiliation = f"{inst_nom} ({comp.Composante_label})" if inst_nom else comp.Composante_label
+
+                # Construction du label du type d'enseignement
+                display_label = vol.TypeEnseignement_id_fk
                 if vol.type_enseignement:
                     label = vol.type_enseignement.TypeEnseignement_label
                     code = vol.type_enseignement.TypeEnseignement_code
-                    # Option A: Label (Code)
                     display_label = f"{label} ({code})" if code else label
-                    # Option B: Juste le Code (Décommentez la ligne ci-dessous si vous préférez)
-                    # display_label = code if code else label
 
                 slots_data.append(AttributionViewItem(
                     attribution_id=attr_id,
                     enseignant_id=ens_id,
                     enseignant_nom=ens_nom,
                     enseignant_photo=ens_photo,
+                    enseignant_statut=ens_statut,
+                    enseignant_affiliation=ens_affiliation,
                     type_id=vol.TypeEnseignement_id_fk,
-                    type_label=display_label, # On envoie le texte formaté ici
+                    type_label=display_label,
                     heures=vol.Volume_heures
                 ))
             

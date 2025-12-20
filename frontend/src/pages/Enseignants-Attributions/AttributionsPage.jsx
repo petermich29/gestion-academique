@@ -223,21 +223,28 @@ export default function AttributionsPage() {
     // Helpers d'affichage
     const getDisplayTeacher = (slot, ecId) => {
         const key = `${ecId}_${slot.type_id}`;
+        
+        // 1. Si on a une modification locale (en attente)
         if (pendingChanges[key] !== undefined) {
-            // Afficher la version "Brouillon"
-            const local = pendingChanges[key].teacher;
-            return local ? { 
-                id: local.Enseignant_id, 
-                nom: `${local.Enseignant_nom} ${local.Enseignant_prenoms || ''}`,
-                photo: local.Enseignant_photo_profil_path 
-            } : null;
+            // On retourne l'objet enseignant complet tel qu'il est dans teachersList
+            // pour que TeacherSelector puisse le normaliser lui-même
+            return pendingChanges[key].teacher; 
         }
-        // Sinon afficher la version "Base de données"
-        return slot.enseignant_id ? { 
-            id: slot.enseignant_id, 
-            nom: slot.enseignant_nom,
-            photo: slot.enseignant_photo 
-        } : null;
+        
+        // 2. Sinon, si on a un enseignant déjà enregistré en base
+        if (slot.enseignant_id) {
+            // On crée un objet compatible avec la normalisation de TeacherSelector
+            return { 
+                enseignant_id: slot.enseignant_id, 
+                enseignant_nom: slot.enseignant_nom,
+                enseignant_photo: slot.enseignant_photo,
+                // On ajoute les autres champs pour les badges de statut
+                enseignant_statut: slot.enseignant_statut,
+                enseignant_affiliation: slot.enseignant_affiliation
+            };
+        }
+        
+        return null;
     };
 
     const isSlotModified = (slot, ecId) => {
@@ -342,7 +349,10 @@ export default function AttributionsPage() {
                                                 {ec.slots.map(slot => {
                                                     const displayTeacher = getDisplayTeacher(slot, ec.ec_id);
                                                     const isModified = isSlotModified(slot, ec.ec_id);
-                                                    
+
+                                                    // Récupération des données étendues (depuis le slot API ou le pending change)
+                                                    const teacherStatut = displayTeacher?.statut || slot.enseignant_statut;
+                                                    const teacherAffiliation = displayTeacher?.affiliation || slot.enseignant_affiliation;
                                                     // Détermination couleur badge
                                                     // "CM" ou "TYEN_CM", on vérifie grossièrement la string
                                                     const typeStr = (slot.type_id || "").toUpperCase();
@@ -367,6 +377,22 @@ export default function AttributionsPage() {
                                                                     <span className={`text-xs font-bold px-2 py-0.5 rounded text-white whitespace-nowrap ${badgeColor}`}>
                                                                         {slot.type_label || slot.type_id}
                                                                     </span>
+                                                                    {/* BADGE STATUT */}
+                                                                    {teacherStatut === 'PERM' ? (
+                                                                        teacherAffiliation ? (
+                                                                            <div className="text-[10px] text-gray-500 italic flex items-center gap-1 leading-tight animate-fadeIn">
+                                                                                <FaUniversity className="shrink-0 text-blue-400/60" size={10} />
+                                                                                <span className="truncate" title={teacherAffiliation}>{teacherAffiliation}</span>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span className="text-[9px] text-gray-400 italic">Affiliation non renseignée</span>
+                                                                        )
+                                                                    ) : teacherStatut === 'VAC' ? (
+                                                                        <div className="text-[10px] text-amber-600/80 flex items-center gap-1 font-medium">
+                                                                            <span className="w-1 h-1 rounded-full bg-amber-400"></span>
+                                                                            Prestataire externe (Vacataire)
+                                                                        </div>
+                                                                    ) : null}
                                                                     <span className="text-xs text-gray-500 font-medium">{slot.heures}h</span>
                                                                 </div>
                                                                 {displayTeacher && (
@@ -380,6 +406,14 @@ export default function AttributionsPage() {
                                                                 // On modifie l'état LOCAL (pendingChanges)
                                                                 onSelect={(t) => handleLocalAssign(ec.ec_id, slot.type_id, t)}
                                                             />
+
+                                                            {/* AFFICHAGE AFFILIATION */}
+                                                            {teacherStatut === 'PERM' && teacherAffiliation && (
+                                                                <div className="mt-2 text-[10px] text-gray-500 italic flex items-center gap-1 leading-tight">
+                                                                    <FaUniversity className="shrink-0 text-gray-400" size={8} />
+                                                                    <span className="truncate">{teacherAffiliation}</span>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
