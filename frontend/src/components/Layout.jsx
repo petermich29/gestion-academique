@@ -21,7 +21,7 @@ const LayoutContent = ({ sidebarOpen, setSidebarOpen, menuTitle, setMenuTitle })
         onMenuChange={(label) => setMenuTitle(label)}
       />
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Navbar
           toggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           menuTitle={menuTitle}

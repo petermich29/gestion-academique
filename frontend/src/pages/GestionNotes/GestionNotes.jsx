@@ -1,6 +1,6 @@
 // src/pages/GestionNotes/GestionNotesPage.jsx
 import React, { useState, useEffect, useCallback } from "react";
-import { FaFilter, FaSpinner, FaCalculator, FaFileExcel, FaSave } from "react-icons/fa";
+import { FaFilter, FaSpinner, FaCalculator } from "react-icons/fa";
 import { NotesTable } from "./components/NotesTable";
 
 // CHANGEZ L'URL SI BESOIN
@@ -27,18 +27,16 @@ const FilterSelect = ({ label, value, onChange, options, disabled = false }) => 
 export default function GestionNotes() {
     const [filters, setFilters] = useState({
         annee: "", institution: "", composante: "", 
-        mention: "", parcours: "", niveau: "", semestre: "",
-        session: "SESS_01" // ID de session par défaut (Normale)
+        mention: "", parcours: "", niveau: "", semestre: ""
     });
     
     const [options, setOptions] = useState({ 
         annees: [], institutions: [], composantes: [], 
-        mentions: [], parcours: [], niveaux: [], semestres: [], sessions: []
+        mentions: [], parcours: [], niveaux: [], semestres: []
     });
 
     const [gridData, setGridData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [isCalculating, setIsCalculating] = useState(false);
 
     // 1. Initialisation
     useEffect(() => {
@@ -49,12 +47,6 @@ export default function GestionNotes() {
                     fetch(`${API_BASE_URL}/institutions/`)
                 ]);
                 
-                // Mettre vos IDs de session réels ici
-                const sessionsFake = [
-                    { id: "SESS_01", label: "Session Normale" },
-                    { id: "SESS_02", label: "Rattrapage" }
-                ];
-
                 const annees = await resA.json();
                 const insts = await resI.json();
 
@@ -62,7 +54,6 @@ export default function GestionNotes() {
                     ...prev,
                     annees: annees.map(a => ({ id: a.AnneeUniversitaire_id, label: a.AnneeUniversitaire_annee, active: a.AnneeUniversitaire_is_active })),
                     institutions: insts.map(i => ({ id: i.Institution_id, label: i.Institution_nom })),
-                    sessions: sessionsFake
                 }));
 
                 const active = annees.find(a => a.AnneeUniversitaire_is_active);
@@ -73,7 +64,7 @@ export default function GestionNotes() {
         loadInit();
     }, []);
 
-    // 2. Cascades
+    // 2. Cascades (inchangées)
     useEffect(() => {
         if (!filters.institution) return;
         fetch(`${API_BASE_URL}/composantes/institution?institution_id=${filters.institution}`)
@@ -111,34 +102,43 @@ export default function GestionNotes() {
 
     // 3. Chargement Grille
     const loadGrille = useCallback(async () => {
-        if (!filters.annee || !filters.parcours || !filters.semestre || !filters.session) return;
+        if (!filters.annee || !filters.parcours || !filters.semestre) return;
         
         setIsLoading(true);
         try {
+            // CORRECTION ICI : On ajoute session_id pour éviter l'erreur 422
+            // On force "SESS_01" (Session Normale) par défaut pour satisfaire le backend
             const params = new URLSearchParams({
                 annee_id: filters.annee,
                 parcours_id: filters.parcours,
                 semestre_id: filters.semestre,
-                session_id: filters.session
+                session_id: "SESS_01" 
             });
+
             const res = await fetch(`${API_BASE_URL}/notes/grille?${params}`);
+            
             if (res.ok) {
                 const data = await res.json();
                 setGridData(data);
+            } else {
+                console.error("Erreur chargement grille", res.status);
             }
         } catch (err) { console.error(err); } 
         finally { setIsLoading(false); }
-    }, [filters.annee, filters.parcours, filters.semestre, filters.session]);
+    }, [filters.annee, filters.parcours, filters.semestre]);
 
     useEffect(() => { loadGrille(); }, [loadGrille]);
 
     // 4. Handlers
-    const handleNoteChange = async (etudiantId, ecId, newValue) => {
+    const handleNoteChange = async (etudiantId, ecId, newValue, sessionCode) => {
         // Optimistic UI update
         setGridData(prev => {
             const clone = JSON.parse(JSON.stringify(prev));
             const row = clone.donnees.find(r => r.etudiant_id === etudiantId);
-            if(row) row.notes[ecId] = newValue;
+            if(row) {
+                if(!row.notes[ecId]) row.notes[ecId] = {};
+                row.notes[ecId][sessionCode] = newValue;
+            }
             return clone;
         });
 
@@ -149,7 +149,7 @@ export default function GestionNotes() {
                 body: JSON.stringify({
                     etudiant_id: etudiantId,
                     maquette_ec_id: ecId,
-                    session_id: filters.session,
+                    session_id: sessionCode, // On utilise bien le code de la colonne modifiée (SESS_01 ou SESS_02)
                     valeur: newValue,
                     annee_id: filters.annee,
                     semestre_id: filters.semestre,
@@ -163,9 +163,10 @@ export default function GestionNotes() {
     };
 
     return (
-        <div className="p-6 bg-gray-50 min-h-screen">
+        // Structure Flex pour gérer la hauteur correcte
+        <div className="flex flex-col h-[calc(100vh-80px)] p-6 bg-gray-50 overflow-hidden">
             {/* Filtres */}
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-4 shrink-0">
                 <div className="flex items-center gap-2 mb-4 text-blue-800 border-b border-gray-100 pb-3">
                     <div className="bg-blue-100 p-2 rounded-lg"><FaFilter className="text-blue-600" /></div>
                     <h1 className="text-lg font-bold tracking-tight">Saisie des Notes & Résultats</h1>
@@ -184,37 +185,25 @@ export default function GestionNotes() {
 
             {/* Actions & Tableau */}
             {gridData && (
-                <div className="animate-fadeIn">
-                    <div className="flex justify-between items-center mb-4">
-                        <div className="flex items-center gap-3 bg-white px-4 py-2 rounded-lg border border-gray-200 shadow-sm">
-                             <span className="text-sm font-bold text-gray-600 uppercase">Session active :</span>
-                             <select 
-                                value={filters.session} 
-                                onChange={e => setFilters(f => ({...f, session: e.target.value}))}
-                                className="bg-blue-50 text-blue-800 font-bold text-sm px-3 py-1 rounded border border-blue-200 focus:outline-none"
-                             >
-                                {options.sessions.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                             </select>
-                        </div>
-                        
-                        <div className="flex gap-3">
-                            <button 
-                                disabled
-                                className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg shadow-md hover:bg-indigo-700 transition opacity-50 cursor-not-allowed"
-                                title="À implémenter côté backend"
-                            >
-                                <FaCalculator /> Calculer Moyennes
-                            </button>
-                        </div>
+                <div className="flex flex-col flex-1 min-h-0 animate-fadeIn">
+                    <div className="flex justify-end items-center mb-4 shrink-0">
+                        <button 
+                            disabled
+                            className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg shadow-md hover:bg-indigo-700 transition opacity-50 cursor-not-allowed"
+                        >
+                            <FaCalculator /> Calculer Moyennes
+                        </button>
                     </div>
 
                     {isLoading ? (
-                        <div className="h-64 flex flex-col items-center justify-center text-gray-400">
+                        <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
                             <FaSpinner className="text-4xl animate-spin mb-2" />
                             <span className="text-sm font-medium">Chargement des notes...</span>
                         </div>
                     ) : (
-                        <div className="h-[65vh]">
+                        // Conteneur principal qui force le tableau à prendre l'espace restant
+                        // overflow-hidden ici est crucial pour que le scroll interne du tableau prenne le relais
+                        <div className="flex-1 w-full relative bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
                             <NotesTable 
                                 structure={gridData.structure}
                                 students={gridData.donnees}
