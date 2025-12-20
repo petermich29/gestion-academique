@@ -30,6 +30,7 @@ class EtudiantGrilleRow(BaseModel):
     etudiant_id: str
     nom: str
     prenoms: Optional[str]
+    matricule: Optional[str] = "N/A"
     photo_url: Optional[str] = None
     
     # Clé = MaquetteEC_id, Valeur = Note (float)

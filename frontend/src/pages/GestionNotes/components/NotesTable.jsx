@@ -51,7 +51,6 @@ const SortableUeHeader = ({ ue, activeSessions, showDetails }) => {
 export const NotesTable = ({ structure, students, onNoteChange, readOnly = false }) => {
     const [orderedUes, setOrderedUes] = useState([]);
     const [showUeDetails, setShowUeDetails] = useState(true);
-    // On garde l'état des sessions ici, ce qui correspond à votre demande de "checkbox multiple"
     const [activeSessions, setActiveSessions] = useState(["SESS_01", "SESS_02"]);
     const [pinnedStudents, setPinnedStudents] = useState(true);
     const [pinnedResults, setPinnedResults] = useState(true);
@@ -89,7 +88,6 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
     const colUeValWidth = 40;
 
     return (
-        // Structure ajustée pour le scroll
         <div className="flex flex-col h-full w-full">
             {/* TOOLBAR */}
             <div className="px-4 py-3 bg-white border-b border-gray-200 flex justify-between items-center z-50 shrink-0">
@@ -143,10 +141,13 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                 {orderedUes.map(ue => (
                                     <React.Fragment key={`h2-${ue.id}`}>
                                         {ue.ecs.map((ec, idx) => (
-                                            <th key={ec.id} colSpan={activeSessions.length} className={`border-l border-b border-gray-200 px-1 text-center min-w-[90px] ${idx === ue.ecs.length - 1 && !showUeDetails ? 'border-r border-r-gray-300' : ''}`}>
-                                                <div className="flex flex-col items-center">
-                                                    <span className="text-[10px] font-bold text-slate-700 leading-tight">{ec.code}</span>
-                                                    <span className="text-[8px] font-semibold text-slate-500 bg-slate-50 px-1.5 rounded border border-slate-200">Coef. {ec.coefficient || 1}</span>
+                                            /* MODIF: min-w augmenté à 130px pour donner de la place */
+                                            <th key={ec.id} colSpan={activeSessions.length} className={`border-l border-b border-gray-200 px-2 text-center min-w-[130px] ${idx === ue.ecs.length - 1 && !showUeDetails ? 'border-r border-r-gray-300' : ''}`}>
+                                                <div className="flex flex-col items-center gap-1">
+                                                    {/* MODIF: Text plus grand (text-xs au lieu de text-[10px]) */}
+                                                    <span className="text-xs font-bold text-slate-700 leading-tight">{ec.code}</span>
+                                                    {/* MODIF: Coef plus grand (text-[10px] au lieu de text-[8px]) */}
+                                                    <span className="text-[10px] font-semibold text-slate-500 bg-slate-50 px-2 rounded border border-slate-200">Coef. {ec.coefficient || 1}</span>
                                                 </div>
                                             </th>
                                         ))}
@@ -207,8 +208,9 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                             <span className="text-xs font-bold text-slate-800 uppercase truncate w-[190px]">
                                                 {student.nom} {student.prenoms}
                                             </span>
+                                            {/* MODIF: Ajout de fallbacks si le champ matricule s'appelle différemment */}
                                             <span className="text-[10px] font-mono text-slate-400">
-                                                #{student.matricule || "N/A"}
+                                                N°CE: {student.matricule || student.numero_dossier || student.dossier_numero || "N/A"}
                                             </span>
                                         </div>
                                     </div>
