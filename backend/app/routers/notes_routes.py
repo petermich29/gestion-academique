@@ -1,12 +1,14 @@
 # app/routers/notes_routes.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
+
 from typing import List, Optional
 import uuid
 
 from app.database import get_db
 from app import models
 from app.schemas import notes_schemas
+from app.services.notes_service import NotesService
 
 # Assurez-vous que ce prefix est bien utilisé dans main.py
 # app.include_router(notes_routes.router, prefix="/api") 
@@ -146,7 +148,6 @@ def save_note(payload: notes_schemas.NoteInput, db: Session = Depends(get_db)):
         # Création auto si manque (optionnel, selon règles métier)
         raise HTTPException(404, "L'étudiant n'est pas inscrit administrativement à ce semestre.")
 
-    # 2. Chercher la note existante
     existing_note = db.query(models.Note).filter(
         models.Note.InscriptionSemestre_id_fk == insc_semestre.InscriptionSemestre_id,
         models.Note.MaquetteEC_id_fk == payload.maquette_ec_id,
@@ -154,11 +155,9 @@ def save_note(payload: notes_schemas.NoteInput, db: Session = Depends(get_db)):
     ).first()
 
     if payload.valeur is None:
-        # Suppression
         if existing_note:
             db.delete(existing_note)
     else:
-        # Upsert
         if existing_note:
             existing_note.Note_valeur = payload.valeur
         else:
@@ -173,8 +172,42 @@ def save_note(payload: notes_schemas.NoteInput, db: Session = Depends(get_db)):
             db.add(new_note)
 
     try:
+        db.flush()
+        # Recalcule tout pour cet étudiant (UEs + Semestre)
+        NotesService.recalculer_tout(db, insc_semestre.InscriptionSemestre_id, payload.session_id)
         db.commit()
-        return {"message": "Sauvegardé"}
+
+        # Récupération des nouveaux résultats d'UE
+        res_ue_dict = {}
+        resultats_ues = db.query(models.ResultatUE).filter(
+            models.ResultatUE.InscriptionSemestre_id_fk == insc_semestre.InscriptionSemestre_id,
+            models.ResultatUE.SessionExamen_id_fk == payload.session_id
+        ).all()
+        
+        for r in resultats_ues:
+            res_ue_dict[r.MaquetteUE_id_fk] = {
+                "moyenne": float(r.ResultatUE_moyenne),
+                "valide": r.ResultatUE_is_acquise,
+                "credits": float(r.ResultatUE_credit_obtenu)
+            }
+
+        # Récupération du résultat global du semestre
+        res_sem = db.query(models.ResultatSemestre).filter(
+            models.ResultatSemestre.InscriptionSemestre_id_fk == insc_semestre.InscriptionSemestre_id,
+            models.ResultatSemestre.SessionExamen_id_fk == payload.session_id
+        ).first()
+
+        return {
+            "message": "Mis à jour",
+            "session_id": payload.session_id, # Crucial pour le dispatch frontend
+            "updates": {
+                "resultats_ue": res_ue_dict,
+                "moyenne_semestre": float(res_sem.ResultatSemestre_moyenne_obtenue) if res_sem else 0,
+                "statut_semestre": res_sem.ResultatSemestre_statut_validation if res_sem else "AJ",
+                "credits_semestre": float(res_sem.ResultatSemestre_credits_acquis) if res_sem else 0
+            }
+        }
+
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Erreur BDD: {str(e)}")
+        raise HTTPException(500, f"Erreur lors de la sauvegarde : {str(e)}")

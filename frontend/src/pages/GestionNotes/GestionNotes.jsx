@@ -38,6 +38,8 @@ export default function GestionNotes() {
     const [gridData, setGridData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
 
+    const [savingCells, setSavingCells] = useState(new Set());
+
     // 1. Initialisation
     useEffect(() => {
         const loadInit = async () => {
@@ -130,35 +132,101 @@ export default function GestionNotes() {
     useEffect(() => { loadGrille(); }, [loadGrille]);
 
     // 4. Handlers
-    const handleNoteChange = async (etudiantId, ecId, newValue, sessionCode) => {
-        // Optimistic UI update
-        setGridData(prev => {
-            const clone = JSON.parse(JSON.stringify(prev));
-            const row = clone.donnees.find(r => r.etudiant_id === etudiantId);
-            if(row) {
-                if(!row.notes[ecId]) row.notes[ecId] = {};
-                row.notes[ecId][sessionCode] = newValue;
-            }
-            return clone;
-        });
+    // --- Modification du handler de changement de note dans GestionNotes.jsx ---
+    const handleNoteChange = async (etudiantId, ecId, newValue, sessionId) => {
+        // 1. Recherche sécurisée de l'UE parente
+        let ueIdFound = null;
+        
+        // On vérifie que structure existe et est un tableau
+        if (gridData?.structure && Array.isArray(gridData.structure)) {
+            gridData.structure.forEach(ue => {
+                if (ue.ecs && ue.ecs.some(ec => ec.id === ecId)) {
+                    ueIdFound = ue.id;
+                }
+            });
+        }
+
+        const cellKey = `${etudiantId}-${ecId}-${sessionId}`;
+        setSavingCells(prev => new Set(prev).add(cellKey));
 
         try {
-            await fetch(`${API_BASE_URL}/notes/saisie`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
+            const response = await fetch(`${API_BASE_URL}/notes/saisie`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     etudiant_id: etudiantId,
                     maquette_ec_id: ecId,
-                    session_id: sessionCode, // On utilise bien le code de la colonne modifiée (SESS_01 ou SESS_02)
                     valeur: newValue,
                     annee_id: filters.annee,
+                    parcours_id: filters.parcours,
                     semestre_id: filters.semestre,
-                    parcours_id: filters.parcours
-                })
+                    session_id: sessionId
+                }),
             });
-        } catch (e) {
-            alert("Erreur sauvegarde");
-            loadGrille(); // Rollback
+
+            const data = await response.json();
+
+            if (response.ok && data.updates) {
+                setGridData(prev => {
+                    // Si par hasard le state a été vidé entre temps
+                    if (!prev.donnees) return prev;
+
+                    return {
+                        ...prev,
+                        donnees: prev.donnees.map(student => {
+                            if (student.etudiant_id === etudiantId) {
+                                // On crée une copie profonde de l'étudiant
+                                const updatedStudent = { ...student };
+
+                                // Mise à jour de la note de l'EC (structure [ecId][sessionId])
+                                updatedStudent.notes = {
+                                    ...student.notes,
+                                    [ecId]: {
+                                        ...(typeof student.notes[ecId] === 'object' ? student.notes[ecId] : {}),
+                                        [sessionId]: newValue
+                                    }
+                                };
+
+                                // Mise à jour des résultats d'UE si l'ID a été trouvé
+                                if (ueIdFound && data.updates.resultats_ue?.[ueIdFound]) {
+                                    updatedStudent.resultats_ue = {
+                                        ...student.resultats_ue,
+                                        [ueIdFound]: {
+                                            ...student.resultats_ue?.[ueIdFound],
+                                            [sessionId]: data.updates.resultats_ue[ueIdFound]
+                                        }
+                                    };
+                                }
+
+                                // Mise à jour des résultats du Semestre
+                                updatedStudent.moyennes_semestre = {
+                                    ...student.moyennes_semestre,
+                                    [sessionId]: data.updates.moyenne_semestre
+                                };
+                                updatedStudent.resultats_semestre = {
+                                    ...student.resultats_semestre,
+                                    [sessionId]: data.updates.statut_semestre
+                                };
+                                updatedStudent.credits_semestre = {
+                                    ...student.credits_semestre,
+                                    [sessionId]: data.updates.credits_semestre
+                                };
+
+                                return updatedStudent;
+                            }
+                            return student;
+                        })
+                    };
+                });
+            }
+        } catch (error) {
+            console.error("Erreur mise à jour notes:", error);
+        } finally {
+            setSavingCells(prev => {
+                const next = new Set(prev);
+                next.delete(cellKey);
+                return next;
+            });
         }
     };
 
@@ -208,6 +276,7 @@ export default function GestionNotes() {
                                 structure={gridData.structure}
                                 students={gridData.donnees}
                                 onNoteChange={handleNoteChange}
+                                savingCells={savingCells} // <--- ON PASSE LA PROP ICI
                             />
                         </div>
                     )}
