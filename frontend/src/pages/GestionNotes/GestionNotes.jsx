@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { FaFilter, FaSpinner, FaCalculator } from "react-icons/fa";
 import { NotesTable } from "./components/NotesTable";
 
-// CHANGEZ L'URL SI BESOIN
+// URL API
 const API_BASE_URL = "http://127.0.0.1:8000/api"; 
 
 // Composant Helper Select
@@ -37,7 +37,6 @@ export default function GestionNotes() {
 
     const [gridData, setGridData] = useState(null);
     const [isLoading, setIsLoading] = useState(false);
-
     const [savingCells, setSavingCells] = useState(new Set());
 
     // 1. Initialisation
@@ -66,7 +65,7 @@ export default function GestionNotes() {
         loadInit();
     }, []);
 
-    // 2. Cascades (inchangées)
+    // 2. Cascades
     useEffect(() => {
         if (!filters.institution) return;
         fetch(`${API_BASE_URL}/composantes/institution?institution_id=${filters.institution}`)
@@ -108,13 +107,12 @@ export default function GestionNotes() {
         
         setIsLoading(true);
         try {
-            // CORRECTION ICI : On ajoute session_id pour éviter l'erreur 422
-            // On force "SESS_01" (Session Normale) par défaut pour satisfaire le backend
+            // NOTE: On ne passe PAS de session_id ici pour récupérer la grille complète (SN + SR)
             const params = new URLSearchParams({
                 annee_id: filters.annee,
                 parcours_id: filters.parcours,
-                semestre_id: filters.semestre,
-                session_id: "SESS_01" 
+                semestre_id: filters.semestre
+                // session_id retiré pour avoir toutes les sessions
             });
 
             const res = await fetch(`${API_BASE_URL}/notes/grille?${params}`);
@@ -132,12 +130,9 @@ export default function GestionNotes() {
     useEffect(() => { loadGrille(); }, [loadGrille]);
 
     // 4. Handlers
-    // --- Modification du handler de changement de note dans GestionNotes.jsx ---
     const handleNoteChange = async (etudiantId, ecId, newValue, sessionId) => {
-        // 1. Recherche sécurisée de l'UE parente
+        // 1. Recherche sécurisée de l'UE parente pour mise à jour optimiste/retour
         let ueIdFound = null;
-        
-        // On vérifie que structure existe et est un tableau
         if (gridData?.structure && Array.isArray(gridData.structure)) {
             gridData.structure.forEach(ue => {
                 if (ue.ecs && ue.ecs.some(ec => ec.id === ecId)) {
@@ -149,14 +144,19 @@ export default function GestionNotes() {
         const cellKey = `${etudiantId}-${ecId}-${sessionId}`;
         setSavingCells(prev => new Set(prev).add(cellKey));
 
+        // 2. Nettoyage de la valeur pour éviter 422 (chaine vide -> null)
+        const valeurToEnvoyer = (newValue === "" || newValue === null || newValue === undefined) 
+            ? null 
+            : parseFloat(newValue);
+
         try {
             const response = await fetch(`${API_BASE_URL}/notes/saisie`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     etudiant_id: etudiantId,
-                    maquette_ec_id: ecId,
-                    valeur: newValue,
+                    maquette_ec_id: ecId, // Doit correspondre à notes_schemas.NoteInput
+                    valeur: valeurToEnvoyer, // Doit correspondre à notes_schemas.NoteInput
                     annee_id: filters.annee,
                     parcours_id: filters.parcours,
                     semestre_id: filters.semestre,
@@ -164,41 +164,49 @@ export default function GestionNotes() {
                 }),
             });
 
+            if (!response.ok) {
+                const errData = await response.json();
+                console.error("Erreur API:", errData);
+                throw new Error("Echec sauvegarde");
+            }
+
             const data = await response.json();
 
-            if (response.ok && data.updates) {
+            if (data.updates) {
                 setGridData(prev => {
-                    // Si par hasard le state a été vidé entre temps
-                    if (!prev.donnees) return prev;
+                    if (!prev || !prev.donnees) return prev;
 
                     return {
                         ...prev,
                         donnees: prev.donnees.map(student => {
                             if (student.etudiant_id === etudiantId) {
-                                // On crée une copie profonde de l'étudiant
+                                // Créer une copie profonde pour éviter les problèmes de référence
                                 const updatedStudent = { ...student };
 
-                                // Mise à jour de la note de l'EC (structure [ecId][sessionId])
+                                // 1. Mise à jour de la NOTE (EC)
                                 updatedStudent.notes = {
                                     ...student.notes,
                                     [ecId]: {
-                                        ...(typeof student.notes[ecId] === 'object' ? student.notes[ecId] : {}),
-                                        [sessionId]: newValue
+                                        ...(student.notes[ecId] || {}),
+                                        [sessionId]: valeurToEnvoyer
                                     }
                                 };
 
-                                // Mise à jour des résultats d'UE si l'ID a été trouvé
-                                if (ueIdFound && data.updates.resultats_ue?.[ueIdFound]) {
-                                    updatedStudent.resultats_ue = {
-                                        ...student.resultats_ue,
-                                        [ueIdFound]: {
-                                            ...student.resultats_ue?.[ueIdFound],
-                                            [sessionId]: data.updates.resultats_ue[ueIdFound]
-                                        }
-                                    };
+                                // 2. Mise à jour des RÉSULTATS D'UE (Le point bloquant)
+                                if (data.updates.resultats_ue) {
+                                    const newResultatsUE = { ...student.resultats_ue };
+                                    
+                                    // On boucle sur les UEs renvoyées par le backend
+                                    Object.entries(data.updates.resultats_ue).forEach(([ueId, ueData]) => {
+                                        newResultatsUE[ueId] = {
+                                            ...(newResultatsUE[ueId] || {}),
+                                            [sessionId]: ueData // On range les données dans la bonne session
+                                        };
+                                    });
+                                    updatedStudent.resultats_ue = newResultatsUE;
                                 }
 
-                                // Mise à jour des résultats du Semestre
+                                // 3. Mise à jour du SEMESTRE (Moyenne, Statut, Crédits)
                                 updatedStudent.moyennes_semestre = {
                                     ...student.moyennes_semestre,
                                     [sessionId]: data.updates.moyenne_semestre
@@ -231,7 +239,6 @@ export default function GestionNotes() {
     };
 
     return (
-        // Structure Flex pour gérer la hauteur correcte
         <div className="flex flex-col h-[calc(100vh-80px)] p-6 bg-gray-50 overflow-hidden">
             {/* Filtres */}
             <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-4 shrink-0">
@@ -269,14 +276,12 @@ export default function GestionNotes() {
                             <span className="text-sm font-medium">Chargement des notes...</span>
                         </div>
                     ) : (
-                        // Conteneur principal qui force le tableau à prendre l'espace restant
-                        // overflow-hidden ici est crucial pour que le scroll interne du tableau prenne le relais
                         <div className="flex-1 w-full relative bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
                             <NotesTable 
                                 structure={gridData.structure}
                                 students={gridData.donnees}
                                 onNoteChange={handleNoteChange}
-                                savingCells={savingCells} // <--- ON PASSE LA PROP ICI
+                                savingCells={savingCells}
                             />
                         </div>
                     )}

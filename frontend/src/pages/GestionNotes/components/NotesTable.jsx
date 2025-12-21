@@ -37,7 +37,7 @@ const SmartCell = ({ value, onChange, readOnly, sessionCode, isColumnEditing, is
     };
 
     const bgColor = sessionCode === 'SESS_1' ? 'bg-white' : 'bg-amber-50/30';
-    const textColor = (localValue < 10 && localValue !== null && localValue !== "") ? 'text-red-600' : 'text-slate-700';
+    const textColor = (localValue < 10 && localValue !== null && localValue !== "" && localValue !== undefined) ? 'text-red-600' : 'text-slate-700';
 
     // 1. CAS : EN COURS DE SAUVEGARDE (Spinner bleu local)
     if (isSaving) {
@@ -103,11 +103,18 @@ const SortableUeHeader = ({ ue, activeSessions, showDetails }) => {
 export const NotesTable = ({ structure, students, onNoteChange, readOnly = false, savingCells }) => {
     const [orderedUes, setOrderedUes] = useState([]);
     const [showUeDetails, setShowUeDetails] = useState(true);
+    // Initialisation avec les IDs corrects de la base de données
     const [activeSessions, setActiveSessions] = useState(["SESS_1", "SESS_2"]);
     const [pinnedStudents, setPinnedStudents] = useState(true);
     const [pinnedResults, setPinnedResults] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
     const [editingColumn, setEditingColumn] = useState(null);
+
+    // DÉFINITION DES SESSIONS ET LABELS
+    const sessionLabels = {
+        "SESS_1": { label: "SN", full: "SESSION NORMALE", color: "text-blue-600" },
+        "SESS_2": { label: "SR", full: "SESSION RATTRAPAGE", color: "text-amber-600" }
+    };
 
     useEffect(() => { if (structure?.ues) setOrderedUes(structure.ues); }, [structure]);
 
@@ -146,12 +153,13 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                 <div className="flex items-center gap-6">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Sessions</span>
                     <div className="flex gap-4">
-                        {[{id: "SESS_1", label: "S1", color: "text-blue-600"}, {id: "SESS_2", label: "RAT", color: "text-amber-600"}].map(s => (
-                            <label key={s.id} className="flex items-center gap-2 cursor-pointer bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
-                                <input type="checkbox" checked={activeSessions.includes(s.id)} onChange={() => {
-                                    setActiveSessions(prev => prev.includes(s.id) && prev.length > 1 ? prev.filter(x => x!==s.id) : !prev.includes(s.id) ? [...prev, s.id].sort() : prev)
+                        {/* Génération dynamique des checkboxes basée sur sessionLabels */}
+                        {Object.entries(sessionLabels).map(([key, info]) => (
+                            <label key={key} className="flex items-center gap-2 cursor-pointer bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
+                                <input type="checkbox" checked={activeSessions.includes(key)} onChange={() => {
+                                    setActiveSessions(prev => prev.includes(key) && prev.length > 1 ? prev.filter(x => x!==key) : !prev.includes(key) ? [...prev, key].sort() : prev)
                                 }} className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-0" />
-                                <span className={`text-xs font-bold ${activeSessions.includes(s.id) ? s.color : 'text-gray-400'}`}>{s.label}</span>
+                                <span className={`text-xs font-bold ${activeSessions.includes(key) ? info.color : 'text-gray-400'}`}>{info.label}</span>
                             </label>
                         ))}
                     </div>
@@ -237,7 +245,8 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                     <th key={`sh-f-${s}`} colSpan={3} 
                                         style={{ right: pinnedResults ? (activeSessions.length - 1 - idx) * totalResultBlockWidth + 'px' : 'auto' }}
                                         className={`bg-slate-700 text-slate-200 text-[9px] border-l border-b border-slate-600 ${pinnedResults ? 'sticky right-0 z-40' : ''}`}>
-                                        {s === 'SESS_1' ? 'SESSION 1' : 'RATTRAPAGE'}
+                                        {/* Affichage du Label COMPLET (SN / SR) */}
+                                        {sessionLabels[s]?.full || s}
                                     </th>
                                 ))}
                             </tr>
@@ -248,7 +257,8 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                     <React.Fragment key={`h3-${ue.id}`}>
                                         {ue.ecs.map((ec, ecIdx) => activeSessions.map((s, sIdx) => (
                                             <th key={`${ec.id}-${s}`} className={`border-l border-b border-gray-200 text-[9px] font-black w-[60px] text-center ${s === 'SESS_1' ? 'text-blue-500' : 'text-amber-600'} ${ecIdx === ue.ecs.length - 1 && sIdx === activeSessions.length - 1 && !showUeDetails ? 'border-r border-r-gray-300' : ''}`}>
-                                                {s === 'SESS_1' ? 'SN' : 'RAT'}
+                                                {/* Affichage du Label COURT (SN / SR) */}
+                                                {sessionLabels[s]?.label || s}
                                             </th>
                                         )))}
                                         {showUeDetails && activeSessions.map((s, sIdx) => (
@@ -293,14 +303,16 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                                 const cellKey = `${student.etudiant_id}-${ec.id}-${s}`;
                                                 const isCellSaving = savingCells?.has(cellKey);
                                                 
-                                                // Récupération sécurisée de la note par session
+                                                // --- CORRECTION ACCÈS DONNÉES ---
+                                                // Récupération sécurisée depuis le dictionnaire [ec.id][session_id]
                                                 let displayValue = null;
-                                                if (student.notes?.[ec.id]) {
-                                                    if (typeof student.notes[ec.id] === 'object') {
-                                                        displayValue = student.notes[ec.id][s];
-                                                    } else if (s === 'SESS_1') {
-                                                        displayValue = student.notes[ec.id];
-                                                    }
+                                                // On vérifie si student.notes[ec.id] existe et si c'est un objet (cas multi-session)
+                                                if (student.notes?.[ec.id] && typeof student.notes[ec.id] === 'object') {
+                                                    displayValue = student.notes[ec.id][s];
+                                                } 
+                                                // Fallback au cas où le backend renverrait encore une structure plate pour SESS_1 (sécurité)
+                                                else if (s === 'SESS_1' && student.notes?.[ec.id] !== undefined && typeof student.notes[ec.id] !== 'object') {
+                                                    displayValue = student.notes[ec.id];
                                                 }
 
                                                 return (
@@ -319,6 +331,7 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                             {showUeDetails && activeSessions.map((s, sIdx) => (
                                                 <React.Fragment key={`res-ue-${s}`}>
                                                     <td className="border-l border-gray-200 border-b border-gray-200 text-center font-bold text-[10px] bg-slate-50/30 text-slate-600 w-[50px]">
+                                                        {/* Accès sécurisé aux résultats UE par session */}
                                                         {student.resultats_ue?.[ue.id]?.[s]?.moyenne?.toFixed(2) || "-"}
                                                     </td>
                                                     <td className={`border-l border-gray-200 border-b border-gray-200 text-center bg-slate-50/30 w-[40px] ${sIdx === activeSessions.length - 1 ? 'border-r border-r-gray-300' : ''}`}>
@@ -335,6 +348,7 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                             <React.Fragment key={`res-fin-${idx}`}>
                                                 <td className={`bg-white group-hover:bg-blue-50/30 border-l border-gray-200 border-b border-gray-200 font-black text-center text-[11px] ${pinnedResults ? 'sticky z-30' : ''}`} 
                                                     style={{right: pinnedResults ? (offset + colStatutWidth + colCredWidth) + 'px' : 'auto', width: colMoyWidth + 'px'}}>
+                                                    {/* Accès sécurisé aux résultats SEMESTRE par session */}
                                                     {student.moyennes_semestre?.[s]?.toFixed(2) || "-"}
                                                 </td>
                                                 <td className={`bg-white group-hover:bg-blue-50/30 border-l border-gray-200 border-b border-gray-200 text-center text-[10px] font-bold text-slate-500 ${pinnedResults ? 'sticky z-30' : ''}`} 

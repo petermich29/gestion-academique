@@ -9,6 +9,7 @@ from app.database import get_db
 from app import models
 from app.schemas import notes_schemas
 from app.services.notes_service import NotesService
+from collections import defaultdict
 
 # Assurez-vous que ce prefix est bien utilisé dans main.py
 # app.include_router(notes_routes.router, prefix="/api") 
@@ -19,7 +20,7 @@ def get_grille_notes(
     annee_id: str,
     parcours_id: str,
     semestre_id: str,
-    session_id: str, 
+    #session_id: str, 
     db: Session = Depends(get_db)
 ):
     # 1. RÉCUPÉRATION DE LA STRUCTURE (Code inchangé)
@@ -73,51 +74,52 @@ def get_grille_notes(
         if not insc_sem: continue
 
         # A. Mapping des Notes (Filtrage strict par session_id pour le schéma actuel)
-        notes_map = {}
+        # A. Mapping des Notes : Structure { ec_id: { session_id: valeur } }
+        notes_map = defaultdict(dict)
         for note in insc_sem.notes:
-            if note.SessionExamen_id_fk == session_id:
-                val = float(note.Note_valeur) if note.Note_valeur is not None else None
-                notes_map[note.MaquetteEC_id_fk] = val
+            if note.Note_valeur is not None:
+                # On utilise l'ID de session réel venant de la BDD (ex: "SESS_01", "SESS_02")
+                notes_map[note.MaquetteEC_id_fk][note.SessionExamen_id_fk] = float(note.Note_valeur)
 
-        # B. Mapping des Résultats UE (Filtrage strict par session_id)
-        res_ue_map = {}
+        # B. Mapping des Résultats UE : Structure { ue_id: { session_id: {data} } }
+        res_ue_map = defaultdict(dict)
         for res in insc_sem.resultats_ue:
-             if res.SessionExamen_id_fk == session_id:
-                 res_ue_map[res.MaquetteUE_id_fk] = notes_schemas.ResultatUEData(
-                     moyenne=float(res.ResultatUE_moyenne) if res.ResultatUE_moyenne is not None else None,
-                     valide=res.ResultatUE_is_acquise,
-                     credits=float(res.ResultatUE_credit_obtenu) if res.ResultatUE_credit_obtenu else 0.0
-                 )
+             res_ue_map[res.MaquetteUE_id_fk][res.SessionExamen_id_fk] = {
+                 "moyenne": float(res.ResultatUE_moyenne) if res.ResultatUE_moyenne is not None else None,
+                 "valide": res.ResultatUE_is_acquise,
+                 "credits": float(res.ResultatUE_credit_obtenu) if res.ResultatUE_credit_obtenu else 0.0
+             }
 
-        # C. Mapping du Résultat Semestre (Valeurs simples pour le schéma)
-        res_sem_obj = next((r for r in insc_sem.resultats_semestre if r.SessionExamen_id_fk == session_id), None)
-        
-        moyenne_gen = None
-        statut_gen = None
-        credits_gen = 0.0 # On initialise à 0.0 (float) pour éviter l'erreur de validation
+        # C. Mapping du Résultat Semestre : Structure { session_id: valeur }
+        # On doit stocker par session pour l'affichage S1 / RAT
+        moyennes_sem = {}
+        statuts_sem = {}
+        credits_sem = {}
 
-        if res_sem_obj:
+        for res_sem_obj in insc_sem.resultats_semestre:
+            s_id = res_sem_obj.SessionExamen_id_fk
             if res_sem_obj.ResultatSemestre_moyenne_obtenue is not None:
-                moyenne_gen = float(res_sem_obj.ResultatSemestre_moyenne_obtenue)
-            statut_gen = res_sem_obj.ResultatSemestre_statut_validation
+                moyennes_sem[s_id] = float(res_sem_obj.ResultatSemestre_moyenne_obtenue)
+            
+            statuts_sem[s_id] = res_sem_obj.ResultatSemestre_statut_validation
+            
             if res_sem_obj.ResultatSemestre_credits_acquis is not None:
-                credits_gen = float(res_sem_obj.ResultatSemestre_credits_acquis)
+                credits_sem[s_id] = float(res_sem_obj.ResultatSemestre_credits_acquis)
 
-        # CRUCIAL : Utilisez exactement les noms de champs de votre schéma EtudiantGrilleRow
+        # Assurez-vous que votre Pydantic "EtudiantGrilleRow" accepte des Dict pour ces champs
         lignes_etudiants.append(notes_schemas.EtudiantGrilleRow(
             etudiant_id=etudiant.Etudiant_id,
             nom=etudiant.Etudiant_nom,
             prenoms=etudiant.Etudiant_prenoms,
-            matricule=num_inscription, # On ajoute le matricule ici
+            matricule=num_inscription,
             photo_url=etudiant.Etudiant_photo_profil_path,
-            notes=notes_map,
-            resultats_ue=res_ue_map,
-            moyenne_semestre=moyenne_gen,
-            statut_semestre=statut_gen,
-            credits_semestre=credits_gen
+            notes=notes_map,               # Dict[str, Dict[str, float]]
+            resultats_ue=res_ue_map,       # Dict[str, Dict[str, Any]]
+            moyennes_semestre=moyennes_sem, # CHANGEMENT DE NOM DE CHAMP NECESSAIRE DANS SCHEMA
+            resultats_semestre=statuts_sem, # CHANGEMENT DE NOM DE CHAMP NECESSAIRE DANS SCHEMA
+            credits_semestre=credits_sem   # CHANGEMENT DE NOM DE CHAMP NECESSAIRE DANS SCHEMA
         ))
 
-    # Tri et retour (identique)
     lignes_etudiants.sort(key=lambda x: x.nom)
     return notes_schemas.GrilleResponse(
         structure=notes_schemas.GrilleStructure(semestre_id=semestre_id, ues=structure_ues),
@@ -185,7 +187,7 @@ def save_note(payload: notes_schemas.NoteInput, db: Session = Depends(get_db)):
         ).all()
         
         for r in resultats_ues:
-            res_ue_dict[r.MaquetteUE_id_fk] = {
+            res_ue_dict[str(r.MaquetteUE_id_fk)] = {
                 "moyenne": float(r.ResultatUE_moyenne),
                 "valide": r.ResultatUE_is_acquise,
                 "credits": float(r.ResultatUE_credit_obtenu)
