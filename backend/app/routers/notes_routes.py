@@ -64,6 +64,48 @@ def get_grille_notes(
         joinedload(models.Inscription.semestres).joinedload(models.InscriptionSemestre.resultats_semestre)
     ).all()
 
+    # --- DEBUT : NETTOYAGE AUTOMATIQUE DES RÉSULTATS RATTRA ---
+    # On supprime les résultats de rattrapage (UE ou Semestre) qui n'ont pas lieu d'être
+    items_to_delete = []
+    
+    for insc in inscriptions:
+        insc_sem = next((s for s in insc.semestres if s.Semestre_id_fk == semestre_id), None)
+        if not insc_sem: continue
+
+        # A. Nettoyage UE : Si UE acquise en S1, suppression du résultat S2
+        ues_acquises_s1 = {
+            r.MaquetteUE_id_fk for r in insc_sem.resultats_ue 
+            if r.SessionExamen_id_fk == "SESS_1" and r.ResultatUE_is_acquise
+        }
+        
+        # On itère sur une copie (list(...)) pour pouvoir modifier la liste originale en mémoire
+        for res in list(insc_sem.resultats_ue):
+            if res.SessionExamen_id_fk == "SESS_2" and res.MaquetteUE_id_fk in ues_acquises_s1:
+                items_to_delete.append(res)
+                # Important : on retire aussi de la liste Python pour que l'affichage JSON soit correct immédiatement
+                insc_sem.resultats_ue.remove(res)
+
+        # B. Nettoyage Semestre : Si Semestre validé en S1, suppression du résultat S2
+        res_sem_s1 = next((r for r in insc_sem.resultats_semestre if r.SessionExamen_id_fk == "SESS_1"), None)
+        
+        # Si le semestre est validé ("VAL") en session normale
+        if res_sem_s1 and res_sem_s1.ResultatSemestre_statut_validation == "VAL":
+            for res in list(insc_sem.resultats_semestre):
+                if res.SessionExamen_id_fk == "SESS_2":
+                    items_to_delete.append(res)
+                    insc_sem.resultats_semestre.remove(res)
+
+    # Application des suppressions en base de données
+    if items_to_delete:
+        for item in items_to_delete:
+            db.delete(item)
+        try:
+            db.commit()
+        except Exception as e:
+            print(f"Erreur lors du nettoyage auto: {e}")
+            db.rollback()
+    # --- FIN : NETTOYAGE AUTOMATIQUE ---
+
     lignes_etudiants = []
     for insc in inscriptions:
         etudiant = insc.dossier_inscription.etudiant
@@ -213,3 +255,24 @@ def save_note(payload: notes_schemas.NoteInput, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"Erreur lors de la sauvegarde : {str(e)}")
+    
+
+@router.post("/recalculer-semestre-global")
+def recalculer_semestre_global(payload: dict, db: Session = Depends(get_db)):
+    """
+    Déclenche le recalcul de tous les étudiants pour un semestre donné (S1 et S2).
+    """
+    # 1. Trouver tous les étudiants concernés
+    inscriptions = db.query(models.InscriptionSemestre).join(models.Inscription).filter(
+        models.Inscription.AnneeUniversitaire_id_fk == payload['annee_id'],
+        models.Inscription.Parcours_id_fk == payload['parcours_id'],
+        models.InscriptionSemestre.Semestre_id_fk == payload['semestre_id']
+    ).all()
+
+    for insc in inscriptions:
+        # On recalcule les deux sessions pour être sûr
+        NotesService.recalculer_tout(db, insc.InscriptionSemestre_id, "SESS_1")
+        NotesService.recalculer_tout(db, insc.InscriptionSemestre_id, "SESS_2")
+    
+    db.commit()
+    return {"status": "success", "message": f"{len(inscriptions)} étudiants recalculés."}

@@ -24,6 +24,26 @@ class NotesService:
         annee_id = inscription.AnneeUniversitaire_id_fk
         semestre_id = insc_sem.Semestre_id_fk
 
+        # --- NOUVEAU CHECK : Règle "Pas de synthèse tant que pas de notes" pour Rattrapage ---
+        if session_id == "SESS_2":
+            # On vérifie s'il existe VRAIMENT des notes de rattrapage pour cet étudiant ce semestre
+            count_notes_rattrapage = db.query(models.Note).filter(
+                models.Note.InscriptionSemestre_id_fk == inscription_semestre_id,
+                models.Note.SessionExamen_id_fk == "SESS_2"
+            ).count()
+
+            # Si aucune note de rattrapage n'existe, on ne génère pas de résultat semestre SR
+            # et on supprime l'existant s'il y en avait un (cas où on efface une note).
+            if count_notes_rattrapage == 0:
+                existing_res = db.query(models.ResultatSemestre).filter(
+                    models.ResultatSemestre.InscriptionSemestre_id_fk == inscription_semestre_id,
+                    models.ResultatSemestre.SessionExamen_id_fk == "SESS_2"
+                ).first()
+                if existing_res:
+                    db.delete(existing_res)
+                # On arrête le calcul global ici pour SR
+                return
+
         # 2. Récupérer les Maquettes d'UE
         maquettes_ues = db.query(models.MaquetteUE).filter(
             models.MaquetteUE.Parcours_id_fk == parcours_id,
@@ -35,11 +55,8 @@ class NotesService:
         total_credits_semestre = 0.0
         total_credits_acquis = 0.0
 
-        # Identifiants des sessions (pour comparer S1 et S2)
-        # Note : On suppose ici que les codes sont standards "SESS_1" et "SESS_2"
-        # Si vos IDs en base sont différents, il faut adapter cette logique.
-        IS_SESSION_RATTRAPAGE = (session_id == "SESS_2")
         ID_SESSION_NORMALE = "SESS_1" 
+        IS_SESSION_RATTRAPAGE = (session_id == "SESS_2")
 
         # 3. Boucle sur chaque UE
         for mue in maquettes_ues:
@@ -48,11 +65,9 @@ class NotesService:
             
             credits_ue = float(mue.MaquetteUE_credit)
 
-            # --- LOGIQUE LMD : GESTION SESSION 2 & UE DÉJÀ ACQUISE ---
             calculer_nouveau = True
             
             if IS_SESSION_RATTRAPAGE:
-                # Vérifier si l'UE a été validée en Session 1
                 res_ue_s1 = db.query(models.ResultatUE).filter(
                     models.ResultatUE.InscriptionSemestre_id_fk == inscription_semestre_id,
                     models.ResultatUE.MaquetteUE_id_fk == mue.MaquetteUE_id,
@@ -60,13 +75,11 @@ class NotesService:
                 ).first()
 
                 if res_ue_s1 and res_ue_s1.ResultatUE_is_acquise:
-                    # CAS 1 : UE déjà acquise en S1 => On conserve la note S1
                     moyenne_finale_ue = float(res_ue_s1.ResultatUE_moyenne)
                     is_acquise = True
-                    calculer_nouveau = False # Pas besoin de recalculer les ECs
+                    calculer_nouveau = False 
             
             if calculer_nouveau:
-                # CAS 2 : Calcul normal ou Recalcul avec règle du MAX
                 moyenne_finale_ue = NotesService._calculer_moyenne_ue(
                     db, inscription_semestre_id, mue.MaquetteUE_id, session_id, ID_SESSION_NORMALE
                 )
@@ -74,7 +87,6 @@ class NotesService:
 
             credits_obtenus = credits_ue if is_acquise else 0.0
 
-            # C. Sauvegarde ResultatUE pour la session EN COURS (session_id)
             res_ue = db.query(models.ResultatUE).filter(
                 models.ResultatUE.InscriptionSemestre_id_fk == inscription_semestre_id,
                 models.ResultatUE.MaquetteUE_id_fk == mue.MaquetteUE_id,
@@ -97,7 +109,6 @@ class NotesService:
                 res_ue.ResultatUE_is_acquise = is_acquise
                 res_ue.ResultatUE_credit_obtenu = credits_obtenus
 
-            # D. Accumulation pour le Semestre (On utilise les résultats calculés ou reportés)
             total_points_semestre += (moyenne_finale_ue * credits_ue)
             total_credits_semestre += credits_ue
             total_credits_acquis += credits_obtenus
@@ -108,11 +119,9 @@ class NotesService:
             moyenne_semestre = total_points_semestre / total_credits_semestre
         
         moyenne_semestre = round(moyenne_semestre, 2)
+        statut_validation = "VAL" if total_credits_acquis >= 30 else "AJ"
 
         # 5. Sauvegarde ResultatSemestre
-        # Simplification validation semestre : Moyenne >= 10 OU tous crédits acquis
-        statut_validation = "VAL" if moyenne_semestre >= 10 else "AJ"
-
         res_sem = db.query(models.ResultatSemestre).filter(
             models.ResultatSemestre.InscriptionSemestre_id_fk == inscription_semestre_id,
             models.ResultatSemestre.SessionExamen_id_fk == session_id
@@ -153,7 +162,7 @@ class NotesService:
         for ec in ecs:
             coeff = float(ec.MaquetteEC_coefficient)
             
-            # 1. Récupérer note Session Actuelle (ex: Rattrapage)
+            # Note Actuelle
             note_actuelle_obj = db.query(models.Note).filter(
                 models.Note.InscriptionSemestre_id_fk == insc_sem_id,
                 models.Note.MaquetteEC_id_fk == ec.MaquetteEC_id,
@@ -163,7 +172,7 @@ class NotesService:
             
             valeur_retenue = val_actuelle
 
-            # 2. Si Rattrapage, comparer avec Session Normale (Règle du MAX)
+            # Règle du MAX pour rattrapage
             if is_rattrapage:
                 note_s1_obj = db.query(models.Note).filter(
                     models.Note.InscriptionSemestre_id_fk == insc_sem_id,
@@ -172,8 +181,12 @@ class NotesService:
                 ).first()
                 val_s1 = float(note_s1_obj.Note_valeur) if (note_s1_obj and note_s1_obj.Note_valeur is not None) else 0.0
                 
-                # LA REGLE CLÉ : On garde la meilleure note
-                valeur_retenue = max(val_s1, val_actuelle)
+                # Si pas de note de rattrapage saisie, on considère S1 (pour le calcul) 
+                # MAIS le visuel sera géré par le frontend qui masquera l'UE si validée
+                if note_actuelle_obj is None or note_actuelle_obj.Note_valeur is None:
+                    valeur_retenue = val_s1
+                else:
+                    valeur_retenue = max(val_s1, val_actuelle)
 
             somme_ponderee += (valeur_retenue * coeff)
             somme_coeffs += coeff

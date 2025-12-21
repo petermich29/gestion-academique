@@ -129,6 +129,33 @@ export default function GestionNotes() {
 
     useEffect(() => { loadGrille(); }, [loadGrille]);
 
+    const fetchGridData = useCallback(async () => {
+        if (!filters.annee || !filters.parcours || !filters.semestre) return;
+        setIsLoading(true);
+        try {
+            const resp = await fetch(`${API_BASE_URL}/notes/grille?annee_id=${filters.annee}&parcours_id=${filters.parcours}&semestre_id=${filters.semestre}`);
+            const data = await resp.json();
+            setGridData(data);
+
+            // --- NOUVEAU : Forcer le recalcul global pour tous les étudiants affichés ---
+            // On peut appeler une nouvelle route dédiée ou boucler sur les étudiants
+            await fetch(`${API_BASE_URL}/notes/recalculer-semestre-global`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    annee_id: filters.annee,
+                    parcours_id: filters.parcours,
+                    semestre_id: filters.semestre
+                })
+            });
+            // Optionnel : rafraîchir la grille après recalcul pour voir les scores à jour
+        } catch (err) {
+            console.error("Erreur:", err);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [filters]);
+
     // 4. Handlers
     const handleNoteChange = async (etudiantId, ecId, newValue, sessionId) => {
         // 1. Recherche sécurisée de l'UE parente pour mise à jour optimiste/retour
