@@ -10,6 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 
 // Import du nouveau composant Modal
 import StatsModal from './StatsModal';
+import StudentDetailsModal from '../../Etudiants-Inscriptions/components/StudentDetailsModal';
 
 // --- JAUGE CIRCULAIRE ---
 const ProgressRing = ({ radius, stroke, progress }) => {
@@ -194,6 +195,9 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
     // Etats pour la modal de stats
     const [statsModalData, setStatsModalData] = useState(null);
 
+    // [NOUVEAU] Etat pour la modal étudiant
+    const [selectedStudentId, setSelectedStudentId] = useState(null);
+
     // Filtres & Tri
     const [searchQuery, setSearchQuery] = useState("");
     const [filterSaisie, setFilterSaisie] = useState("ALL"); 
@@ -365,6 +369,8 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
         <div className="flex flex-col h-full w-full font-sans">
             {statsModalData && <StatsModal data={statsModalData} onClose={() => setStatsModalData(null)} />}
 
+            {selectedStudentId && (<StudentDetailsModal studentId={selectedStudentId} onClose={() => setSelectedStudentId(null)} />)}
+
             {/* TOOLBAR */}
             <div className="px-5 py-3 bg-white border-b border-gray-200 flex justify-between items-center z-50 shrink-0 gap-4">
                 <div className="flex items-center gap-4 flex-1">
@@ -522,11 +528,20 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                 <tr key={student.etudiant_id} className="group hover:bg-blue-50 transition-colors duration-0">
                                     <td className={`bg-slate-50 border-r-2 border-slate-300 border-b border-gray-200 px-4 py-3 ${pinnedStudents ? "sticky left-0 z-30" : ""}`}>
                                         <div className="flex items-center gap-3">
-                                            <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center text-slate-400 border border-slate-300 shadow-sm shrink-0 overflow-hidden relative">
+                                            <div 
+                                                onClick={() => setSelectedStudentId(student.etudiant_id)}
+                                                className="w-9 h-9 rounded-full bg-white flex items-center justify-center text-slate-400 border border-slate-300 shadow-sm shrink-0 overflow-hidden relative cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
+                                            >
                                                 {student.photo_url ? <img src={student.photo_url} alt="" className="w-full h-full object-cover"/> : <FaUser size={14} />}
                                             </div>
                                             <div className="flex flex-col min-w-0 flex-1">
-                                                <span className="text-sm font-bold text-slate-800 uppercase truncate w-[160px]">{student.nom} {student.prenoms}</span>
+                                                {/* Ajout du curseur pointer et onClick sur le nom */}
+                                                <span 
+                                                    onClick={() => setSelectedStudentId(student.etudiant_id)}
+                                                    className="text-sm font-bold text-slate-800 uppercase truncate w-[160px] cursor-pointer hover:text-blue-600 hover:underline decoration-blue-300 underline-offset-2 transition-all"
+                                                >
+                                                    {student.nom} {student.prenoms}
+                                                </span>
                                                 <span className="text-[10px] font-mono text-slate-500 inline-block">{student.matricule || "N/A"}</span>
                                             </div>
                                             <div className="shrink-0" title={`Saisie complète à ${Math.round(progress)}%`}>
