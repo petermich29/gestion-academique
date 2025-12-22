@@ -1,6 +1,6 @@
 // src/pages/GestionNotes/GestionNotesPage.jsx
 import React, { useState, useEffect, useCallback } from "react";
-import { FaFilter, FaSpinner, FaCalculator } from "react-icons/fa";
+import { FaFilter, FaSpinner } from "react-icons/fa"; // FaCalculator retiré
 import { NotesTable } from "./components/NotesTable";
 
 // URL API
@@ -65,7 +65,7 @@ export default function GestionNotes() {
         loadInit();
     }, []);
 
-    // 2. Cascades
+    // 2. Cascades (Identique à votre code original)
     useEffect(() => {
         if (!filters.institution) return;
         fetch(`${API_BASE_URL}/composantes/institution?institution_id=${filters.institution}`)
@@ -107,12 +107,10 @@ export default function GestionNotes() {
         
         setIsLoading(true);
         try {
-            // NOTE: On ne passe PAS de session_id ici pour récupérer la grille complète (SN + SR)
             const params = new URLSearchParams({
                 annee_id: filters.annee,
                 parcours_id: filters.parcours,
                 semestre_id: filters.semestre
-                // session_id retiré pour avoir toutes les sessions
             });
 
             const res = await fetch(`${API_BASE_URL}/notes/grille?${params}`);
@@ -120,6 +118,18 @@ export default function GestionNotes() {
             if (res.ok) {
                 const data = await res.json();
                 setGridData(data);
+                
+                // Recalcul en tâche de fond
+                fetch(`${API_BASE_URL}/notes/recalculer-semestre-global`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        annee_id: filters.annee,
+                        parcours_id: filters.parcours,
+                        semestre_id: filters.semestre
+                    })
+                }).catch(e => console.error("Erreur recalcul background", e));
+
             } else {
                 console.error("Erreur chargement grille", res.status);
             }
@@ -129,49 +139,11 @@ export default function GestionNotes() {
 
     useEffect(() => { loadGrille(); }, [loadGrille]);
 
-    const fetchGridData = useCallback(async () => {
-        if (!filters.annee || !filters.parcours || !filters.semestre) return;
-        setIsLoading(true);
-        try {
-            const resp = await fetch(`${API_BASE_URL}/notes/grille?annee_id=${filters.annee}&parcours_id=${filters.parcours}&semestre_id=${filters.semestre}`);
-            const data = await resp.json();
-            setGridData(data);
-
-            // --- NOUVEAU : Forcer le recalcul global pour tous les étudiants affichés ---
-            // On peut appeler une nouvelle route dédiée ou boucler sur les étudiants
-            await fetch(`${API_BASE_URL}/notes/recalculer-semestre-global`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    annee_id: filters.annee,
-                    parcours_id: filters.parcours,
-                    semestre_id: filters.semestre
-                })
-            });
-            // Optionnel : rafraîchir la grille après recalcul pour voir les scores à jour
-        } catch (err) {
-            console.error("Erreur:", err);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [filters]);
-
     // 4. Handlers
     const handleNoteChange = async (etudiantId, ecId, newValue, sessionId) => {
-        // 1. Recherche sécurisée de l'UE parente pour mise à jour optimiste/retour
-        let ueIdFound = null;
-        if (gridData?.structure && Array.isArray(gridData.structure)) {
-            gridData.structure.forEach(ue => {
-                if (ue.ecs && ue.ecs.some(ec => ec.id === ecId)) {
-                    ueIdFound = ue.id;
-                }
-            });
-        }
-
         const cellKey = `${etudiantId}-${ecId}-${sessionId}`;
         setSavingCells(prev => new Set(prev).add(cellKey));
 
-        // 2. Nettoyage de la valeur pour éviter 422 (chaine vide -> null)
         const valeurToEnvoyer = (newValue === "" || newValue === null || newValue === undefined) 
             ? null 
             : parseFloat(newValue);
@@ -182,8 +154,8 @@ export default function GestionNotes() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     etudiant_id: etudiantId,
-                    maquette_ec_id: ecId, // Doit correspondre à notes_schemas.NoteInput
-                    valeur: valeurToEnvoyer, // Doit correspondre à notes_schemas.NoteInput
+                    maquette_ec_id: ecId, 
+                    valeur: valeurToEnvoyer, 
                     annee_id: filters.annee,
                     parcours_id: filters.parcours,
                     semestre_id: filters.semestre,
@@ -191,61 +163,33 @@ export default function GestionNotes() {
                 }),
             });
 
-            if (!response.ok) {
-                const errData = await response.json();
-                console.error("Erreur API:", errData);
-                throw new Error("Echec sauvegarde");
-            }
-
+            if (!response.ok) throw new Error("Echec sauvegarde");
             const data = await response.json();
 
             if (data.updates) {
                 setGridData(prev => {
                     if (!prev || !prev.donnees) return prev;
-
                     return {
                         ...prev,
                         donnees: prev.donnees.map(student => {
                             if (student.etudiant_id === etudiantId) {
-                                // Créer une copie profonde pour éviter les problèmes de référence
                                 const updatedStudent = { ...student };
-
-                                // 1. Mise à jour de la NOTE (EC)
                                 updatedStudent.notes = {
                                     ...student.notes,
-                                    [ecId]: {
-                                        ...(student.notes[ecId] || {}),
-                                        [sessionId]: valeurToEnvoyer
-                                    }
+                                    [ecId]: { ...(student.notes[ecId] || {}), [sessionId]: valeurToEnvoyer }
                                 };
 
-                                // 2. Mise à jour des RÉSULTATS D'UE (Le point bloquant)
                                 if (data.updates.resultats_ue) {
                                     const newResultatsUE = { ...student.resultats_ue };
-                                    
-                                    // On boucle sur les UEs renvoyées par le backend
                                     Object.entries(data.updates.resultats_ue).forEach(([ueId, ueData]) => {
-                                        newResultatsUE[ueId] = {
-                                            ...(newResultatsUE[ueId] || {}),
-                                            [sessionId]: ueData // On range les données dans la bonne session
-                                        };
+                                        newResultatsUE[ueId] = { ...(newResultatsUE[ueId] || {}), [sessionId]: ueData };
                                     });
                                     updatedStudent.resultats_ue = newResultatsUE;
                                 }
 
-                                // 3. Mise à jour du SEMESTRE (Moyenne, Statut, Crédits)
-                                updatedStudent.moyennes_semestre = {
-                                    ...student.moyennes_semestre,
-                                    [sessionId]: data.updates.moyenne_semestre
-                                };
-                                updatedStudent.resultats_semestre = {
-                                    ...student.resultats_semestre,
-                                    [sessionId]: data.updates.statut_semestre
-                                };
-                                updatedStudent.credits_semestre = {
-                                    ...student.credits_semestre,
-                                    [sessionId]: data.updates.credits_semestre
-                                };
+                                updatedStudent.moyennes_semestre = { ...student.moyennes_semestre, [sessionId]: data.updates.moyenne_semestre };
+                                updatedStudent.resultats_semestre = { ...student.resultats_semestre, [sessionId]: data.updates.statut_semestre };
+                                updatedStudent.credits_semestre = { ...student.credits_semestre, [sessionId]: data.updates.credits_semestre };
 
                                 return updatedStudent;
                             }
@@ -285,18 +229,10 @@ export default function GestionNotes() {
                 </div>
             </div>
 
-            {/* Actions & Tableau */}
+            {/* Tableau */}
             {gridData && (
                 <div className="flex flex-col flex-1 min-h-0 animate-fadeIn">
-                    <div className="flex justify-end items-center mb-4 shrink-0">
-                        <button 
-                            disabled
-                            className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-lg shadow-md hover:bg-indigo-700 transition opacity-50 cursor-not-allowed"
-                        >
-                            <FaCalculator /> Calculer Moyennes
-                        </button>
-                    </div>
-
+                    {/* Le bouton Calculer Moyennes a été supprimé ici */}
                     {isLoading ? (
                         <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
                             <FaSpinner className="text-4xl animate-spin mb-2" />
