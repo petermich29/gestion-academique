@@ -1,25 +1,64 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     FaCheck, FaThumbtack, FaUserGraduate, FaSearch, 
-    FaPen, FaTimes, FaUser, FaLock, FaSortAmountDown, FaSortAmountUp, FaFilter
+    FaPen, FaTimes, FaUser, FaLock, FaFilter, FaExclamationCircle 
 } from "react-icons/fa";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-// --- CELLULE INTELLIGENTE ---
+// --- COMPOSANT JAUGE CIRCULAIRE (Progress Ring) ---
+const ProgressRing = ({ radius, stroke, progress }) => {
+    const normalizedRadius = radius - stroke * 2;
+    const circumference = normalizedRadius * 2 * Math.PI;
+    const strokeDashoffset = circumference - (progress / 100) * circumference;
+    
+    // Couleur dynamique
+    let color = "text-red-500";
+    if (progress > 50) color = "text-amber-500";
+    if (progress === 100) color = "text-green-500";
+
+    return (
+        <div className="relative flex items-center justify-center">
+            <svg height={radius * 2} width={radius * 2} className="rotate-[-90deg]">
+                <circle
+                    stroke="currentColor"
+                    fill="transparent"
+                    strokeWidth={stroke}
+                    strokeDasharray={circumference + ' ' + circumference}
+                    style={{ strokeDashoffset }}
+                    r={normalizedRadius}
+                    cx={radius}
+                    cy={radius}
+                    className={`${color} transition-all duration-500 ease-out`}
+                />
+                {/* Fond du cercle (gris) */}
+                <circle
+                    stroke="currentColor"
+                    fill="transparent"
+                    strokeWidth={stroke}
+                    r={normalizedRadius}
+                    cx={radius}
+                    cy={radius}
+                    className="text-gray-200 -z-10 absolute"
+                    style={{ strokeDasharray: 0 }} 
+                />
+            </svg>
+            <span className="absolute text-[8px] font-bold text-slate-600">{Math.round(progress)}%</span>
+        </div>
+    );
+};
+
+// --- CELLULE INTELLIGENTE (Reste inchangée) ---
 const SmartCell = ({ value, onChange, readOnly, sessionCode, isColumnEditing, isSaving, isLocked }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [localValue, setLocalValue] = useState(value);
 
-    // Mise à jour de la valeur locale si la prop change (ex: recalcul backend)
-    useEffect(() => {
-        setLocalValue(value);
-    }, [value]);
+    useEffect(() => { setLocalValue(value); }, [value]);
 
     if (isLocked) {
         return (
-            <div className="w-full h-full flex items-center justify-center bg-gray-100/50 cursor-not-allowed text-gray-300">
+            <div className="w-full h-full flex items-center justify-center bg-gray-50/50 cursor-not-allowed text-gray-300">
                 {value !== null && value !== undefined ? <span className="text-gray-400 opacity-50">{value}</span> : <FaLock size={10} />}
             </div>
         );
@@ -29,7 +68,6 @@ const SmartCell = ({ value, onChange, readOnly, sessionCode, isColumnEditing, is
         setIsEditing(false);
         let valToParse = localValue === "" ? null : localValue;
         const numVal = valToParse === null ? null : parseFloat(String(valToParse).replace(',', '.'));
-        // N'appeler onChange que si la valeur a vraiment changé
         if (numVal !== value) onChange(numVal);
     };
 
@@ -62,7 +100,7 @@ const SmartCell = ({ value, onChange, readOnly, sessionCode, isColumnEditing, is
     );
 };
 
-// --- HEADER TRIABLE (UE) ---
+// --- HEADER TRIABLE (Reste inchangé) ---
 const SortableUeHeader = ({ ue, activeSessions, showDetails }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ue.id });
     const colSpan = (ue.ecs.length * activeSessions.length) + (showDetails ? activeSessions.length * 2 : 0);
@@ -90,8 +128,9 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
     
     // --- États de Tri et Filtre ---
     const [searchQuery, setSearchQuery] = useState("");
-    const [filterStatus, setFilterStatus] = useState("ALL"); // ALL, VAL, AJ, DEF
-    const [sortConfig, setSortConfig] = useState({ key: 'nom', direction: 'asc' }); // nom, moyenne, credits
+    const [filterStatus, setFilterStatus] = useState("ALL"); // ALL, VAL, AJ
+    const [filterSaisie, setFilterSaisie] = useState("ALL"); // ALL, COMPLETE, INCOMPLETE
+    const [sortConfig, setSortConfig] = useState({ key: 'nom', direction: 'asc' });
 
     const sessionLabels = {
         "SESS_1": { label: "SN", full: "Session Normale", color: "text-blue-700" },
@@ -102,25 +141,45 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }), useSensor(KeyboardSensor));
 
+    // --- LOGIQUE DE CALCUL DE PROGRESSION ---
+    // Retourne le % de notes saisies pour les sessions actives
+    const getStudentProgress = (student) => {
+        let totalCells = 0;
+        let filledCells = 0;
+
+        structure.ues.forEach(ue => {
+            ue.ecs.forEach(ec => {
+                activeSessions.forEach(sess => {
+                    // Logique métier : Si UE validée en S1, on ne compte pas S2 comme "manquant"
+                    const isUeAcquiseS1 = student.resultats_ue?.[ue.id]?.['SESS_1']?.valide;
+                    if (sess === 'SESS_2' && isUeAcquiseS1) return;
+
+                    totalCells++;
+                    const val = student.notes?.[ec.id]?.[sess];
+                    if (val !== null && val !== undefined && val !== "") filledCells++;
+                });
+            });
+        });
+        return totalCells === 0 ? 100 : (filledCells / totalCells) * 100;
+    };
+
     // --- LOGIQUE DE FILTRE ET TRI ---
     const processedStudents = useMemo(() => {
         let result = [...students];
 
-        // 1. Recherche (Nom, Prénom, Matricule, CIN)
+        // 1. Recherche
         if (searchQuery) {
             const lowerQ = searchQuery.toLowerCase().trim();
             result = result.filter(s => {
                 const fullName = `${s.nom || ''} ${s.prenoms || ''}`.toLowerCase();
                 const matricule = (s.matricule || '').toLowerCase();
-                const cin = (s.cin || '').toLowerCase(); // Assumant que le champ CIN existe ou existera
-                return fullName.includes(lowerQ) || matricule.includes(lowerQ) || cin.includes(lowerQ);
+                return fullName.includes(lowerQ) || matricule.includes(lowerQ);
             });
         }
 
-        // 2. Filtre par Statut (Basé sur la session la plus avancée visible ou SESS_1 par défaut)
+        // 2. Filtre par Statut (Résultat)
         if (filterStatus !== 'ALL') {
             result = result.filter(s => {
-                // On regarde le statut dans SESS_1 ou SESS_2 selon ce qui est affiché
                 const statuts = Object.values(s.resultats_semestre || {});
                 if (filterStatus === 'VAL') return statuts.includes('VAL');
                 if (filterStatus === 'AJ') return statuts.includes('AJ') || statuts.length === 0;
@@ -128,31 +187,36 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
             });
         }
 
-        // 3. Tri
+        // 3. Filtre par Saisie (Complétude)
+        if (filterSaisie !== 'ALL') {
+            result = result.filter(s => {
+                const progress = getStudentProgress(s);
+                if (filterSaisie === 'COMPLETE') return progress === 100;
+                if (filterSaisie === 'INCOMPLETE') return progress < 100;
+                return true;
+            });
+        }
+
+        // 4. Tri
         result.sort((a, b) => {
             let valA, valB;
-
             if (sortConfig.key === 'nom') {
                 valA = a.nom?.toLowerCase() || "";
                 valB = b.nom?.toLowerCase() || "";
             } else if (sortConfig.key === 'moyenne') {
-                // On prend la meilleure moyenne disponible
-                const moyA = Math.max(...Object.values(a.moyennes_semestre || {a:0}));
-                const moyB = Math.max(...Object.values(b.moyennes_semestre || {a:0}));
-                valA = moyA; valB = moyB;
+                valA = Math.max(...Object.values(a.moyennes_semestre || {a:0}));
+                valB = Math.max(...Object.values(b.moyennes_semestre || {a:0}));
             } else if (sortConfig.key === 'credits') {
-                const credA = Math.max(...Object.values(a.credits_semestre || {a:0}));
-                const credB = Math.max(...Object.values(b.credits_semestre || {a:0}));
-                valA = credA; valB = credB;
+                valA = Math.max(...Object.values(a.credits_semestre || {a:0}));
+                valB = Math.max(...Object.values(b.credits_semestre || {a:0}));
             }
-
             if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
             if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
         });
 
         return result;
-    }, [students, searchQuery, filterStatus, sortConfig]);
+    }, [students, searchQuery, filterStatus, filterSaisie, sortConfig, structure, activeSessions]); // structure ajouté aux deps
 
     const handleSort = (key) => {
         setSortConfig(current => ({
@@ -184,51 +248,42 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                 
                 {/* Zone de Recherche et Filtres */}
                 <div className="flex items-center gap-4 flex-1">
-                    {/* Recherche */}
-                    <div className="relative w-64">
+                    <div className="relative w-56">
                         <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input 
                             type="text" 
-                            placeholder="Nom, matricule, CIN..." 
+                            placeholder="Rechercher..." 
                             value={searchQuery} 
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-100 focus:outline-none transition-all" 
+                            className="w-full pl-9 pr-3 py-1.5 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all" 
                         />
                     </div>
 
                     <div className="h-6 w-px bg-gray-300 mx-2"></div>
 
-                    {/* Tris et Filtres Rapides */}
+                    {/* Filtre Saisie (Nouveau) */}
                     <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-gray-400 uppercase">Trier :</span>
-                        <button onClick={() => handleSort('nom')} className={`px-3 py-1 text-xs font-semibold rounded border transition-colors ${sortConfig.key === 'nom' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'}`}>
-                            Nom {sortConfig.key === 'nom' && (sortConfig.direction === 'asc' ? '↓' : '↑')}
-                        </button>
-                        <button onClick={() => handleSort('moyenne')} className={`px-3 py-1 text-xs font-semibold rounded border transition-colors ${sortConfig.key === 'moyenne' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'}`}>
-                            Moyenne {sortConfig.key === 'moyenne' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
-                        </button>
-                        <button onClick={() => handleSort('credits')} className={`px-3 py-1 text-xs font-semibold rounded border transition-colors ${sortConfig.key === 'credits' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600'}`}>
-                            Crédits
-                        </button>
+                         <span className="text-xs font-bold text-gray-400 uppercase">Saisie:</span>
+                         <div className="flex bg-gray-100 rounded-lg p-0.5">
+                            <button onClick={() => setFilterSaisie('ALL')} className={`px-2 py-1 text-xs rounded-md font-medium transition-all ${filterSaisie==='ALL'?'bg-white text-blue-600 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>Tous</button>
+                            <button onClick={() => setFilterSaisie('INCOMPLETE')} className={`px-2 py-1 text-xs rounded-md font-medium transition-all flex items-center gap-1 ${filterSaisie==='INCOMPLETE'?'bg-white text-amber-600 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
+                                <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> Manquants
+                            </button>
+                            <button onClick={() => setFilterSaisie('COMPLETE')} className={`px-2 py-1 text-xs rounded-md font-medium transition-all flex items-center gap-1 ${filterSaisie==='COMPLETE'?'bg-white text-green-600 shadow-sm':'text-gray-500 hover:text-gray-700'}`}>
+                                <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div> Complets
+                            </button>
+                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 ml-2">
-                        <span className="text-xs font-bold text-gray-400 uppercase">Statut :</span>
-                        <select 
-                            value={filterStatus} 
-                            onChange={e => setFilterStatus(e.target.value)}
-                            className="text-xs font-semibold border border-gray-200 rounded px-2 py-1 bg-white focus:ring-2 focus:ring-blue-100 outline-none"
-                        >
-                            <option value="ALL">Tout</option>
-                            <option value="VAL">Validé (VAL)</option>
-                            <option value="AJ">Ajourné (AJ)</option>
-                        </select>
+                    <div className="flex items-center gap-2 ml-4">
+                        <span className="text-xs font-bold text-gray-400 uppercase">Tri:</span>
+                        <button onClick={() => handleSort('nom')} className="text-xs font-semibold text-slate-600 hover:text-blue-600 px-2">Nom {sortConfig.key==='nom' && (sortConfig.direction==='asc'?'↓':'↑')}</button>
+                        <button onClick={() => handleSort('moyenne')} className="text-xs font-semibold text-slate-600 hover:text-blue-600 px-2">Moyenne {sortConfig.key==='moyenne' && (sortConfig.direction==='asc'?'↑':'↓')}</button>
                     </div>
                 </div>
 
                 {/* Options d'affichage */}
                 <div className="flex items-center gap-6">
-                    <span className="text-xs font-bold text-gray-400 uppercase tracking-widest hidden xl:block">Affichage</span>
                     <div className="flex gap-3">
                         {Object.entries(sessionLabels).map(([key, info]) => (
                             <label key={key} className={`flex items-center gap-2 cursor-pointer px-3 py-1.5 rounded-full border transition-all ${activeSessions.includes(key) ? 'bg-white border-blue-300 shadow-sm' : 'bg-gray-50 border-gray-100 opacity-60'}`}>
@@ -245,7 +300,7 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                             <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform duration-300 ease-in-out ${showUeDetails ? 'translate-x-4' : ''}`}></div>
                         </div>
                         <input type="checkbox" checked={showUeDetails} onChange={e => setShowUeDetails(e.target.checked)} className="hidden" />
-                        Détails Résultats UE
+                        Détails
                     </label>
                 </div>
             </div>
@@ -256,9 +311,10 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                     <table className="border-separate border-spacing-0 w-max min-w-full">
                         <thead className="sticky top-0 z-40 bg-white shadow-sm">
                             <tr className="h-[55px]">
-                                <th rowSpan={3} className={`bg-white border-r border-b border-gray-200 text-left w-[300px] min-w-[300px] top-0 z-50 p-0 align-top ${pinnedStudents ? "sticky left-0 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.1)]" : "relative"}`}>
-                                    <div className="flex flex-col h-full bg-slate-50">
-                                        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 h-full bg-white">
+                                {/* Colonne Etudiant Distincte : bg-slate-100 et border-r-2 */}
+                                <th rowSpan={3} className={`bg-slate-100 border-r-2 border-b border-slate-300 text-left w-[300px] min-w-[300px] top-0 z-50 p-0 align-top ${pinnedStudents ? "sticky left-0 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.1)]" : "relative"}`}>
+                                    <div className="flex flex-col h-full bg-slate-100">
+                                        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 h-full">
                                             <span className="font-bold text-slate-700 text-xs flex items-center gap-2">
                                                 <FaUserGraduate className="text-blue-500"/> ETUDIANTS ({processedStudents.length})
                                             </span>
@@ -273,17 +329,19 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                     {orderedUes.map(ue => <SortableUeHeader key={ue.id} ue={ue} activeSessions={activeSessions} showDetails={showUeDetails} />)}
                                 </SortableContext>
                                 
+                                {/* Colonne Synthèse Distincte : border-l-2 */}
                                 <th colSpan={activeSessions.length * 3} 
-                                    className={`bg-slate-800 border-l border-b border-slate-900 top-0 z-50 text-white transition-all ${pinnedResults ? 'sticky right-0 shadow-[-4px_0_10px_-4px_rgba(0,0,0,0.5)]' : ''}`}>
+                                    className={`bg-slate-800 border-l-4 border-slate-900 border-b border-slate-900 top-0 z-50 text-white transition-all ${pinnedResults ? 'sticky right-0 shadow-[-4px_0_10px_-4px_rgba(0,0,0,0.5)]' : ''}`}>
                                     <div className="flex items-center justify-between px-4 h-full">
                                         <button onClick={() => setPinnedResults(!pinnedResults)} className="text-slate-400 hover:text-white transition-colors">
                                             <FaThumbtack size={12} className={!pinnedResults ? "rotate-45" : "text-blue-400"} />
                                         </button>
-                                        <span className="text-xs font-bold uppercase tracking-widest flex-1 text-center">Synthèse Semestre</span>
+                                        <span className="text-xs font-bold uppercase tracking-widest flex-1 text-center">Synthèse</span>
                                     </div>
                                 </th>
                             </tr>
 
+                            {/* ... [Le reste des en-têtes reste identique sauf ajustement visuel bordures] ... */}
                             <tr className="bg-white h-[45px]">
                                 {orderedUes.map(ue => (
                                     <React.Fragment key={`h2-${ue.id}`}>
@@ -299,7 +357,6 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                                             </button>
                                                         )}
                                                     </div>
-                                                    <span className="text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 rounded mt-0.5">Coef {ec.coefficient}</span>
                                                 </div>
                                             </th>
                                         ))}
@@ -309,7 +366,7 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                 {activeSessions.map((s, idx) => (
                                     <th key={`sh-f-${s}`} colSpan={3} 
                                         style={{ right: pinnedResults ? (activeSessions.length - 1 - idx) * totalResultBlockWidth + 'px' : 'auto' }}
-                                        className={`bg-slate-700 text-slate-200 text-[10px] font-bold border-l border-b border-slate-600 uppercase tracking-wider ${pinnedResults ? 'sticky right-0 z-40' : ''}`}>
+                                        className={`bg-slate-700 text-slate-200 text-[10px] font-bold border-l-4 border-slate-900 border-b border-slate-600 uppercase tracking-wider ${pinnedResults ? 'sticky right-0 z-40' : ''}`}>
                                         {sessionLabels[s]?.full}
                                     </th>
                                 ))}
@@ -335,7 +392,7 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                     const offset = (activeSessions.length - 1 - idx) * totalResultBlockWidth;
                                     return (
                                         <React.Fragment key={`fsh-3-${idx}`}>
-                                            <th style={{ right: pinnedResults ? (offset + colStatutWidth + colCredWidth) + 'px' : 'auto' }} className={`bg-gray-100 border-l border-b border-gray-300 text-[9px] font-bold text-slate-500 w-[${colMoyWidth}px] text-center ${pinnedResults ? 'sticky z-40' : ''}`}>MOYENNE</th>
+                                            <th style={{ right: pinnedResults ? (offset + colStatutWidth + colCredWidth) + 'px' : 'auto' }} className={`bg-gray-100 border-l-4 border-slate-300 border-b border-gray-300 text-[9px] font-bold text-slate-500 w-[${colMoyWidth}px] text-center ${pinnedResults ? 'sticky z-40' : ''}`}>MOYENNE</th>
                                             <th style={{ right: pinnedResults ? (offset + colStatutWidth) + 'px' : 'auto' }} className={`bg-gray-100 border-l border-b border-gray-300 text-[9px] font-bold text-slate-500 w-[${colCredWidth}px] text-center ${pinnedResults ? 'sticky z-40' : ''}`}>CREDITS</th>
                                             <th style={{ right: pinnedResults ? offset + 'px' : 'auto' }} className={`bg-gray-100 border-l border-b border-gray-300 text-[9px] font-bold text-slate-500 w-[${colStatutWidth}px] text-center ${pinnedResults ? 'sticky z-40' : ''}`}>DECISION</th>
                                         </React.Fragment>
@@ -346,32 +403,33 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
 
                         <tbody className="bg-white">
                             {processedStudents.map((student, rowIndex) => {
-                                const hasAnyS2Note = structure.ues.some(u => 
-                                    u.ecs.some(ec => {
-                                        const n = student.notes?.[ec.id]?.['SESS_2'];
-                                        return n !== null && n !== undefined && n !== "";
-                                    })
-                                );
+                                const hasAnyS2Note = structure.ues.some(u => u.ecs.some(ec => { const n = student.notes?.[ec.id]?.['SESS_2']; return n !== null && n !== undefined && n !== ""; }));
+                                const progress = getStudentProgress(student);
 
-                                // NOTE SUR L'EFFET HOVER : 
-                                // Pour éviter l'effet de transparence sur les colonnes sticky, 
-                                // on force bg-white (ou une couleur solide) sur les cellules sticky 
-                                // et on applique un background solide lors du survol du groupe.
-                                
                                 return (
                                 <tr key={student.etudiant_id} className="group hover:bg-blue-50 transition-colors duration-0">
-                                    <td className={`bg-white group-hover:bg-blue-50 border-r border-gray-200 border-b border-gray-100 px-4 py-3 ${pinnedStudents ? "sticky left-0 z-30 shadow-[4px_0_10px_-4px_rgba(0,0,0,0.05)]" : ""}`}>
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 border border-slate-200 shadow-sm shrink-0 overflow-hidden">
+                                    {/* Colonne Etudiant : Fond Distinct + Bordure + Progress Ring */}
+                                    <td className={`bg-slate-50 border-r-2 border-slate-300 border-b border-gray-200 px-4 py-3 ${pinnedStudents ? "sticky left-0 z-30" : ""}`}>
+                                        <div className="flex items-center gap-3">
+                                            {/* Photo */}
+                                            <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center text-slate-400 border border-slate-300 shadow-sm shrink-0 overflow-hidden relative">
                                                 {student.photo_url ? <img src={student.photo_url} alt="" className="w-full h-full object-cover"/> : <FaUser size={14} />}
                                             </div>
-                                            <div className="flex flex-col min-w-0">
-                                                <span className="text-sm font-bold text-slate-800 uppercase truncate w-[200px]">{student.nom} {student.prenoms}</span>
-                                                <span className="text-[11px] font-mono text-slate-400 bg-slate-100 inline-block px-1.5 rounded w-fit">{student.matricule || "N/A"}</span>
+                                            
+                                            {/* Nom & Matricule */}
+                                            <div className="flex flex-col min-w-0 flex-1">
+                                                <span className="text-sm font-bold text-slate-800 uppercase truncate w-[160px]">{student.nom} {student.prenoms}</span>
+                                                <span className="text-[10px] font-mono text-slate-500 inline-block">{student.matricule || "N/A"}</span>
+                                            </div>
+
+                                            {/* Indicateur de Progression */}
+                                            <div className="shrink-0" title={`Saisie complète à ${Math.round(progress)}%`}>
+                                                <ProgressRing radius={14} stroke={3} progress={progress} />
                                             </div>
                                         </div>
                                     </td>
 
+                                    {/* ... [Cellules de notes identiques au code précédent] ... */}
                                     {orderedUes.map(ue => {
                                         const isUeAcquiseS1 = student.resultats_ue?.[ue.id]?.['SESS_1']?.valide;
                                         const allS1NotesFilled = ue.ecs.every(ec => {
@@ -394,15 +452,9 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                                     let displayValue = null;
                                                     const rawValue = student.notes?.[ec.id]?.[s];
                                                     
-                                                    if (s === 'SESS_2' && isUeAcquiseS1) {
-                                                        displayValue = null; 
-                                                    } else {
-                                                        if (typeof student.notes?.[ec.id] === 'object') {
-                                                            displayValue = rawValue;
-                                                        } else if (s === 'SESS_1' && student.notes?.[ec.id] !== undefined) {
-                                                            displayValue = student.notes[ec.id];
-                                                        }
-                                                    }
+                                                    if (s === 'SESS_2' && isUeAcquiseS1) displayValue = null; 
+                                                    else if (typeof student.notes?.[ec.id] === 'object') displayValue = rawValue;
+                                                    else if (s === 'SESS_1' && student.notes?.[ec.id] !== undefined) displayValue = student.notes[ec.id];
 
                                                     return (
                                                         <td key={`${ec.id}-${s}`} className={`border-l border-gray-100 border-b border-gray-100 p-0 h-12 w-[70px] bg-white group-hover:bg-blue-50 group/cell ${ecIdx === ue.ecs.length - 1 && sIdx === activeSessions.length - 1 && !showUeDetails ? 'border-r border-gray-200' : ''}`}>
@@ -420,30 +472,15 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                                 }))}
                                                 {showUeDetails && activeSessions.map((s, sIdx) => {
                                                     const resUe = student.resultats_ue?.[ue.id]?.[s];
-                                                    let moyenneUe = resUe?.moyenne;
-                                                    let isValide = resUe?.valide;
                                                     const isBorderRight = sIdx === activeSessions.length - 1;
-
                                                     if (s === 'SESS_2' && isUeAcquiseS1) {
-                                                        return (
-                                                            <React.Fragment key={`res-ue-${s}`}>
-                                                                <td className="border-l border-gray-100 border-b border-gray-100 bg-slate-50/50 group-hover:bg-blue-50/50"></td>
-                                                                <td className={`border-l border-gray-100 border-b border-gray-100 bg-slate-50/50 group-hover:bg-blue-50/50 ${isBorderRight ? 'border-r border-gray-200' : ''}`}></td>
-                                                            </React.Fragment>
-                                                        );
+                                                        return <React.Fragment key={`res-ue-${s}`}><td className="border-l border-gray-100 border-b border-gray-100 bg-slate-50/50 group-hover:bg-blue-50/50"></td><td className={`border-l border-gray-100 border-b border-gray-100 bg-slate-50/50 group-hover:bg-blue-50/50 ${isBorderRight ? 'border-r border-gray-200' : ''}`}></td></React.Fragment>;
                                                     }
-
                                                     return (
                                                         <React.Fragment key={`res-ue-${s}`}>
-                                                            <td className="border-l border-gray-100 border-b border-gray-100 text-center font-bold text-xs bg-slate-50/50 group-hover:bg-blue-50/50 text-slate-700 w-[60px]">
-                                                                {moyenneUe !== undefined && moyenneUe !== null ? moyenneUe.toFixed(2) : "-"}
-                                                            </td>
+                                                            <td className="border-l border-gray-100 border-b border-gray-100 text-center font-bold text-xs bg-slate-50/50 group-hover:bg-blue-50/50 text-slate-700 w-[60px]">{resUe?.moyenne?.toFixed(2) || "-"}</td>
                                                             <td className={`border-l border-gray-100 border-b border-gray-100 text-center bg-slate-50/50 group-hover:bg-blue-50/50 w-[50px] ${isBorderRight ? 'border-r border-gray-200' : ''}`}>
-                                                                {isValide ? (
-                                                                    <FaCheck className="text-green-500 mx-auto drop-shadow-sm" size={12}/>
-                                                                ) : moyenneUe !== undefined && moyenneUe !== null ? (
-                                                                    <FaTimes className="text-red-400 mx-auto opacity-50" size={12}/>
-                                                                ) : <span className="text-gray-200">-</span>}
+                                                                {resUe?.valide ? <FaCheck className="text-green-500 mx-auto" size={12}/> : resUe?.moyenne ? <FaTimes className="text-red-400 mx-auto opacity-50" size={12}/> : "-"}
                                                             </td>
                                                         </React.Fragment>
                                                     );
@@ -452,34 +489,30 @@ export const NotesTable = ({ structure, students, onNoteChange, readOnly = false
                                         );
                                     })}
 
+                                    {/* Colonne Synthèse : Fond Distinct + Bordure gauche */}
                                     {activeSessions.map((s, idx) => {
                                         const offset = (activeSessions.length - 1 - idx) * totalResultBlockWidth;
                                         let showSynthesis = true;
-                                        if (s === 'SESS_2' && !hasAnyS2Note) {
-                                            showSynthesis = false;
-                                        }
+                                        if (s === 'SESS_2' && !hasAnyS2Note) showSynthesis = false;
 
                                         const moyenneGen = student.moyennes_semestre?.[s];
                                         const isMoyenneGood = moyenneGen >= 10;
                                         const credits = student.credits_semestre?.[s] || 0;
                                         const statut = student.resultats_semestre?.[s] || "AJ";
                                         
-                                        const moyenneColorClass = moyenneGen !== undefined 
-                                            ? (isMoyenneGood ? "text-green-700 font-black" : "text-red-600 font-bold")
-                                            : "text-gray-400";
+                                        const moyenneColorClass = moyenneGen !== undefined ? (isMoyenneGood ? "text-green-700 font-black" : "text-red-600 font-bold") : "text-gray-400";
 
-                                        // Application de bg-white et group-hover:bg-blue-50 ici aussi pour opacité
                                         return (
                                             <React.Fragment key={`res-fin-${idx}`}>
-                                                <td className={`bg-white group-hover:bg-blue-50 border-l border-gray-200 border-b border-gray-100 text-center text-sm ${pinnedResults ? 'sticky z-30' : ''}`} 
+                                                <td className={`bg-slate-50 group-hover:bg-blue-100 border-l-4 border-slate-300 border-b border-gray-200 text-center text-sm ${pinnedResults ? 'sticky z-30' : ''}`} 
                                                     style={{right: pinnedResults ? (offset + colStatutWidth + colCredWidth) + 'px' : 'auto', width: colMoyWidth + 'px'}}>
                                                     {showSynthesis && <span className={moyenneColorClass}>{moyenneGen?.toFixed(2) || "-"}</span>}
                                                 </td>
-                                                <td className={`bg-white group-hover:bg-blue-50 border-l border-gray-200 border-b border-gray-100 text-center text-xs font-semibold text-slate-600 ${pinnedResults ? 'sticky z-30' : ''}`} 
+                                                <td className={`bg-slate-50 group-hover:bg-blue-100 border-l border-gray-200 border-b border-gray-200 text-center text-xs font-semibold text-slate-600 ${pinnedResults ? 'sticky z-30' : ''}`} 
                                                     style={{right: pinnedResults ? (offset + colStatutWidth) + 'px' : 'auto', width: colCredWidth + 'px'}}>
                                                     {showSynthesis && credits}
                                                 </td>
-                                                <td className={`bg-white group-hover:bg-blue-50 border-l border-gray-200 border-b border-gray-100 text-center px-2 ${pinnedResults ? 'sticky z-30 shadow-[-4px_0_10px_-4px_rgba(0,0,0,0.1)]' : ''}`} 
+                                                <td className={`bg-slate-50 group-hover:bg-blue-100 border-l border-gray-200 border-b border-gray-200 text-center px-2 ${pinnedResults ? 'sticky z-30 shadow-[-4px_0_10px_-4px_rgba(0,0,0,0.1)]' : ''}`} 
                                                     style={{right: pinnedResults ? offset + 'px' : 'auto', width: colStatutWidth + 'px'}}>
                                                     {showSynthesis && (
                                                         <span className={`text-[10px] font-black px-3 py-1 rounded-full border shadow-sm ${statut === 'VAL' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
