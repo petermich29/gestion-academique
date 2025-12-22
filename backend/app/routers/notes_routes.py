@@ -20,10 +20,9 @@ def get_grille_notes(
     annee_id: str,
     parcours_id: str,
     semestre_id: str,
-    #session_id: str, 
     db: Session = Depends(get_db)
 ):
-    # 1. RÉCUPÉRATION DE LA STRUCTURE (Code inchangé)
+    # 1. RÉCUPÉRATION DE LA STRUCTURE (Code existant...)
     maquettes_ues = db.query(models.MaquetteUE).filter(
         models.MaquetteUE.Parcours_id_fk == parcours_id,
         models.MaquetteUE.Semestre_id_fk == semestre_id,
@@ -33,11 +32,17 @@ def get_grille_notes(
         joinedload(models.MaquetteUE.maquette_ecs).joinedload(models.MaquetteEC.ec_catalog)
     ).order_by(models.MaquetteUE.MaquetteUE_id).all()
 
+    # --- AJOUT : Création d'un dictionnaire de mapping EC_ID -> UE_ID ---
+    # Cela permet de savoir rapidement à quelle UE appartient une note pour l'Action 2
+    ec_to_ue_map = {}
     structure_ues = []
     for mue in maquettes_ues:
         ecs_list = []
         sorted_ecs = sorted(mue.maquette_ecs, key=lambda x: x.ec_catalog.EC_code if x.ec_catalog else "")
         for mec in sorted_ecs:
+            # On stocke le lien EC -> UE
+            ec_to_ue_map[mec.MaquetteEC_id] = mue.MaquetteUE_id
+            
             ecs_list.append(notes_schemas.ColonneEC(
                 id=mec.MaquetteEC_id,
                 code=mec.ec_catalog.EC_code,
@@ -52,7 +57,7 @@ def get_grille_notes(
             ecs=ecs_list
         ))
 
-    # 2. RÉCUPÉRATION DES DONNÉES ÉTUDIANTS
+    # 2. RÉCUPÉRATION DES DONNÉES ÉTUDIANTS (Code existant inchangé...)
     inscriptions = db.query(models.Inscription).join(models.InscriptionSemestre).filter(
         models.Inscription.AnneeUniversitaire_id_fk == annee_id,
         models.Inscription.Parcours_id_fk == parcours_id,
@@ -64,36 +69,60 @@ def get_grille_notes(
         joinedload(models.Inscription.semestres).joinedload(models.InscriptionSemestre.resultats_semestre)
     ).all()
 
-    # --- DEBUT : NETTOYAGE AUTOMATIQUE DES RÉSULTATS RATTRA ---
-    # On supprime les résultats de rattrapage (UE ou Semestre) qui n'ont pas lieu d'être
+    # --- DEBUT : NETTOYAGE AUTOMATIQUE DES RÉSULTATS RATTRA (MISE À JOUR) ---
     items_to_delete = []
     
     for insc in inscriptions:
         insc_sem = next((s for s in insc.semestres if s.Semestre_id_fk == semestre_id), None)
         if not insc_sem: continue
 
-        # A. Nettoyage UE : Si UE acquise en S1, suppression du résultat S2
-        ues_acquises_s1 = {
-            r.MaquetteUE_id_fk for r in insc_sem.resultats_ue 
-            if r.SessionExamen_id_fk == "SESS_1" and r.ResultatUE_is_acquise
-        }
-        
-        # On itère sur une copie (list(...)) pour pouvoir modifier la liste originale en mémoire
-        for res in list(insc_sem.resultats_ue):
-            if res.SessionExamen_id_fk == "SESS_2" and res.MaquetteUE_id_fk in ues_acquises_s1:
-                items_to_delete.append(res)
-                # Important : on retire aussi de la liste Python pour que l'affichage JSON soit correct immédiatement
-                insc_sem.resultats_ue.remove(res)
-
-        # B. Nettoyage Semestre : Si Semestre validé en S1, suppression du résultat S2
+        # Vérification Validation Semestre S1 (Pour Condition C2)
         res_sem_s1 = next((r for r in insc_sem.resultats_semestre if r.SessionExamen_id_fk == "SESS_1"), None)
-        
-        # Si le semestre est validé ("VAL") en session normale
-        if res_sem_s1 and res_sem_s1.ResultatSemestre_statut_validation == "VAL":
+        semestre_valide_s1 = (res_sem_s1 and res_sem_s1.ResultatSemestre_statut_validation == "VAL")
+
+        # Identification des UEs acquises en S1 (Pour Condition C1)
+        # Si le semestre est validé globalement, on considère implicitement que tout doit être nettoyé en S2
+        ues_acquises_s1_ids = set()
+        if not semestre_valide_s1:
+            ues_acquises_s1_ids = {
+                r.MaquetteUE_id_fk for r in insc_sem.resultats_ue 
+                if r.SessionExamen_id_fk == "SESS_1" and r.ResultatUE_is_acquise
+            }
+
+        # 1. Nettoyage RESULTATS UE (Act1 pour C1 & Act3 implicite pour C2)
+        for res in list(insc_sem.resultats_ue):
+            if res.SessionExamen_id_fk == "SESS_2":
+                # Suppression si : Le semestre est validé OU l'UE spécifique est acquise
+                if semestre_valide_s1 or (res.MaquetteUE_id_fk in ues_acquises_s1_ids):
+                    items_to_delete.append(res)
+                    try:
+                        insc_sem.resultats_ue.remove(res)
+                    except ValueError:
+                        pass # Déjà supprimé
+
+        # 2. Nettoyage NOTES EC (Act2 pour C1 & Act2 pour C2)
+        for note in list(insc_sem.notes):
+            if note.SessionExamen_id_fk == "SESS_2":
+                # On retrouve l'UE parente grâce au mapping créé plus haut
+                parent_ue_id = ec_to_ue_map.get(note.MaquetteEC_id_fk)
+                
+                # Suppression si : Le semestre est validé OU l'UE parente est acquise
+                if semestre_valide_s1 or (parent_ue_id and parent_ue_id in ues_acquises_s1_ids):
+                    items_to_delete.append(note)
+                    try:
+                        insc_sem.notes.remove(note)
+                    except ValueError:
+                        pass
+
+        # 3. Nettoyage RESULTAT SEMESTRE (Act3 pour C2)
+        if semestre_valide_s1:
             for res in list(insc_sem.resultats_semestre):
                 if res.SessionExamen_id_fk == "SESS_2":
                     items_to_delete.append(res)
-                    insc_sem.resultats_semestre.remove(res)
+                    try:
+                        insc_sem.resultats_semestre.remove(res)
+                    except ValueError:
+                        pass
 
     # Application des suppressions en base de données
     if items_to_delete:

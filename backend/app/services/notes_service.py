@@ -13,6 +13,7 @@ class NotesService:
         Gère la logique LMD : 
         - Conservation des UE acquises en Session 1.
         - Règle du MAX(Note S1, Note S2) pour les EC des UE non acquises.
+        - Nettoyage automatique des données de rattrapage (C1 et C2).
         """
         # 1. Contexte
         insc_sem = db.query(models.InscriptionSemestre).get(inscription_semestre_id)
@@ -24,16 +25,13 @@ class NotesService:
         annee_id = inscription.AnneeUniversitaire_id_fk
         semestre_id = insc_sem.Semestre_id_fk
 
-        # --- NOUVEAU CHECK : Règle "Pas de synthèse tant que pas de notes" pour Rattrapage ---
+        # --- Check existant pour Rattrapage (inchangé) ---
         if session_id == "SESS_2":
-            # On vérifie s'il existe VRAIMENT des notes de rattrapage pour cet étudiant ce semestre
             count_notes_rattrapage = db.query(models.Note).filter(
                 models.Note.InscriptionSemestre_id_fk == inscription_semestre_id,
                 models.Note.SessionExamen_id_fk == "SESS_2"
             ).count()
 
-            # Si aucune note de rattrapage n'existe, on ne génère pas de résultat semestre SR
-            # et on supprime l'existant s'il y en avait un (cas où on efface une note).
             if count_notes_rattrapage == 0:
                 existing_res = db.query(models.ResultatSemestre).filter(
                     models.ResultatSemestre.InscriptionSemestre_id_fk == inscription_semestre_id,
@@ -41,7 +39,6 @@ class NotesService:
                 ).first()
                 if existing_res:
                     db.delete(existing_res)
-                # On arrête le calcul global ici pour SR
                 return
 
         # 2. Récupérer les Maquettes d'UE
@@ -58,13 +55,15 @@ class NotesService:
         ID_SESSION_NORMALE = "SESS_1" 
         IS_SESSION_RATTRAPAGE = (session_id == "SESS_2")
 
+        # ### MODIF 1 : Liste pour stocker les résultats calculés (nécessaire pour C1)
+        resultats_ue_calcules = []
+
         # 3. Boucle sur chaque UE
         for mue in maquettes_ues:
             moyenne_finale_ue = 0.0
             is_acquise = False
             
             credits_ue = float(mue.MaquetteUE_credit)
-
             calculer_nouveau = True
             
             if IS_SESSION_RATTRAPAGE:
@@ -108,6 +107,9 @@ class NotesService:
                 res_ue.ResultatUE_moyenne = moyenne_finale_ue
                 res_ue.ResultatUE_is_acquise = is_acquise
                 res_ue.ResultatUE_credit_obtenu = credits_obtenus
+            
+            # ### MODIF 2 : On ajoute l'objet à notre liste temporaire
+            resultats_ue_calcules.append(res_ue)
 
             total_points_semestre += (moyenne_finale_ue * credits_ue)
             total_credits_semestre += credits_ue
@@ -142,12 +144,67 @@ class NotesService:
             res_sem.ResultatSemestre_statut_validation = statut_validation
             res_sem.ResultatSemestre_credits_acquis = total_credits_acquis
 
+        # ### MODIF 3 : IMPORTANT - On valide les changements en mémoire avant le nettoyage
+        db.flush() 
+
+        # ==============================================================================
+        #  NETTOYAGE AUTOMATIQUE (C1 & C2) - Uniquement déclenché sur modif Session 1
+        # ==============================================================================
+        if session_id == "SESS_1":
+            
+            # --- Condition C2 : Si le semestre est validé (VAL) en S1 ---
+            # Action : Supprimer TOUT (Résultats Semestre, Résultats UE, Notes EC) en Session 2
+            if res_sem.ResultatSemestre_statut_validation == "VAL":
+                
+                # Suppr Notes EC Session 2
+                db.query(models.Note).filter(
+                    models.Note.InscriptionSemestre_id_fk == inscription_semestre_id,
+                    models.Note.SessionExamen_id_fk == "SESS_2"
+                ).delete()
+
+                # Suppr Résultats UE Session 2
+                db.query(models.ResultatUE).filter(
+                    models.ResultatUE.InscriptionSemestre_id_fk == inscription_semestre_id,
+                    models.ResultatUE.SessionExamen_id_fk == "SESS_2"
+                ).delete()
+
+                # Suppr Résultat Semestre Session 2
+                db.query(models.ResultatSemestre).filter(
+                    models.ResultatSemestre.InscriptionSemestre_id_fk == inscription_semestre_id,
+                    models.ResultatSemestre.SessionExamen_id_fk == "SESS_2"
+                ).delete()
+
+            # --- Condition C1 : Si semestre non validé, on regarde UE par UE ---
+            else:
+                for res_ue_s1 in resultats_ue_calcules:
+                    # Si l'UE est acquise en Session 1
+                    if res_ue_s1.ResultatUE_is_acquise:
+                        ue_id = res_ue_s1.MaquetteUE_id_fk
+                        
+                        # Suppr Résultat UE en Session 2
+                        db.query(models.ResultatUE).filter(
+                            models.ResultatUE.InscriptionSemestre_id_fk == inscription_semestre_id,
+                            models.ResultatUE.MaquetteUE_id_fk == ue_id,
+                            models.ResultatUE.SessionExamen_id_fk == "SESS_2"
+                        ).delete()
+
+                        # Suppr Notes EC en Session 2 liées à cette UE
+                        # On récupère d'abord les IDs des EC de cette UE
+                        ecs_subquery = db.query(models.MaquetteEC.MaquetteEC_id).filter(
+                            models.MaquetteEC.MaquetteUE_id_fk == ue_id
+                        ).subquery()
+
+                        db.query(models.Note).filter(
+                            models.Note.InscriptionSemestre_id_fk == inscription_semestre_id,
+                            models.Note.SessionExamen_id_fk == "SESS_2",
+                            models.Note.MaquetteEC_id_fk.in_(ecs_subquery)
+                        ).delete(synchronize_session=False)
+
     @staticmethod
     def _calculer_moyenne_ue(db: Session, insc_sem_id: str, mue_id: str, session_actuelle_id: str, session_normale_id: str) -> float:
         """
         Calcule la moyenne d'une UE.
-        - Si Session 1 : Moyenne pondérée classique.
-        - Si Session 2 : Moyenne pondérée utilisant MAX(Note_S1, Note_S2) pour chaque EC.
+        (Code inchangé)
         """
         ecs = db.query(models.MaquetteEC).filter(models.MaquetteEC.MaquetteUE_id_fk == mue_id).all()
         
@@ -181,8 +238,6 @@ class NotesService:
                 ).first()
                 val_s1 = float(note_s1_obj.Note_valeur) if (note_s1_obj and note_s1_obj.Note_valeur is not None) else 0.0
                 
-                # Si pas de note de rattrapage saisie, on considère S1 (pour le calcul) 
-                # MAIS le visuel sera géré par le frontend qui masquera l'UE si validée
                 if note_actuelle_obj is None or note_actuelle_obj.Note_valeur is None:
                     valeur_retenue = val_s1
                 else:
