@@ -253,7 +253,7 @@ def merge_students_advanced(
         import traceback
         traceback.print_exc()  # <--- AFFICHERA L'ERREUR DANS VOTRE TERMINAL
         print(f"ERREUR CRITIQUE FUSION: {e}") 
-        raise HTTPException(status_code=500, detail=f"Erreur interne: {str(e)}")git 
+        raise HTTPException(status_code=500, detail=f"Erreur interne: {str(e)}")
 
 def format_student_for_ui(etu: Etudiant):
     inscriptions_count = len(etu.dossiers_inscription) if etu.dossiers_inscription else 0
