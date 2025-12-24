@@ -169,6 +169,8 @@ def get_scan_status(job_id: str):
 
 from app.models import Inscription, InscriptionSemestre # Assurez-vous d'importer ces modèles
 
+from app.models import Etudiant, DossierInscription, Inscription, InscriptionSemestre, SuiviCreditCycle # Assurez-vous d'avoir TOUS les imports
+
 @router.post("/merge/advanced")
 def merge_students_advanced(
     payload: dict = Body(...), 
@@ -178,11 +180,15 @@ def merge_students_advanced(
     ids_to_merge = payload.get("ids_to_merge", []) 
     overrides = payload.get("overrides", {}) 
 
-    # ... (Vérifications master_id existant inchangées) ...
+    if not master_id or not ids_to_merge:
+        raise HTTPException(status_code=400, detail="Paramètres manquants")
+
     master = db.query(Etudiant).filter(Etudiant.Etudiant_id == master_id).first()
+    if not master:
+        raise HTTPException(status_code=404, detail="Master introuvable")
 
     try:
-        # 1. Overrides (inchangé)
+        # 1. Overrides
         for field, value in overrides.items():
             if hasattr(master, field):
                 setattr(master, field, value)
@@ -192,21 +198,28 @@ def merge_students_advanced(
             slave = db.query(Etudiant).filter(Etudiant.Etudiant_id == slave_id).first()
             if not slave: continue
 
-            # --- A. GESTION DES DOSSIERS & INSCRIPTIONS (Code précédent) ---
-            slave_dossiers = db.query(DossierInscription).filter(DossierInscription.Etudiant_id_fk == slave_id).all()
-            
+            # --- A. GESTION DES DOSSIERS & INSCRIPTIONS ---
+            slave_dossiers = db.query(DossierInscription).filter(
+                DossierInscription.Etudiant_id_fk == slave_id
+            ).all()
+
             for s_dossier in slave_dossiers:
                 master_dossier = db.query(DossierInscription).filter(
-                    DossierInscription.Etudiant_id_fk == master_id,
+                    DossierInscription.Etudiant_id_fk == master.Etudiant_id,
                     DossierInscription.Mention_id_fk == s_dossier.Mention_id_fk
                 ).first()
 
                 if not master_dossier:
-                    s_dossier.Etudiant_id_fk = master_id
+                    # CAS A: Pas de conflit. On réattribue le dossier au Master.
+                    s_dossier.Etudiant_id_fk = master.Etudiant_id 
+                    db.flush() # 1. CRITIQUE (CAS A) : Force l'UPDATE de la FK du dossier immédiatement
+                
                 else:
-                    # Conflit Dossier : On déplace les inscriptions
-                    inscriptions_slave = db.query(Inscription).filter(Inscription.DossierInscription_id_fk == s_dossier.DossierInscription_id).all()
-                    
+                    # CAS B: Conflit (Fusion des INSCRIPTIONS)
+                    inscriptions_slave = db.query(Inscription).filter(
+                        Inscription.DossierInscription_id_fk == s_dossier.DossierInscription_id
+                    ).all()
+
                     for insc_slave in inscriptions_slave:
                         insc_master = db.query(Inscription).filter(
                             Inscription.DossierInscription_id_fk == master_dossier.DossierInscription_id,
@@ -216,7 +229,9 @@ def merge_students_advanced(
                         ).first()
 
                         if not insc_master:
+                            # Déplacement de l'inscription
                             insc_slave.DossierInscription_id_fk = master_dossier.DossierInscription_id
+                            db.flush() # 2. CRITIQUE (CAS B / Déplacement Inscription)
                         else:
                             # Conflit Inscription : On déplace les semestres
                             semestres_slave = db.query(InscriptionSemestre).filter(InscriptionSemestre.Inscription_id_fk == insc_slave.Inscription_id).all()
@@ -227,33 +242,33 @@ def merge_students_advanced(
                                 ).first()
                                 if not sem_master:
                                     sem_slave.Inscription_id_fk = insc_master.Inscription_id
-                                else:
-                                    # Doublon strict semestre : on supprime (ou logique de fusion de notes ici)
-                                    db.delete(sem_slave)
-                            
-                            db.flush() # Important pour valider les déplacements avant suppression
+                                # Si sem_master existe, l'objet sem_slave est laissé en attente de suppression
+
+                            # On s'assure que les semestres ont été traités (déplacés/supprimés) avant de supprimer l'inscription parent
                             db.delete(insc_slave)
+                            db.flush() # 3. CRITIQUE (CAS B / Suppression Inscription) : Force la suppression de l'inscription vide.
 
-                    db.flush()
                     db.delete(s_dossier)
+                    db.flush() # 4. CRITIQUE (CAS B / Suppression Dossier) : Force la suppression du dossier vide.
 
-            # --- B. GESTION DES CREDITS (NOUVEAU : CORRECTION ERREUR 500) ---
-            # On supprime les suivis de crédits du doublon pour éviter les erreurs FK
-            # (On suppose que le Master a déjà ses propres crédits calculés ou qu'on recalcule plus tard)
+
+            # --- B. GESTION DES CREDITS ET SUPPRESSION FINALE ---
+            # 3. Nettoyer les suivis de crédits (suppression en masse)
             db.query(SuiviCreditCycle).filter(SuiviCreditCycle.Etudiant_id_fk == slave_id).delete()
-
-            # --- C. SUPPRESSION FINALE ---
+            db.flush() # 5. Force la suppression des crédits
+            
+            # 4. Supprimer l'étudiant doublon
             db.delete(slave)
+            # Le commit final prendra en charge la suppression de l'étudiant.
 
         db.commit()
-        return {"success": True, "message": "Fusion complète terminée"}
+        return {"success": True, "message": "Fusion avancée terminée avec succès."}
 
     except Exception as e:
         db.rollback()
-        import traceback
-        traceback.print_exc()  # <--- AFFICHERA L'ERREUR DANS VOTRE TERMINAL
-        print(f"ERREUR CRITIQUE FUSION: {e}") 
-        raise HTTPException(status_code=500, detail=f"Erreur interne: {str(e)}")
+        # Ne pas enlever le print pour le diagnostic local
+        # import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur interne lors de la fusion: {str(e)}")
 
 def format_student_for_ui(etu: Etudiant):
     inscriptions_count = len(etu.dossiers_inscription) if etu.dossiers_inscription else 0
