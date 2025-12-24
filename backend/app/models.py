@@ -28,6 +28,9 @@ class Institution(Base):
 
     composantes = relationship("Composante", back_populates="institution")
     institution_historiques = relationship("InstitutionHistorique", back_populates="institution")
+    # AJOUT :
+    responsables = relationship("ResponsableInstitution", back_populates="institution", cascade="all, delete-orphan")
+    
 
 
 class Composante(Base):
@@ -52,6 +55,8 @@ class Composante(Base):
     mentions = relationship("Mention", backref="composante")
     enseignants_permanents = relationship("Enseignant", back_populates="composante_attachement")
     composante_historiques = relationship("ComposanteHistorique", back_populates="composante")
+    # AJOUT :
+    responsables = relationship("ResponsableComposante", back_populates="composante", cascade="all, delete-orphan")
 
 
 class Domaine(Base):
@@ -85,7 +90,9 @@ class Mention(Base):
 
     parcours = relationship("Parcours", backref="mention")
     mention_historiques = relationship("MentionHistorique", back_populates="mention")
-    dossiers_inscription = relationship("DossierInscription", back_populates="mention") #
+    dossiers_inscription = relationship("DossierInscription", back_populates="mention") 
+    # AJOUT :
+    responsables = relationship("ResponsableMention", back_populates="mention", cascade="all, delete-orphan")
 
 
 class Parcours(Base):
@@ -120,6 +127,8 @@ class Parcours(Base):
         cascade="all, delete-orphan"
     )
     parcours_historiques = relationship("ParcoursHistorique", back_populates="parcours")
+    # AJOUT :
+    responsables = relationship("ResponsableParcours", back_populates="parcours", cascade="all, delete-orphan")
 
 
 # =========================================================
@@ -137,6 +146,8 @@ class InstitutionHistorique(Base):
     Institution_abbreviation_historique = Column(String(20))
     institution = relationship("Institution", back_populates="institution_historiques")
     annee_univ = relationship("AnneeUniversitaire")
+
+    
 
 class ComposanteHistorique(Base):
     __tablename__ = 'composantes_historique'
@@ -339,6 +350,8 @@ class MaquetteUE(Base):
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
     UE_id_fk = Column(String(50), ForeignKey('unites_enseignement_catalog.UE_id'), nullable=False)
     Semestre_id_fk = Column(String(10), ForeignKey('semestres.Semestre_id'), nullable=False)
+    # AJOUT : Responsable de l'UE pour cette maquette (cette année/parcours)
+    Responsable_Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=True)
     
     MaquetteUE_credit = Column(Integer, nullable=False)
 
@@ -350,6 +363,8 @@ class MaquetteUE(Base):
     
     # AJOUT DE LA RELATION VERS LES RÉSULTATS
     resultats = relationship("ResultatUE", back_populates="maquette_ue")
+    # AJOUT RELATION
+    responsable = relationship("Enseignant", foreign_keys=[Responsable_Enseignant_id_fk], back_populates="ues_responsable")
 
 
 class MaquetteEC(Base):
@@ -870,7 +885,16 @@ class Enseignant(Base):
     composante_attachement = relationship("Composante", back_populates="enseignants_permanents")
     # REMPLACÉ: charges_enseignement -> attributions
     attributions = relationship("AttributionEnseignant", back_populates="enseignant")
-    presidences_jury = relationship("Jury", back_populates="enseignant_president")
+    presidences_jury = relationship("PresidentJury", back_populates="enseignant")
+
+    # Nouvelles responsabilités administratives
+    responsabilites_institution = relationship("ResponsableInstitution", back_populates="enseignant")
+    responsabilites_composante = relationship("ResponsableComposante", back_populates="enseignant")
+    responsabilites_mention = relationship("ResponsableMention", back_populates="enseignant")
+    responsabilites_parcours = relationship("ResponsableParcours", back_populates="enseignant")
+    
+    # Responsabilité pédagogique (UE)
+    ues_responsable = relationship("MaquetteUE", back_populates="responsable")
 
 
 class VolumeHoraire(Base):
@@ -906,28 +930,104 @@ class AttributionEnseignant(Base):
     type_enseignement = relationship("TypeEnseignement", back_populates="attributions")
 
 
-class Jury(Base):
-    """JURY D'EXAMEN"""
-    __tablename__ = 'jurys'
+# ===================================================================
+# --- GESTION DES RESPONSABILITÉS ET LEADERSHIP ---
+# ===================================================================
+
+class ResponsableInstitution(Base):
+    __tablename__ = 'responsables_institution'
     __table_args__ = (
-        # Un jury est unique pour un Semestre, une Année ET une Session (ex: Session Normale S1 2024)
-        UniqueConstraint('Semestre_id_fk', 'AnneeUniversitaire_id_fk', 'SessionExamen_id_fk', name='uq_jury_unique'),
+        UniqueConstraint('Institution_id_fk', 'Date_debut', name='uq_resp_inst_date'),
         {'extend_existing': True}
     )
 
-    Jury_id = Column(String(50), primary_key=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    Institution_id_fk = Column(String(10), ForeignKey('institutions.Institution_id'), nullable=False)
     Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
+    
+    Date_debut = Column(Date, nullable=False)
+    Date_fin = Column(Date, nullable=True) # Null = toujours en poste
+
+    institution = relationship("Institution", back_populates="responsables")
+    enseignant = relationship("Enseignant", back_populates="responsabilites_institution")
+
+
+class ResponsableComposante(Base):
+    __tablename__ = 'responsables_composante'
+    __table_args__ = (
+        UniqueConstraint('Composante_id_fk', 'Date_debut', name='uq_resp_comp_date'),
+        {'extend_existing': True}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    Composante_id_fk = Column(String(12), ForeignKey('composantes.Composante_id'), nullable=False)
+    Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
+    
+    Date_debut = Column(Date, nullable=False)
+    Date_fin = Column(Date, nullable=True)
+
+    composante = relationship("Composante", back_populates="responsables")
+    enseignant = relationship("Enseignant", back_populates="responsabilites_composante")
+
+
+class ResponsableMention(Base):
+    __tablename__ = 'responsables_mention'
+    __table_args__ = (
+        UniqueConstraint('Mention_id_fk', 'Date_debut', name='uq_resp_mention_date'),
+        {'extend_existing': True}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    Mention_id_fk = Column(String(12), ForeignKey('mentions.Mention_id'), nullable=False)
+    Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
+    
+    Date_debut = Column(Date, nullable=False)
+    Date_fin = Column(Date, nullable=True)
+
+    mention = relationship("Mention", back_populates="responsables")
+    enseignant = relationship("Enseignant", back_populates="responsabilites_mention")
+
+
+class ResponsableParcours(Base):
+    __tablename__ = 'responsables_parcours'
+    __table_args__ = (
+        UniqueConstraint('Parcours_id_fk', 'Date_debut', name='uq_resp_parc_date'),
+        {'extend_existing': True}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), nullable=False)
+    Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
+    
+    Date_debut = Column(Date, nullable=False)
+    Date_fin = Column(Date, nullable=True)
+
+    parcours = relationship("Parcours", back_populates="responsables")
+    enseignant = relationship("Enseignant", back_populates="responsabilites_parcours")
+
+
+class PresidentJury(Base):
+    """
+    Président du jury pour un Parcours, un Semestre et une Année Universitaire.
+    Valable pour toutes les sessions (Normale, Rattrapage) de cette période.
+    """
+    __tablename__ = 'presidents_jury'
+    __table_args__ = (
+        UniqueConstraint('Parcours_id_fk', 'Semestre_id_fk', 'AnneeUniversitaire_id_fk', name='uq_president_jury_unique'),
+        {'extend_existing': True}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    Enseignant_id_fk = Column(String(50), ForeignKey('enseignants.Enseignant_id'), nullable=False)
+    Parcours_id_fk = Column(String(15), ForeignKey('parcours.Parcours_id'), nullable=False)
     Semestre_id_fk = Column(String(10), ForeignKey('semestres.Semestre_id'), nullable=False)
     AnneeUniversitaire_id_fk = Column(String(9), ForeignKey('annees_universitaires.AnneeUniversitaire_id'), nullable=False)
-    SessionExamen_id_fk = Column(String(8), ForeignKey('sessions_examen.SessionExamen_id'), nullable=False) # Ajouté
 
-    Jury_date_nomination = Column(Date, nullable=True)
+    Date_nomination = Column(Date, nullable=True)
 
-    enseignant_president = relationship("Enseignant", back_populates="presidences_jury")
-    semestre_jury = relationship("Semestre")
-    annee_univ_jury = relationship("AnneeUniversitaire")
-    session_jury = relationship("SessionExamen")
-
-    def __repr__(self):
-        return (f"<Jury Semestre {self.Semestre_id_fk} (Annee: {self.AnneeUniversitaire_id_fk}, Session: {self.SessionExamen_id_fk}) "
-                f"Président: {self.Enseignant_id_fk}>")
+    enseignant = relationship("Enseignant", back_populates="presidences_jury")
+    parcours = relationship("Parcours")
+    semestre = relationship("Semestre")
+    annee_univ = relationship("AnneeUniversitaire")
+    
