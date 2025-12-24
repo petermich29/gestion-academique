@@ -1,27 +1,31 @@
 import React, { useState, useEffect } from "react";
-import { FaUserGraduate, FaFileSignature } from "react-icons/fa";
+// CORRECTION ICI : Ajout de FaUserFriends
+import { FaUserGraduate, FaFileSignature, FaUserFriends } from "react-icons/fa"; 
 import { AppStyles } from "../../components/ui/AppStyles";
 import { useBreadcrumb } from "../../context/BreadcrumbContext";
 
-// Importez votre StudentsPage existant (même s'il ne marche pas sans backend, on l'importe juste pour l'onglet)
 import StudentsPage from "./BaseEtudiants"; 
 import InscriptionsMain from "./GestionsInscriptions"; 
+import GestionDoublons from "./GestionDoublons"; 
 
 export default function EtudiantsInscriptions() {
-
     const { setBreadcrumb } = useBreadcrumb();
-    const [activeTab, setActiveTab] = useState("inscriptions"); // On force l'onglet inscription par défaut pour tester
+    const [activeTab, setActiveTab] = useState("inscriptions");
 
     useEffect(() => {
+        const labels = {
+            etudiants: "Base Étudiants",
+            inscriptions: "Gestion Inscriptions",
+            doublons: "Gestion des Doublons"
+        };
         setBreadcrumb([
             { label: "Scolarité", path: "/etudiants-inscriptions" },
-            { label: activeTab === "etudiants" ? "Base Étudiants" : "Gestion Inscriptions", path: "#" }
+            { label: labels[activeTab], path: "#" }
         ]);
     }, [activeTab]);
 
     return (
         <div className={AppStyles.pageContainer}>
-
             <div>
                 <h2 className={AppStyles.mainTitle}>Scolarité & Inscriptions</h2>
                 <p className="text-gray-500 text-sm mt-1">
@@ -52,15 +56,24 @@ export default function EtudiantsInscriptions() {
                 >
                     <FaFileSignature className="text-lg" /> Gestion des Inscriptions
                 </button>
+
+                <button
+                    onClick={() => setActiveTab("doublons")}
+                    className={`pb-3 px-1 flex items-center gap-2 font-bold text-sm border-b-2 transition-all ${
+                        activeTab === "doublons"
+                            ? "text-orange-600 border-orange-600"
+                            : "text-gray-500 border-transparent hover:text-gray-700"
+                    }`}
+                >
+                    <FaUserFriends className="text-lg" /> Fusion & Doublons
+                </button>
             </div>
 
             {/* --- CONTENU --- */}
             <div className="mt-4">
-                {activeTab === "etudiants" ? (
-                    <StudentsPage /> 
-                ) : (
-                    <InscriptionsMain />
-                )}
+                {activeTab === "etudiants" && <StudentsPage />}
+                {activeTab === "inscriptions" && <InscriptionsMain />}
+                {activeTab === "doublons" && <GestionDoublons />}
             </div>
         </div>
     );
