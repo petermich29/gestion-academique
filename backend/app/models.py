@@ -508,6 +508,7 @@ class Etudiant(Base):
 
 
     dossiers_inscription = relationship("DossierInscription", back_populates="etudiant")
+    doublons_associes = relationship("MembreDoublon", back_populates="etudiant", cascade="all, delete-orphan")
 
     # --- AJOUT CRUCIAL POUR RÉPARER L'ERREUR ---
     @property
@@ -1032,18 +1033,48 @@ class PresidentJury(Base):
     annee_univ = relationship("AnneeUniversitaire")
 
 
-# Dans models.py, ajoutez cette classe à la fin ou avec les autres
+# A AJOUTER DANS app/models.py (à la fin)
 
-class DoublonNonAvere(Base):
+class GroupeDoublon(Base):
     """
-    Stocke les groupes identifiés comme "Faux Doublons" pour ne plus les proposer.
-    La signature est une concaténation des IDs triés : "ID1|ID2"
+    Stocke un groupe de doublons potentiels de manière persistante.
     """
-    __tablename__ = 'doublons_non_averes'
+    __tablename__ = 'groupes_doublons'
     __table_args__ = ({'extend_existing': True})
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    # Signature unique pour éviter de redétecter le même groupe (ex: "ID_A|ID_B")
     signature = Column(String(500), unique=True, nullable=False, index=True)
-    date_ignore = Column(Date, nullable=True)
-    utilisateur = Column(String(100), nullable=True) # Optionnel
+    
+    # Statuts : 
+    # 'DETECTE' (Nouveau, à traiter)
+    # 'SURVEILLANCE' (Suspect, enquête nécessaire)
+    # 'IGNORE' (Faux doublon confirmé)
+    # 'TRAITE' (Fusionné)
+    statut = Column(String(20), default='DETECTE', nullable=False, index=True)
+    
+    date_detection = Column(Date, nullable=False)
+    score_moyen = Column(Integer, default=0) # Pour trier par pertinence
+
+    membres = relationship("MembreDoublon", back_populates="groupe", cascade="all, delete-orphan")
+
+class MembreDoublon(Base):
+    """
+    Lie un étudiant à un groupe de doublons.
+    """
+    __tablename__ = 'membres_doublons'
+    __table_args__ = (
+        UniqueConstraint('groupe_id', 'etudiant_id', name='uq_groupe_etudiant'),
+        {'extend_existing': True}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    groupe_id = Column(Integer, ForeignKey('groupes_doublons.id'), nullable=False)
+    etudiant_id = Column(String(50), ForeignKey('etudiants.Etudiant_id'), nullable=False)
+    
+    # Raison spécifique pour ce membre (ex: "Même CIN", "Similitude Nom 95%")
+    raison = Column(String(255))
+
+    groupe = relationship("GroupeDoublon", back_populates="membres")
+    etudiant = relationship("Etudiant") # Accès aux infos de l'étudiant
     

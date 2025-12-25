@@ -1,284 +1,244 @@
 import uuid
 import time
-from threading import Thread
-from typing import List, Dict, Any, Optional
+from typing import List
 import traceback
+from datetime import date
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Body, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_, tuple_
+from sqlalchemy.inspection import inspect
 from thefuzz import fuzz 
 
 from app.database import get_db, SessionLocal 
-from app.models import Etudiant, DossierInscription, Inscription, InscriptionSemestre, SuiviCreditCycle, DoublonNonAvere 
-
-from datetime import date
+from app.models import (
+    Etudiant, GroupeDoublon, MembreDoublon, 
+    DossierInscription, Inscription, InscriptionSemestre, SuiviCreditCycle
+)
 
 router = APIRouter(prefix="/doublons", tags=["Gestion Doublons"])
 
-# --- STOCKAGE EN MÉMOIRE POUR LA PROGRESSION ---
-# Structure enrichie : { "job_id": { "status": "...", "progress": 0, "last_index": 0, "result": [] } }
-SCAN_JOBS = {}
+SCAN_STATUS = {}
 
-def cleanup_jobs():
-    """Nettoie les vieux jobs terminés ou échoués"""
+def cleanup_status():
     current_time = time.time()
-    keys_to_del = [
-        k for k, v in SCAN_JOBS.items() 
-        if v.get("status") in ["completed", "failed"] and (current_time - v.get("timestamp", 0)) > 3600
-    ]
-    for k in keys_to_del:
-        del SCAN_JOBS[k]
+    keys_to_del = [k for k, v in SCAN_STATUS.items() if (current_time - v.get("timestamp", 0)) > 86400]
+    for k in keys_to_del: del SCAN_STATUS[k]
 
-# --- ALGORITHME DE DÉTECTION (Thread Safe & Stoppable) ---
-def background_scan_process(job_id: str, db: Session, start_index: int = 0):
+def object_as_dict(obj):
+    return {c.key: getattr(obj, c.key) for c in inspect(obj).mapper.column_attrs}
+
+def get_dossiers_count_for_id(session: Session, etudiant_id: str) -> int:
+    return session.query(DossierInscription).filter(DossierInscription.Etudiant_id_fk == etudiant_id).count()
+
+def background_db_scan_process(job_id: str):
+    db = SessionLocal()
+    BATCH_LIMIT = 20 
+    
     try:
-        SCAN_JOBS[job_id]["status"] = "processing"
-        
-        # 1. Charger les signatures ignorées en mémoire (Set pour recherche rapide O(1))
-        ignored_sigs = {row.signature for row in db.query(DoublonNonAvere.signature).all()}
+        SCAN_STATUS[job_id].update({
+            "status": "processing",
+            "temp_groups": [], 
+            "found_count": 0,
+            "stop_requested": False
+        })
 
-        students = db.query(Etudiant).order_by(Etudiant.Etudiant_id).all()
-        total = len(students)
-        SCAN_JOBS[job_id]["total"] = total
+        query = db.query(Etudiant)
+        total = query.count()
+        SCAN_STATUS[job_id]["total"] = total
         
-        # Récupération résultats existants
-        duplicates_groups = SCAN_JOBS[job_id].get("result", [])
-        
-        # Nettoyage des résultats existants : 
-        # Si un groupe a été ignoré pendant la pause, on le retire de la liste en mémoire
-        duplicates_groups = [
-            g for g in duplicates_groups 
-            if generate_signature([s['id'] for s in g['students']]) not in ignored_sigs
-        ]
-        SCAN_JOBS[job_id]["result"] = duplicates_groups
+        students_light = []
+        cin_map = defaultdict(list)
+        year_map = defaultdict(list)
 
+        for row in query.yield_per(1000):
+            if SCAN_STATUS[job_id].get("stop_requested"): break
+            try:
+                raw_data = object_as_dict(row)
+            except:
+                raw_data = {}
+
+            s_obj = {
+                "id": row.Etudiant_id,
+                "nom": (row.Etudiant_nom or "").strip().lower(),
+                "prenoms": (row.Etudiant_prenoms or "").strip().lower(),
+                "cin": (row.Etudiant_cin or "").replace(" ", "").replace("-", "").strip(),
+                "annee": row.Etudiant_naissance_annee or (row.Etudiant_naissance_date.year if row.Etudiant_naissance_date else 0),
+                "raw": raw_data 
+            }
+            if len(s_obj["cin"]) > 5: cin_map[s_obj["cin"]].append(s_obj)
+            year_map[s_obj["annee"]].append(s_obj)
+            students_light.append(s_obj)
+
+        existing_sigs = {s[0] for s in db.query(GroupeDoublon.signature).all()}
         processed_ids = set()
-        # On marque comme traités ceux qui sont déjà dans les résultats
-        for group in duplicates_groups:
-            for stu in group['students']:
-                processed_ids.add(stu['id'])
+        pending_orm_objects = []
 
-        # Map CIN ... (code inchangé)
-        cin_map = {}
-        for s in students:
-            if s.Etudiant_cin:
-                clean = s.Etudiant_cin.replace(" ", "").replace("-", "")
-                if clean not in cin_map: cin_map[clean] = []
-                cin_map[clean].append(s)
+        for i, s1 in enumerate(students_light):
+            if SCAN_STATUS[job_id].get("stop_requested"):
+                SCAN_STATUS[job_id]["status"] = "stopped"
+                break
 
-        # Début de l'analyse (On commence à start_index)
-        for i in range(start_index, total):
-            # ... (Logique de pause inchangée) ...
-            if SCAN_JOBS[job_id]["status"] == "stopping":
-                SCAN_JOBS[job_id]["status"] = "paused"
-                SCAN_JOBS[job_id]["last_index"] = i
-                return
+            if i % 50 == 0:
+                SCAN_STATUS[job_id].update({"progress": round((i/total)*100, 2), "current_index": i})
 
-            s1 = students[i]
-            
-            # Mise à jour progression
-            if i % 10 == 0:
-                SCAN_JOBS[job_id]["progress"] = int((i / total) * 100)
+            if s1["id"] in processed_ids: continue
 
-            if s1.Etudiant_id in processed_ids:
-                continue
-            
-            current_group = [format_student_for_ui(s1)]
             potential_dupes = []
+            if s1["cin"]:
+                for m in cin_map.get(s1["cin"], []):
+                    if m["id"] != s1["id"] and m["id"] not in processed_ids:
+                        potential_dupes.append((m, "CIN Identique", 100))
 
-            # 1. Critère CIN (Prioritaire)
-            if s1.Etudiant_cin:
-                clean_cin_1 = s1.Etudiant_cin.replace(" ", "").replace("-", "")
-                matches = cin_map.get(clean_cin_1, [])
-                for m in matches:
-                    if m.Etudiant_id != s1.Etudiant_id and m.Etudiant_id not in processed_ids:
-                        potential_dupes.append((m, "CIN Identique"))
+            full_name_1 = f"{s1['nom']} {s1['prenoms']}"
+            candidates = year_map.get(s1["annee"], [])
+            for s2 in candidates:
+                if s2["id"] == s1["id"] or s2["id"] in processed_ids: continue
+                if any(d[0]["id"] == s2["id"] for d in potential_dupes): continue
+                full_name_2 = f"{s2['nom']} {s2['prenoms']}"
+                score = fuzz.token_sort_ratio(full_name_1, full_name_2)
+                if score >= 90: potential_dupes.append((s2, f"Similitude Nom ({score}%)", score))
 
-            # 2. Critère Fuzzy Name + Date
-            name1 = f"{s1.Etudiant_nom or ''} {s1.Etudiant_prenoms or ''}".strip().lower()
-            
-            # On compare uniquement avec les étudiants suivants
-            for s2 in students[i+1:]:
-                if s2.Etudiant_id in processed_ids or s2.Etudiant_id == s1.Etudiant_id:
-                    continue
-                
-                # Si déjà trouvé par CIN, on saute le check fuzzy
-                if any(p[0].Etudiant_id == s2.Etudiant_id for p in potential_dupes):
-                    continue
-
-                name2 = f"{s2.Etudiant_nom or ''} {s2.Etudiant_prenoms or ''}".strip().lower()
-                ratio = fuzz.token_sort_ratio(name1, name2)
-                
-                same_birth = False
-                if s1.Etudiant_naissance_date and s2.Etudiant_naissance_date:
-                    same_birth = (s1.Etudiant_naissance_date == s2.Etudiant_naissance_date)
-                elif s1.Etudiant_naissance_annee and s2.Etudiant_naissance_annee:
-                    same_birth = (s1.Etudiant_naissance_annee == s2.Etudiant_naissance_annee)
-
-                is_dupe = False
-                reason = ""
-
-                # Règles de décision
-                if ratio > 92: 
-                    is_dupe = True
-                    reason = f"Nom très similaire ({ratio}%)"
-                elif ratio > 80 and same_birth:
-                    is_dupe = True
-                    reason = f"Nom ({ratio}%) + Date Naissance"
-                
-                if is_dupe:
-                    potential_dupes.append((s2, reason))
-
-            # Consolidation du groupe
             if potential_dupes:
-                # Créer une liste temporaire d'IDs pour vérifier la signature
-                ids_in_group = [s1.Etudiant_id] + [x[0].Etudiant_id for x in potential_dupes]
-                sig = generate_signature(ids_in_group)
+                ids_group = sorted([s1["id"]] + [x[0]["id"] for x in potential_dupes])
+                sig = "|".join(map(str, ids_group))
 
-                # VÉRIFICATION BASE DE DONNÉES : Si ignoré, on saute !
-                if sig in ignored_sigs:
-                    continue
+                if sig not in existing_sigs:
+                    # MISE À JOUR TEMPS RÉEL DU COMPTEUR UI
+                    SCAN_STATUS[job_id]["found_count"] += 1
+                    
+                    ui_group = {
+                        "group_id": f"temp_{s1['id']}",
+                        "score": int(sum(x[2] for x in potential_dupes)/len(potential_dupes)),
+                        "students": [
+                            {"id": s1["id"], "Etudiant_nom": s1["nom"], "Etudiant_prenoms": s1["prenoms"], "raw": s1["raw"], "dossiers_count": get_dossiers_count_for_id(db, s1["id"])},
+                            *[{"id": x[0]["id"], "Etudiant_nom": x[0]["nom"], "Etudiant_prenoms": x[0]["prenoms"], "raw": x[0]["raw"], "dossiers_count": get_dossiers_count_for_id(db, x[0]["id"])} for x in potential_dupes]
+                        ]
+                    }
+                    SCAN_STATUS[job_id]["temp_groups"].append(ui_group)
 
-                # Si non ignoré, on construit le groupe
-                current_group = [format_student_for_ui(s1)]
-                processed_ids.add(s1.Etudiant_id)
-                
-                for (s_dupe, reason) in potential_dupes:
-                    if s_dupe.Etudiant_id not in processed_ids:
-                        fmt_s = format_student_for_ui(s_dupe)
-                        fmt_s['reason'] = reason 
-                        current_group.append(fmt_s)
-                        processed_ids.add(s_dupe.Etudiant_id)
-                
-                duplicates_groups.append({
-                    "group_id": str(uuid.uuid4()),
-                    "students": current_group,
-                    "confidence": "High"
-                })
-                # Mise à jour temps réel
-                SCAN_JOBS[job_id]["result"] = duplicates_groups
+                    new_group = GroupeDoublon(signature=sig, statut='DETECTE', date_detection=date.today(), score_moyen=ui_group["score"])
+                    membres = [MembreDoublon(etudiant_id=s1["id"], raison="Référence")]
+                    for (dup, reason, sc) in potential_dupes: membres.append(MembreDoublon(etudiant_id=dup["id"], raison=reason))
+                    new_group.membres = membres
+                    
+                    pending_orm_objects.append(new_group)
+                    existing_sigs.add(sig)
+                    processed_ids.add(s1["id"])
+                    for x in potential_dupes: processed_ids.add(x[0]["id"])
 
-        # Fin normale
-        SCAN_JOBS[job_id]["progress"] = 100
-        SCAN_JOBS[job_id]["last_index"] = total
-        SCAN_JOBS[job_id]["status"] = "completed"
+            if len(pending_orm_objects) >= BATCH_LIMIT:
+                db.add_all(pending_orm_objects)
+                db.commit()
+                SCAN_STATUS[job_id]["temp_groups"] = [] # Vide le buffer UI après commit
+                pending_orm_objects = []
+                time.sleep(0.05)
+
+        if pending_orm_objects:
+            db.add_all(pending_orm_objects)
+            db.commit()
+            SCAN_STATUS[job_id]["temp_groups"] = []
+
+        if not SCAN_STATUS[job_id].get("stop_requested"):
+            SCAN_STATUS[job_id].update({"progress": 100, "status": "completed"})
 
     except Exception as e:
-        print(f"Erreur Scan: {e}")
-        SCAN_JOBS[job_id]["status"] = "failed"
-        SCAN_JOBS[job_id]["error"] = str(e)
+        db.rollback()
+        SCAN_STATUS[job_id].update({"status": "failed", "error": str(e)})
+        traceback.print_exc()
+    finally:
+        db.close()
 
-
-def generate_signature(ids: List[str]) -> str:
-    """Génère une signature unique pour un groupe d'IDs (triés)"""
-    return "|".join(sorted(ids))
-
-# --- NOUVELLES ROUTES POUR IGNORER ---
-
-@router.post("/ignore")
-def ignore_group(payload: dict = Body(...), db: Session = Depends(get_db)):
-    """Ajoute un groupe à la liste des faux doublons"""
-    ids = payload.get("student_ids", [])
-    if not ids: raise HTTPException(400, "IDs requis")
-    
-    sig = generate_signature(ids)
-    
-    # Vérifier si existe déjà
-    exists = db.query(DoublonNonAvere).filter_by(signature=sig).first()
-    if not exists:
-        new_ignore = DoublonNonAvere(signature=sig, date_ignore=date.today())
-        db.add(new_ignore)
-        db.commit()
-    
-    return {"message": "Groupe ignoré", "signature": sig}
-
-@router.get("/ignored")
-def get_ignored_groups(db: Session = Depends(get_db)):
-    """Récupère la liste des signatures ignorées (pour l'UI)"""
-    # Note: Idéalement, il faudrait stocker un snapshot JSON des noms pour l'affichage
-    # Ici on renvoie juste les objets pour l'instant ou on reconstruit si nécessaire
-    ignored = db.query(DoublonNonAvere).all()
-    return [{"id": i.id, "signature": i.signature, "date": i.date_ignore} for i in ignored]
-
-@router.delete("/ignored/{id}")
-def restore_group(id: int, db: Session = Depends(get_db)):
-    """Supprime un groupe des ignorés (le scan le retrouvera la prochaine fois)"""
-    item = db.query(DoublonNonAvere).filter(DoublonNonAvere.id == id).first()
-    if item:
-        db.delete(item)
-        db.commit()
-    return {"message": "Restauré"}
-
-# --- ENDPOINTS ---
+# --- ROUTES ---
 
 @router.post("/scan/start")
-def start_scan(
-    background_tasks: BackgroundTasks, 
-    payload: dict = Body(default={})
-):
-    """
-    Lance le scan. 
-    Payload optionnel: {"resume": True, "job_id": "..."} pour reprendre.
-    """
-    resume = payload.get("resume", False)
-    existing_job_id = payload.get("job_id")
-    
-    start_index = 0
+def start_scan(background_tasks: BackgroundTasks):
+    cleanup_status()
     job_id = str(uuid.uuid4())
-
-    # Logique de reprise
-    if resume and existing_job_id and existing_job_id in SCAN_JOBS:
-        old_job = SCAN_JOBS[existing_job_id]
-        if old_job["status"] == "paused":
-            job_id = existing_job_id # On garde le même ID
-            start_index = old_job.get("last_index", 0)
-            print(f"Reprise du scan {job_id} à l'index {start_index}")
-        else:
-            # Si on demande reprise mais que ce n'est pas possible, on restart clean
-            cleanup_jobs()
-    else:
-        cleanup_jobs()
-        SCAN_JOBS[job_id] = {
-            "status": "pending", 
-            "progress": 0, 
-            "last_index": 0,
-            "timestamp": time.time(),
-            "result": [] 
-        }
-    
-    def run_scan_in_new_session(jid: str, idx: int):
-        new_db = SessionLocal()
-        try:
-            background_scan_process(jid, new_db, start_index=idx)
-        finally:
-            new_db.close()
-            
-    background_tasks.add_task(run_scan_in_new_session, job_id, start_index)
-    
-    return {"job_id": job_id, "status": "started", "start_index": start_index}
+    SCAN_STATUS[job_id] = {
+        "status": "pending", "progress": 0, "found_count": 0, "temp_groups": [], "timestamp": time.time()
+    }
+    background_tasks.add_task(background_db_scan_process, job_id)
+    return {"job_id": job_id, "message": "Scan démarré"}
 
 @router.post("/scan/stop/{job_id}")
 def stop_scan(job_id: str):
-    """Demande l'arrêt du scan en cours"""
-    if job_id in SCAN_JOBS:
-        if SCAN_JOBS[job_id]["status"] == "processing":
-            SCAN_JOBS[job_id]["status"] = "stopping" # Signal au thread
-            return {"message": "Arrêt demandé..."}
-        elif SCAN_JOBS[job_id]["status"] == "paused":
-             return {"message": "Déjà en pause."}
-    raise HTTPException(status_code=404, detail="Job introuvable")
+    if job_id in SCAN_STATUS:
+        SCAN_STATUS[job_id]["stop_requested"] = True
+        return {"message": "Arrêt du scan demandé..."}
+    raise HTTPException(404, "Job introuvable")
 
 @router.get("/scan/status/{job_id}")
-def get_scan_status(job_id: str):
-    job = SCAN_JOBS.get(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
+def get_status(job_id: str):
+    return SCAN_STATUS.get(job_id, {"status": "unknown"})
 
-from app.models import Inscription, InscriptionSemestre # Assurez-vous d'importer ces modèles
+@router.get("/list")
+def get_doublons(page: int = 1, limit: int = 10, statut: str = "DETECTE", db: Session = Depends(get_db)):
+    offset = (page - 1) * limit
+    
+    query = db.query(GroupeDoublon)\
+        .options(joinedload(GroupeDoublon.membres).joinedload(MembreDoublon.etudiant))\
+        .filter(GroupeDoublon.statut == statut)
+    
+    total = query.count()
+    groups = query.order_by(GroupeDoublon.score_moyen.desc()).offset(offset).limit(limit).all()
+    
+    result = []
+    for g in groups:
+        students_data = []
+        for m in g.membres:
+            s = m.etudiant 
+            # Fallback manuel si relation cassée
+            if s is None and m.etudiant_id:
+                s = db.query(Etudiant).filter(Etudiant.Etudiant_id == str(m.etudiant_id).strip()).first()
 
-from app.models import Etudiant, DossierInscription, Inscription, InscriptionSemestre, SuiviCreditCycle # Assurez-vous d'avoir TOUS les imports
+            if s:
+                try: raw_data = object_as_dict(s)
+                except: raw_data = {}
+                
+                # NOUVEAU: Calcul explicite du nombre de DossierInscription
+                dossiers_count = get_dossiers_count_for_id(db, s.Etudiant_id)
 
+                students_data.append({
+                    'id': str(s.Etudiant_id),
+                    'nom': s.Etudiant_nom,
+                    'prenoms': s.Etudiant_prenoms,
+                    'reason': m.raison,
+                    # Mise à jour de la clé pour utiliser la nouvelle valeur calculée
+                    'dossiers_count': dossiers_count, 
+                    'raw': raw_data
+                })
+        
+        if students_data:
+            result.append({
+                "group_id": g.id,
+                "statut": g.statut,
+                "score": g.score_moyen,
+                "students": students_data
+            })
+        
+    return {
+        "data": result, 
+        "total": total, 
+        "page": page, 
+        "pages": (total // limit) + 1 if total > 0 else 1
+    }
+
+@router.post("/action/{group_id}")
+def action_doublon(group_id: int, payload: dict = Body(...), db: Session = Depends(get_db)):
+    action = payload.get("action")
+    group = db.query(GroupeDoublon).filter(GroupeDoublon.id == group_id).first()
+    if not group: raise HTTPException(404, "Groupe introuvable")
+        
+    if action == "ignore": group.statut = "IGNORE"
+    elif action == "surveiller": group.statut = "SURVEILLANCE"
+    elif action == "restore": group.statut = "DETECTE"
+    
+    db.commit()
+    return {"message": f"Statut mis à jour : {group.statut}"}
+
+# --- ADVANCED MERGE LOGIC ---
 @router.post("/merge/advanced")
 def merge_students_advanced(
     payload: dict = Body(...), 
@@ -287,6 +247,7 @@ def merge_students_advanced(
     master_id = payload.get("master_id")
     ids_to_merge = payload.get("ids_to_merge", []) 
     overrides = payload.get("overrides", {}) 
+    group_id = payload.get("group_id") # On récupère l'ID du groupe pour le clôturer
 
     if not master_id or not ids_to_merge:
         raise HTTPException(status_code=400, detail="Paramètres manquants")
@@ -296,56 +257,33 @@ def merge_students_advanced(
         raise HTTPException(status_code=404, detail="Master introuvable")
 
     try:
-        # 1. Overrides (Mise à jour des infos du master)
+        # 1. Apply Overrides
         for field, value in overrides.items():
             if hasattr(master, field):
-                if field == "Etudiant_naissance_date_Exact":
-                    if value == "Oui": 
-                        value = True
-                    elif value == "Non": 
-                        value = False
-                    # Si c'est déjà True/False ou None, on laisse passer
-                # --------------------------------------
                 setattr(master, field, value)
 
-        # 2. Boucle sur les doublons (Slaves)
+        # 2. Loop Slaves
         for slave_id in ids_to_merge:
             slave = db.query(Etudiant).filter(Etudiant.Etudiant_id == slave_id).first()
             if not slave: continue
 
-            print(f"--- Traitement fusion : {slave_id} vers {master_id} ---")
-
-            # --- A. GESTION DES DOSSIERS & INSCRIPTIONS ---
+            # --- A. DOSSIERS & INSCRIPTIONS ---
             slave_dossiers = db.query(DossierInscription).filter(
                 DossierInscription.Etudiant_id_fk == slave_id
             ).all()
 
             for s_dossier in slave_dossiers:
-                # Vérifie si le Master a DÉJÀ un dossier pour cette mention
                 master_dossier = db.query(DossierInscription).filter(
                     DossierInscription.Etudiant_id_fk == master.Etudiant_id,
                     DossierInscription.Mention_id_fk == s_dossier.Mention_id_fk
                 ).first()
 
                 if not master_dossier:
-                    # CAS A: Pas de conflit de Mention. 
-                    # On essaie de réattribuer le dossier au Master.
-                    print(f"Déplacement dossier {s_dossier.DossierInscription_id} (Mention {s_dossier.Mention_id_fk})")
-                    try:
-                        s_dossier.Etudiant_id_fk = master.Etudiant_id 
-                        db.flush() # <--- C'est souvent ICI que ça casse (Unique Constraint)
-                    except Exception as integrity_err:
-                        print(f"ERREUR INTEGRITE sur déplacement dossier : {integrity_err}")
-                        # Si déplacement impossible (ex: doublon caché), on passe en mode fusion manuelle (CAS B forcé) ou on skip
-                        db.rollback() 
-                        # Réattacher les objets session après rollback est complexe, 
-                        # ici on lève l'erreur pour comprendre ce qu'il se passe
-                        raise integrity_err 
-                
+                    # Move Dossier
+                    s_dossier.Etudiant_id_fk = master.Etudiant_id 
+                    db.flush()
                 else:
-                    # CAS B: Conflit (Le master a déjà cette mention -> Fusion des INSCRIPTIONS)
-                    print(f"Fusion contenu dossier {s_dossier.DossierInscription_id} vers {master_dossier.DossierInscription_id}")
-                    
+                    # Merge Inscriptions
                     inscriptions_slave = db.query(Inscription).filter(
                         Inscription.DossierInscription_id_fk == s_dossier.DossierInscription_id
                     ).all()
@@ -359,11 +297,10 @@ def merge_students_advanced(
                         ).first()
 
                         if not insc_master:
-                            # Déplacement de l'inscription vers le dossier du master
                             insc_slave.DossierInscription_id_fk = master_dossier.DossierInscription_id
                             db.flush()
                         else:
-                            # Conflit Inscription : On déplace les semestres
+                            # Conflict Inscription -> Check Semestres
                             semestres_slave = db.query(InscriptionSemestre).filter(InscriptionSemestre.Inscription_id_fk == insc_slave.Inscription_id).all()
                             for sem_slave in semestres_slave:
                                 sem_master = db.query(InscriptionSemestre).filter(
@@ -372,71 +309,32 @@ def merge_students_advanced(
                                 ).first()
                                 if not sem_master:
                                     sem_slave.Inscription_id_fk = insc_master.Inscription_id
-                                # Sinon sem_slave sera supprimé via cascade ou manuellement ci-dessous
-
+                            
+                            # Delete empty slave inscription
                             db.delete(insc_slave)
                             db.flush()
 
-                    # Une fois vidé, on supprime le dossier esclave
+                    # Delete empty slave dossier
                     db.delete(s_dossier)
                     db.flush()
 
-
-            # --- B. GESTION DES CREDITS ET SUPPRESSION FINALE ---
+            # --- B. CREDITS & DELETE ---
             db.query(SuiviCreditCycle).filter(SuiviCreditCycle.Etudiant_id_fk == slave_id).delete()
             db.flush()
             
             db.delete(slave)
-            # Le commit final validera tout
+
+        # 3. Update Group Status
+        if group_id:
+            group_doublon = db.query(GroupeDoublon).filter(GroupeDoublon.id == group_id).first()
+            if group_doublon:
+                group_doublon.statut = "TRAITE"
 
         db.commit()
-        return {"success": True, "message": "Fusion avancée terminée avec succès."}
+        return {"success": True, "message": "Fusion effectuée avec succès."}
 
     except Exception as e:
         db.rollback()
-        print("!!!!!!!!!!!!!!!! ERREUR CRITIQUE FUSION !!!!!!!!!!!!!!!!")
-        traceback.print_exc() # <--- CELA VA AFFICHER L'ERREUR DANS TON TERMINAL
-        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        raise HTTPException(status_code=500, detail=f"Erreur interne lors de la fusion: {str(e)}")
-
-def format_student_for_ui(etu: Etudiant):
-    inscriptions_count = len(etu.dossiers_inscription) if etu.dossiers_inscription else 0
-    
-    return {
-        "id": etu.Etudiant_id,
-        "nom": etu.Etudiant_nom,
-        "prenoms": etu.Etudiant_prenoms,
-        "inscriptions_count": inscriptions_count,
-        # Données complètes pour la fusion (valeurs brutes)
-        "raw": {
-            # IDENTITÉ
-            "Etudiant_photo_profil_path": etu.Etudiant_photo_profil_path,
-            "Etudiant_nom": etu.Etudiant_nom,
-            "Etudiant_prenoms": etu.Etudiant_prenoms,
-            "Etudiant_sexe": etu.Etudiant_sexe,
-            "Etudiant_nationalite": etu.Etudiant_nationalite,
-            
-            # NAISSANCE
-            "Etudiant_naissance_date": str(etu.Etudiant_naissance_date) if etu.Etudiant_naissance_date else None,
-            "Etudiant_naissance_date_Exact": "Oui" if etu.Etudiant_naissance_date_Exact else "Non",
-            "Etudiant_naissance_annee": str(etu.Etudiant_naissance_annee) if etu.Etudiant_naissance_annee else None,
-            "Etudiant_naissance_lieu": etu.Etudiant_naissance_lieu,
-            
-            # CIN
-            "Etudiant_cin": etu.Etudiant_cin,
-            "Etudiant_cin_date": str(etu.Etudiant_cin_date) if etu.Etudiant_cin_date else None,
-            "Etudiant_cin_lieu": etu.Etudiant_cin_lieu,
-            
-            # CONTACT
-            "Etudiant_adresse": etu.Etudiant_adresse,
-            "Etudiant_telephone": etu.Etudiant_telephone,
-            "Etudiant_mail": etu.Etudiant_mail,
-            
-            # BACC
-            "Etudiant_bacc_serie": etu.Etudiant_bacc_serie,
-            "Etudiant_bacc_numero": etu.Etudiant_bacc_numero,
-            "Etudiant_bacc_mention": etu.Etudiant_bacc_mention,
-            "Etudiant_bacc_centre": etu.Etudiant_bacc_centre,
-            "Etudiant_bacc_annee": str(etu.Etudiant_bacc_annee) if etu.Etudiant_bacc_annee else None
-        }
-    }
+        print(f"Merge Error: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erreur fusion: {str(e)}")
