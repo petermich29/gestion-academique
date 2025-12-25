@@ -1030,4 +1030,20 @@ class PresidentJury(Base):
     parcours = relationship("Parcours")
     semestre = relationship("Semestre")
     annee_univ = relationship("AnneeUniversitaire")
+
+
+# Dans models.py, ajoutez cette classe à la fin ou avec les autres
+
+class DoublonNonAvere(Base):
+    """
+    Stocke les groupes identifiés comme "Faux Doublons" pour ne plus les proposer.
+    La signature est une concaténation des IDs triés : "ID1|ID2"
+    """
+    __tablename__ = 'doublons_non_averes'
+    __table_args__ = ({'extend_existing': True})
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    signature = Column(String(500), unique=True, nullable=False, index=True)
+    date_ignore = Column(Date, nullable=True)
+    utilisateur = Column(String(100), nullable=True) # Optionnel
     

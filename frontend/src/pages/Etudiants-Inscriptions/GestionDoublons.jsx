@@ -1,261 +1,274 @@
-import React, { useState, useEffect } from "react";
-import { 
-    FaSearch, FaRandom, FaCheckCircle, FaExclamationTriangle, 
-    FaChevronLeft, FaChevronRight, FaInfoCircle, FaUser 
-} from "react-icons/fa";
-import api from "../../api/axios"; 
+import React, { useState, useEffect, useCallback } from "react";
+import { FaRandom, FaSearch, FaListUl, FaHistory, FaBan, FaSync, FaPause, FaPlay, FaTrash, FaCheckCircle } from "react-icons/fa";
+import api from "../../api/axios";
 
-const STORAGE_KEY = "doublons_scan_results";
-const STATIC_URL = "http://localhost:8000/"; // Ajustez selon votre URL backend
+// Import des sous-composants
+import GestionDoublonsATraiter from "./GestionDoublonsATraiter";
+import GestionDoublonsTraites from "./GestionDoublonsTraites";
+
+const KEY_HISTORY = "doublons_history_v2"; 
+const KEY_JOB_ID = "active_scan_job";
+
+const getGroupSignature = (students) => {
+    if (!students) return "";
+    return students.map(s => s.id).sort().join("|");
+};
 
 export default function GestionDoublons() {
-    const [groups, setGroups] = useState([]);
+    const [view, setView] = useState("todo");
+    const [groups, setGroups] = useState([]); 
+    const [history, setHistory] = useState([]); 
+    const [ignoredDB, setIgnoredDB] = useState([]); // <--- État pour les faux doublons
+    
     const [isScanning, setIsScanning] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
     const [progress, setProgress] = useState(0);
     const [error, setError] = useState(null);
-    const [successMsg, setSuccessMsg] = useState(null);
-    const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 3;
+    const [activeJobId, setActiveJobId] = useState(localStorage.getItem(KEY_JOB_ID));
 
+    // --- CHARGEMENT INITIAL ---
     useEffect(() => {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            try {
-                const parsed = JSON.parse(saved);
-                if (Array.isArray(parsed)) setGroups(parsed);
-            } catch (e) { console.error("Erreur cache", e); }
+        const savedHistory = JSON.parse(localStorage.getItem(KEY_HISTORY) || "[]");
+        setHistory(savedHistory);
+        fetchIgnoredFromDB(); // Charger les faux doublons au démarrage
+
+        if (activeJobId) {
+            checkJobStatus(activeJobId);
         }
     }, []);
 
-    const startScan = async () => {
-        setIsScanning(true);
-        setProgress(0);
-        setError(null);
-        setGroups([]); 
-        
+    useEffect(() => {
+        localStorage.setItem(KEY_HISTORY, JSON.stringify(history));
+    }, [history]);
+
+    // --- API : GESTION DES IGNORÉS (DB) ---
+    const fetchIgnoredFromDB = async () => {
         try {
-            const resInit = await api.post("/doublons/scan/start");
-            const jobId = resInit.data.job_id;
-
-            const interval = setInterval(async () => {
-                const resStatus = await api.get(`/doublons/scan/status/${jobId}`);
-                const { status, progress, result, error } = resStatus.data;
-                setProgress(progress);
-                if (result) setGroups(result);
-
-                if (status === "completed") {
-                    clearInterval(interval);
-                    setIsScanning(false);
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify(result));
-                } else if (status === "failed") {
-                    clearInterval(interval);
-                    setIsScanning(false);
-                    setError(error);
-                }
-            }, 1000);
-        } catch (err) {
-            setIsScanning(false);
-            setError(err.message);
+            const res = await api.get("/doublons/ignored");
+            setIgnoredDB(res.data);
+        } catch (e) {
+            console.error("Erreur lors de la récupération des ignorés", e);
         }
     };
 
-    const onGroupMerged = (groupId) => {
-        const newGroups = groups.filter(g => g.group_id !== groupId);
-        setGroups(newGroups);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newGroups));
-        setSuccessMsg("Fusion réussie.");
+    const handleIgnore = async (group) => {
+        try {
+            const studentIds = group.students.map(s => s.id);
+            await api.post("/doublons/ignore", { student_ids: studentIds });
+            
+            setGroups(prev => prev.filter(g => g.group_id !== group.group_id));
+            fetchIgnoredFromDB(); // Actualiser la liste après l'ajout
+        } catch (err) {
+            setError("Erreur lors de l'enregistrement du faux doublon");
+        }
     };
 
-    const currentGroups = groups.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-    const totalPages = Math.ceil(groups.length / itemsPerPage);
+    const handleRestore = async (idEnBase) => {
+        try {
+            await api.delete(`/doublons/ignored/${idEnBase}`);
+            fetchIgnoredFromDB(); // Actualiser la liste après suppression
+        } catch (err) {
+            setError("Erreur lors de la restauration");
+        }
+    };
+
+    // --- LOGIQUE DE SCAN ---
+    const startPolling = useCallback((jobId) => {
+        setIsScanning(true);
+        setIsPaused(false);
+        setError(null);
+
+        const interval = setInterval(async () => {
+            try {
+                const res = await api.get(`/doublons/scan/status/${jobId}`);
+                const { status, progress, result, error: jobError } = res.data;
+                
+                setProgress(progress);
+
+                if (result && Array.isArray(result)) {
+                    // Filtrage local pour ne pas montrer ce qui est en historique de session
+                    const historySigs = new Set(history.map(g => getGroupSignature(g.students)));
+                    const filtered = result.filter(g => !historySigs.has(getGroupSignature(g.students)));
+                    setGroups(filtered);
+                }
+
+                if (status === "completed" || status === "failed" || status === "paused") {
+                    clearInterval(interval);
+                    setIsScanning(false);
+                    if (status === "completed") {
+                        localStorage.removeItem(KEY_JOB_ID);
+                        setActiveJobId(null);
+                    }
+                    if (status === "paused") setIsPaused(true);
+                    if (status === "failed") setError(jobError);
+                }
+            } catch (err) {
+                clearInterval(interval);
+            }
+        }, 1500);
+    }, [history]);
+
+    const startScan = async (resume = false) => {
+        setIsScanning(true);
+        setError(null);
+        try {
+            const payload = resume ? { resume: true, job_id: activeJobId } : {};
+            const res = await api.post("/doublons/scan/start", payload);
+            const jobId = res.data.job_id;
+            
+            setActiveJobId(jobId);
+            localStorage.setItem(KEY_JOB_ID, jobId);
+            startPolling(jobId);
+        } catch (err) {
+            setIsScanning(false);
+            setError("Erreur démarrage : " + err.message);
+        }
+    };
+
+    const stopScan = async () => {
+        if(!activeJobId) return;
+        try {
+            await api.post(`/doublons/scan/stop/${activeJobId}`);
+        } catch (err) {
+            setError("Erreur pause : " + err.message);
+        }
+    };
+
+    const checkJobStatus = async (jobId) => {
+        try {
+            const res = await api.get(`/doublons/scan/status/${jobId}`);
+            if(res.data.status === "processing") {
+                startPolling(jobId);
+            } else if (res.data.status === "paused") {
+                setIsPaused(true);
+                setProgress(res.data.progress);
+            }
+        } catch(e) {
+            localStorage.removeItem(KEY_JOB_ID);
+            setActiveJobId(null);
+        }
+    };
 
     return (
         <div className="p-4 bg-gray-50 min-h-screen">
             <div className="bg-white p-6 rounded-lg shadow-sm mb-6 border border-gray-200">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center mb-6">
                     <div className="flex items-center gap-4">
-                        <FaRandom className="text-3xl text-orange-500" />
+                        <div className="p-3 bg-orange-100 rounded-lg">
+                            <FaRandom className="text-2xl text-orange-600" />
+                        </div>
                         <div>
-                            <h3 className="text-xl font-bold">Fusion des Dossiers Étudiants</h3>
-                            <p className="text-gray-500 text-sm">Comparez les photos, identités et parcours BACC avant fusion.</p>
+                            <h3 className="text-xl font-bold text-gray-800">Gestion des Doublons</h3>
+                            <p className="text-gray-500 text-sm">Détection et nettoyage des fiches.</p>
                         </div>
                     </div>
-                    {!isScanning ? (
-                        <button onClick={startScan} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold flex items-center gap-2">
-                            <FaSearch /> Lancer l'analyse
-                        </button>
-                    ) : (
-                        <div className="w-48">
-                            {/* Barre de progression */}
-                            <div className="bg-gray-200 rounded-full h-2">
-                                <div 
-                                    className="bg-blue-600 h-2 rounded-full transition-all" 
-                                    style={{ width: `${progress}%` }}
-                                ></div>
+                    
+                    <div className="flex gap-2">
+                        {!isScanning && !isPaused && (
+                            <button onClick={() => startScan(false)} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-full font-bold flex items-center gap-2 shadow transition-all">
+                                <FaSearch /> Nouveau Scan
+                            </button>
+                        )}
+                        {!isScanning && isPaused && (
+                            <button onClick={() => startScan(true)} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-full font-bold flex items-center gap-2 shadow animate-pulse">
+                                <FaPlay /> Reprendre ({progress}%)
+                            </button>
+                        )}
+                        {isScanning && (
+                            <div className="flex items-center gap-4 bg-blue-50 px-4 py-2 rounded-full border border-blue-100">
+                                <div className="w-48">
+                                    <div className="flex justify-between text-[10px] mb-1 font-bold text-blue-700 uppercase">
+                                        <span className="flex items-center gap-1"><FaSync className="animate-spin"/> Analyse...</span>
+                                        <span>{progress}%</span>
+                                    </div>
+                                    <div className="bg-blue-200 rounded-full h-1.5 overflow-hidden">
+                                        <div className="bg-blue-600 h-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
+                                    </div>
+                                </div>
+                                <button onClick={stopScan} className="text-red-600 hover:bg-red-100 p-2 rounded-full transition-colors">
+                                    <FaPause />
+                                </button>
                             </div>
-                            
-                            {/* Pourcentage */}
-                            <p className="text-center text-xs mt-1 font-semibold">{progress}%</p>
-                            
-                            {/* AJOUT ICI : Nombre de groupes trouvés en temps réel */}
-                            <p className="text-center text-xs text-orange-600 mt-1 animate-pulse">
-                                {groups.length} groupe(s) trouvé(s)
-                            </p>
+                        )}
+                    </div>
+                </div>
+
+                {/* LES 3 ONGLETS SONT ICI */}
+                <div className="flex gap-2 border-b border-gray-100 pb-1">
+                    <NavButton active={view === "todo"} onClick={() => setView("todo")} icon={<FaListUl />} label="À traiter" count={groups.length} color="blue" />
+                    <NavButton active={view === "history"} onClick={() => setView("history")} icon={<FaHistory />} label="Traités" count={history.length} color="green" />
+                    <NavButton active={view === "false"} onClick={() => setView("false")} icon={<FaBan />} label="Faux doublons" count={ignoredDB.length} color="gray" />
+                </div>
+            </div>
+
+            {error && <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-100 mb-4 flex items-center gap-3"><FaBan /> {error}</div>}
+
+            <div className="min-h-[400px]">
+                {view === "todo" && (
+                    <GestionDoublonsATraiter 
+                        groups={groups} 
+                        onMerge={(group) => {
+                            setHistory([group, ...history]);
+                            setGroups(prev => prev.filter(g => g.group_id !== group.group_id));
+                        }} 
+                        onIgnore={handleIgnore} 
+                    />
+                )}
+                
+                {view === "history" && <GestionDoublonsTraites groups={history} />}
+
+                {/* AFFICHAGE DE L'ONGLET FAUX DOUBLONS */}
+                {view === "false" && (
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div className="p-4 border-b bg-gray-50 font-bold text-gray-700 flex justify-between items-center">
+                            <span className="flex items-center gap-2"><FaBan className="text-gray-400"/> Groupes marqués comme "Faux Doublons"</span>
+                            <span className="text-xs font-normal bg-gray-200 px-2 py-1 rounded-full">{ignoredDB.length} enregistré(s)</span>
                         </div>
-                    )}
-                </div>
-                {successMsg && <div className="mt-4 p-2 bg-green-100 text-green-700 rounded text-sm">{successMsg}</div>}
+                        <div className="divide-y max-h-[600px] overflow-y-auto">
+                            {ignoredDB.length === 0 ? (
+                                <div className="p-20 text-center text-gray-400">
+                                    <FaCheckCircle className="text-5xl mx-auto mb-4 text-gray-100" />
+                                    <p>Aucun faux doublon n'a été enregistré en base de données.</p>
+                                </div>
+                            ) : (
+                                ignoredDB.map(item => (
+                                    <div key={item.id} className="p-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                                        <div>
+                                            <div className="font-mono text-[11px] text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded">
+                                                {item.signature.split('|').join(' ↔ ')}
+                                            </div>
+                                            <div className="text-[10px] text-gray-400 mt-2 uppercase tracking-tighter">
+                                                Identifié le {new Date(item.date_ignore).toLocaleDateString()}
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleRestore(item.id)}
+                                            className="flex items-center gap-2 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                            title="Supprimer des ignorés"
+                                        >
+                                            <FaTrash size={14} /> <span className="text-xs font-bold">Restaurer</span>
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
-
-            <div className="space-y-8">
-                {currentGroups.map(group => (
-                    <DuplicateGroupResolver key={group.group_id} group={group} onSuccess={() => onGroupMerged(group.group_id)} />
-                ))}
-            </div>
-
-            {totalPages > 1 && (
-                <div className="flex justify-center mt-6 gap-2">
-                    <button onClick={() => setCurrentPage(p => p - 1)} disabled={currentPage === 1} className="p-2 border rounded bg-white disabled:opacity-50"><FaChevronLeft /></button>
-                    <span className="p-2">Page {currentPage} / {totalPages}</span>
-                    <button onClick={() => setCurrentPage(p => p + 1)} disabled={currentPage === totalPages} className="p-2 border rounded bg-white disabled:opacity-50"><FaChevronRight /></button>
-                </div>
-            )}
         </div>
     );
 }
 
-function DuplicateGroupResolver({ group, onSuccess }) {
-    const students = group.students;
-    const [includedIds, setIncludedIds] = useState(students.map(s => s.id));
-    const [masterId, setMasterId] = useState(() => [...students].sort((a,b) => b.inscriptions_count - a.inscriptions_count)[0].id);
-    const [fieldOverrides, setFieldOverrides] = useState({});
-
-    // Configuration des colonnes
-    const fields = [
-        { key: "Etudiant_photo_profil_path", label: "Photo", isImage: true },
-        { key: "Etudiant_nom", label: "Nom" },
-        { key: "Etudiant_prenoms", label: "Prénoms" },
-        { key: "Etudiant_sexe", label: "Sexe" },
-        { key: "Etudiant_nationalite", label: "Nationalité" },
-        { key: "Etudiant_naissance_date", label: "Né(e) le" },
-        { key: "Etudiant_naissance_lieu", label: "Lieu Naiss." },
-        { key: "Etudiant_cin", label: "CIN" },
-        { key: "Etudiant_cin_date", label: "Date CIN" },
-        { key: "Etudiant_adresse", label: "Adresse" },
-        { key: "Etudiant_bacc_serie", label: "Bacc Série" },
-        { key: "Etudiant_bacc_numero", label: "Bacc N°" },
-        { key: "Etudiant_bacc_mention", label: "Mention" },
-        { key: "Etudiant_bacc_centre", label: "Centre Bacc" },
-    ];
-
-    // LARGEURS STRICTES POUR POSITIONNEMENT STICKY
-    const W_ACTION = 60; 
-    const W_ID = 180;
-
-    const getFinalValue = (fieldKey) => fieldOverrides[fieldKey] !== undefined ? fieldOverrides[fieldKey] : students.find(s => s.id === masterId)?.raw?.[fieldKey];
-
-    const handleMerge = async () => {
-        const idsToMerge = includedIds.filter(id => id !== masterId);
-        if (idsToMerge.length === 0) return alert("Sélectionnez des doublons.");
-        if (!window.confirm("Fusionner les dossiers ?")) return;
-        try {
-            await api.post("/doublons/merge/advanced", { master_id: masterId, ids_to_merge: idsToMerge, overrides: fieldOverrides });
-            onSuccess();
-        } catch (err) { alert(err.message); }
+function NavButton({ active, onClick, icon, label, count, color }) {
+    const colors = {
+        blue: "bg-blue-50 text-blue-700 border-blue-600",
+        green: "bg-green-50 text-green-700 border-green-600",
+        gray: "bg-gray-100 text-gray-700 border-gray-500"
     };
-
     return (
-        <div className="bg-white border border-gray-200 shadow-md rounded-lg overflow-hidden">
-            <div className="p-4 bg-orange-50 border-b border-orange-100 flex items-center gap-2 text-orange-700 font-bold">
-                <FaExclamationTriangle /> Groupe de doublons potentiels
-            </div>
-
-            <div className="overflow-x-auto relative">
-                <table className="w-full text-xs" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-                    <thead>
-                        <tr className="bg-gray-100">
-                            {/* COLONNE ACTION FIGÉE */}
-                            <th className="sticky left-0 z-30 bg-gray-100 p-3 border-b border-r border-gray-200" style={{ minWidth: W_ACTION, width: W_ACTION }}>Action</th>
-                            {/* COLONNE ID FIGÉE */}
-                            <th className="sticky z-30 bg-gray-100 p-3 border-b border-r border-gray-200 shadow-[2px_0_5px_rgba(0,0,0,0.1)]" style={{ left: W_ACTION, minWidth: W_ID, width: W_ID }}>Identifiant</th>
-                            {/* AUTRES COLONNES */}
-                            {fields.map(f => (
-                                <th key={f.key} className="p-3 border-b border-r border-gray-200 text-left whitespace-nowrap bg-gray-100">{f.label}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {students.map(student => {
-                            const isIncluded = includedIds.includes(student.id);
-                            const isMaster = masterId === student.id;
-                            
-                            // Couleur de fond de cellule calculée pour l'opacité visuelle sans transparence réelle
-                            const cellBg = isMaster ? "#eff6ff" : (isIncluded ? "#ffffff" : "#f9fafb");
-                            const textColor = isIncluded ? "text-gray-900" : "text-gray-400";
-
-                            return (
-                                <tr key={student.id} className={isMaster ? "bg-blue-50" : (isIncluded ? "bg-white" : "bg-gray-50")}>
-                                    <td className="sticky left-0 z-20 p-3 border-b border-r border-gray-200 text-center" style={{ backgroundColor: cellBg }}>
-                                        <div className="flex flex-col gap-2 items-center">
-                                            <input type="checkbox" checked={isIncluded} disabled={isMaster} onChange={e => e.target.checked ? setIncludedIds([...includedIds, student.id]) : setIncludedIds(includedIds.filter(id => id !== student.id))} className="accent-blue-600" />
-                                            <input type="radio" name={`m-${group.group_id}`} checked={isMaster} disabled={!isIncluded} onChange={() => {setMasterId(student.id); setFieldOverrides({});}} />
-                                        </div>
-                                    </td>
-                                    <td className={`sticky z-20 p-3 border-b border-r border-gray-200 font-mono font-bold shadow-[2px_0_5px_rgba(0,0,0,0.1)] ${textColor}`} style={{ left: W_ACTION, backgroundColor: cellBg }}>
-                                        {student.id}
-                                        <div className="text-[10px] font-normal text-blue-500 mt-1">{student.inscriptions_count} inscription(s)</div>
-                                    </td>
-                                    {fields.map(f => {
-                                        const val = student.raw?.[f.key];
-                                        const isOverridden = fieldOverrides[f.key] === val && val !== undefined;
-                                        const isSelected = isOverridden || (fieldOverrides[f.key] === undefined && isMaster);
-
-                                        return (
-                                            <td 
-                                                key={f.key} 
-                                                onClick={() => isIncluded && val && setFieldOverrides({...fieldOverrides, [f.key]: val})}
-                                                className={`p-2 border-b border-r border-gray-100 cursor-pointer transition-all ${isSelected ? "bg-blue-100 ring-1 ring-inset ring-blue-400" : ""} ${textColor}`}
-                                            >
-                                                {f.isImage ? (
-                                                    <div className="flex justify-center">
-                                                        {val ? (
-                                                            <img src={`${STATIC_URL}${val}`} alt="Profil" className="w-12 h-12 rounded object-cover border border-gray-200 shadow-sm" />
-                                                        ) : (
-                                                            <div className="w-12 h-12 bg-gray-100 flex items-center justify-center rounded text-gray-300"><FaUser /></div>
-                                                        )}
-                                                    </div>
-                                                ) : (
-                                                    <div className="max-w-[200px] truncate" title={val}>{val || "-"}</div>
-                                                )}
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            );
-                        })}
-                        {/* LIGNE DE PREVISUALISATION FINALE */}
-                        <tr className="bg-gray-800 text-white font-bold h-16">
-                            <td className="sticky left-0 z-20 bg-gray-800 p-3 border-r border-gray-700 text-center text-green-400"><FaCheckCircle className="mx-auto" /></td>
-                            <td className="sticky z-20 bg-gray-800 p-3 border-r border-gray-700 shadow-[2px_0_5px_rgba(0,0,0,0.3)] text-right pr-4" style={{ left: W_ACTION }}>RÉSULTAT FINAL :</td>
-                            {fields.map(f => {
-                                const final = getFinalValue(f.key);
-                                return (
-                                    <td key={f.key} className="p-2 px-3 border-r border-gray-700 text-blue-300">
-                                        {f.isImage ? (final ? <div className="text-[9px] truncate w-24">IMAGE SÉLECTIONNÉE</div> : "-") : (final || "-")}
-                                    </td>
-                                );
-                            })}
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div className="p-4 bg-gray-50 flex justify-between items-center border-t border-gray-200">
-                <p className="text-sm text-gray-500 flex items-center gap-2"><FaInfoCircle /> Cliquez sur une cellule pour choisir la valeur à conserver.</p>
-                <button onClick={handleMerge} className="bg-green-600 hover:bg-green-700 text-white px-8 py-2 rounded-lg font-bold shadow-lg transition-transform active:scale-95">
-                    Confirmer la Fusion
-                </button>
-            </div>
-        </div>
+        <button onClick={onClick} className={`flex items-center gap-2 px-6 py-3 rounded-t-lg font-bold transition-all border-b-2 ${active ? colors[color] : "text-gray-500 border-transparent hover:bg-gray-50"}`}>
+            {icon} <span className="hidden md:inline">{label}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full ml-1 ${active ? "bg-white shadow-sm" : "bg-gray-200"}`}>{count}</span>
+        </button>
     );
 }
