@@ -1,8 +1,9 @@
 // src/components/Navbar.jsx
 import React from "react";
-import { FaBars } from "react-icons/fa";
+import { FaBars, FaSignOutAlt } from "react-icons/fa";
 import { Link } from "react-router-dom";
 import { useBreadcrumb } from "../context/BreadcrumbContext";
+import { useAuth } from "../context/AuthContext";
 
 // Icônes SVG premium (monochrome, modernes)
 const icons = {
@@ -41,6 +42,8 @@ const icons = {
 };
 
 const Navbar = ({ toggleSidebar, menuTitle = "Tableau de bord" }) => {
+
+  const { user, logout } = useAuth();
   const { breadcrumb } = useBreadcrumb();
 
   // Si rien comme breadcrumb → fallback au menuTitle
@@ -114,8 +117,20 @@ const Navbar = ({ toggleSidebar, menuTitle = "Tableau de bord" }) => {
 
       {/* Profil utilisateur (placeholder) */}
       <div className="flex items-center gap-4">
-        <span className="text-gray-700">Pierre Michel</span>
-        <div className="w-9 h-9 bg-gray-300 rounded-full border border-gray-400" />
+        {user && (
+            <div className="flex items-center gap-3">
+                <div className="text-right">
+                    <div className="text-sm font-bold text-gray-700">{user.username}</div>
+                    <div className="text-xs text-gray-400 uppercase">{user.role}</div>
+                </div>
+                <div className="w-9 h-9 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">
+                    {user.username.charAt(0).toUpperCase()}
+                </div>
+                <button onClick={logout} title="Déconnexion" className="p-2 text-gray-500 hover:text-red-600 transition-colors">
+                    <FaSignOutAlt />
+                </button>
+            </div>
+        )}
       </div>
 
     </header>

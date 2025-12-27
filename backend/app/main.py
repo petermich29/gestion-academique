@@ -8,6 +8,7 @@ from app.core.config import settings
 # Imports des routeurs
 from app.routers import composantes_routes, institutions_routes, mentions_routes, metadonnees_routes, ue_routes, parcours_routes, ec_routes, etudiants_routes 
 from app.routers import enseignants_routes, inscriptions_routes, attributions_routes, notes_routes, doublons_routes# <--- AJOUT
+from app.routers import user_routes
 from app.database import engine
 from app.models import Base
 
@@ -41,5 +42,7 @@ app.include_router(attributions_routes.router, prefix="/api") # <--- AJOUT
 app.include_router(inscriptions_routes.router, prefix="/api") # <--- AJOUT
 
 app.include_router(notes_routes.router, prefix="/api")
+
+app.include_router(user_routes.router, prefix="/api")
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

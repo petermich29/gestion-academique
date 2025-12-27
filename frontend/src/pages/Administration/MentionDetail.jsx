@@ -19,10 +19,17 @@ import YearMultiSelect from "../../components/ui/YearMultiSelect";
 import { useAdministration } from "../../context/AdministrationContext";
 import { useBreadcrumb } from "../../context/BreadcrumbContext";
 
+import { useAuth } from "../../context/AuthContext";
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 const MentionDetail = () => {
+    const { user } = useAuth(); 
+    // Vérifier si l'utilisateur a le droit d'écrire sur CETTE mention
+    const canEdit = user?.role === 'SUPER_ADMIN' || (
+        user?.role === 'SECRETAIRE' && 
+        user?.permissions.some(p => p.entity_type === 'MENTION' && p.entity_id === mentionId && p.access_level === 'WRITE')
+    );
   const { id: institutionId, etablissementId, mentionId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -430,10 +437,13 @@ const MentionDetail = () => {
       </div>
 
       <div className={view === "grid" ? AppStyles.gridContainer : "flex flex-col gap-2"}>
-          <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
-              <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12" : "w-8 h-8"}`}><PlusIcon /></div>
-              <p className="text-sm font-semibold text-blue-700">Ajouter Parcours</p>
-          </div>
+            {canEdit && (
+                <div onClick={() => openModal()} className={view === "grid" ? AppStyles.addCard.grid : AppStyles.addCard.list}>
+                    <div className={`${AppStyles.addCard.iconContainer} ${view === "grid" ? "w-12 h-12" : "w-8 h-8"}`}><PlusIcon /></div>
+                    <p className="text-sm font-semibold text-blue-700">Ajouter Parcours</p>
+                </div>
+            )}
+          
           <AnimatePresence>
              {filteredParcours.map(p => (
                  <CardItem 
@@ -444,8 +454,8 @@ const MentionDetail = () => {
                     imageSrc={p.Parcours_logo_path ? `${API_BASE_URL}${p.Parcours_logo_path}` : null}
                     PlaceholderIcon={FaBookOpen}
                     onClick={() => navigate(`/institution/${institutionId}/etablissement/${etablissementId}/mention/${mentionId}/parcours/${p.Parcours_id}`, { state: { parcours: p } })}
-                    onEdit={() => openModal(p)} 
-                    onDelete={() => handleDelete(p)}
+                    onEdit={canEdit ? () => openModal(p) : undefined} // Masque le bouton si undefined
+                    onDelete={canEdit ? () => handleDelete(p) : undefined}
                  />
              ))}
           </AnimatePresence>

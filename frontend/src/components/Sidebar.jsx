@@ -3,7 +3,7 @@ import React from "react";
 import { Link, useLocation } from "react-router-dom";
 
 // Icônes
-import { FaTachometerAlt, FaUniversity, FaUsers, FaChalkboardTeacher, FaFileAlt } from "react-icons/fa";
+import { FaTachometerAlt, FaUniversity, FaUsers, FaChalkboardTeacher, FaFileAlt, FaUserShield } from "react-icons/fa";
 import { MdAppRegistration, MdSettings } from "react-icons/md";
 import { BiCategory } from "react-icons/bi";
 import { SiDatabricks } from "react-icons/si";
@@ -11,9 +11,13 @@ import { SiDatabricks } from "react-icons/si";
 // Breadcrumb
 import { useBreadcrumb } from "../context/BreadcrumbContext";
 
+import { useAuth } from "../context/AuthContext"; // Import context
+
 const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
   const location = useLocation();
   const { setBreadcrumb } = useBreadcrumb();
+
+  const { user } = useAuth();
 
   const menuItems = [
     {
@@ -57,6 +61,14 @@ const Sidebar = ({ isOpen = true, toggle, onMenuChange }) => {
       icon: <MdSettings className="text-xl" />,
     },
   ];
+
+  if (user && user.role === 'SUPER_ADMIN') {
+    menuItems.push({
+        path: "/gestion-utilisateurs",
+        label: "Gestion Utilisateurs",
+        icon: <FaUserShield className="text-xl" />
+    });
+  }
 
   const handleClick = (item) => {
     if (onMenuChange) {

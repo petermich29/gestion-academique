@@ -21,6 +21,7 @@ import YearMultiSelect from "../../components/ui/YearMultiSelect";
 import EntityHistoryManager from "../../components/ui/EntityHistoryManager";
 
 import { useAdministration } from "../../context/AdministrationContext";
+import { useAuth } from "../../context/AuthContext"; // Import du AuthContext
 
 const API_URL = "http://127.0.0.1:8000/api";
 const ID_REGEX = /INST_(\d+)/;
@@ -106,6 +107,25 @@ const Administration = () => {
     }, 3000);
   };
   const removeToast = (id) => setToasts((p) => p.filter((t) => t.id !== id));
+
+  // --- NOUVEAU : GESTION PERMISSION ---
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user && user.role === 'SECRETAIRE') {
+        // Logique : Le secrétaire ne doit pas voir la liste des institutions.
+        // On cherche sa permission principale.
+        const perm = user.permissions.find(p => p.entity_type === 'MENTION' || p.entity_type === 'COMPOSANTE');
+        
+        if (perm && perm.entity_type === 'MENTION') {
+            // NOTE : Idéalement, le backend envoie aussi l'ID de l'institution et de la composante parente dans l'objet permission
+            // Supposons que permissions ressemble à { entity_type: 'MENTION', entity_id: 'MEN_01', parent_composante_id: 'COMP_01', parent_institution_id: 'INST_01' }
+            if (perm.parent_institution_id && perm.parent_composante_id) {
+                navigate(`/institution/${perm.parent_institution_id}/etablissement/${perm.parent_composante_id}`, { replace: true });
+            }
+        }
+    }
+  }, [user, navigate]);
 
   // Breadcrumb on mount
   useEffect(() => {

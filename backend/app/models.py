@@ -1078,3 +1078,45 @@ class MembreDoublon(Base):
     groupe = relationship("GroupeDoublon", back_populates="membres")
     etudiant = relationship("Etudiant") # Accès aux infos de l'étudiant
     
+# ===================================================================
+# --- GESTION DES UTILISATEURS ET DROITS ---
+# ===================================================================
+
+class User(Base):
+    __tablename__ = 'users'
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50), unique=True, nullable=False)
+    email = Column(String(100), unique=True, nullable=True)
+    hashed_password = Column(String(255), nullable=False)
+    
+    # Rôles globaux : 'SUPER_ADMIN', 'ADMIN_INSTITUTION', 'SECRETAIRE', 'GUEST'
+    role = Column(String(50), default='GUEST', nullable=False)
+    is_active = Column(Boolean, default=True)
+
+    # Relation vers les permissions spécifiques
+    permissions = relationship("UserPermission", back_populates="user", cascade="all, delete-orphan")
+
+class UserPermission(Base):
+    """
+    Définit sur quelle entité l'utilisateur a des droits.
+    Exemple : User X est SECRETAIRE sur la MENTION "MEN_001".
+    """
+    __tablename__ = 'user_permissions'
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    
+    # Type d'entité : 'INSTITUTION', 'COMPOSANTE', 'MENTION'
+    entity_type = Column(String(50), nullable=False)
+    
+    # ID de l'entité (FK logique, pas de contrainte SQL stricte pour simplifier le polymorphisme ici, 
+    # ou alors utiliser des contraintes conditionnelles, mais restons simple)
+    entity_id = Column(String(50), nullable=False)
+    
+    # Droits : 'READ', 'WRITE' (Write inclut delete/edit)
+    access_level = Column(String(20), default='READ')
+
+    user = relationship("User", back_populates="permissions")
