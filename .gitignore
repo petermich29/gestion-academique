@@ -1,0 +1,23 @@
+# --- PYTHON ---
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env*/
+venv/
+.env
+
+# --- REACT / NODE ---
+node_modules/
+dist/
+build/
+.eslintcache
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
